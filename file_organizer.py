@@ -12,6 +12,7 @@ import datetime
 from typing import Union
 from itertools import islice
 import shutil
+import re
 
 # set the workpath to the parent directory of the file "script-tools/" also preserve it as a global variable
 script_base_dir: Path = Path(__file__).resolve().parents[1]
@@ -48,7 +49,7 @@ class FileOrganizer:
                 The ABSOLUTE path to the directory where the projects' main data has been or will be stored
         """
         if FileOrganizer.out_database_dir is None:
-            raise ValueError("The out_database_dir has not been set, please call the out_database method first.")
+            raise ValueError("The out_database_dir has not been set, please call the out_database_init method first.")
         # defined vars for two databases of the project
         self.out_database_dir_proj = FileOrganizer.out_database_dir / proj_name
         self.proj_name = proj_name
@@ -76,6 +77,16 @@ class FileOrganizer:
             FileOrganizer.__measure_type_file.close()
  
     @staticmethod
+    def filename_format(name_str: str, *var_tuple) -> str:
+        """This method is used to format the filename"""
+        # Extract variable names from the format string
+        var_names = re.findall(r'\{(\w+)\}', name_str)
+        # Create a dictionary that maps variable names to values
+        var_dict = dict(zip(var_names, var_tuple))
+        # Substitute variables into the format string
+        return name_str.format(**var_dict)
+
+    @staticmethod
     def out_database_init(out_database_path: str) -> None:
         """
         Set the out_database_dir variable to the given path, should be called before any instances of the class are created
@@ -101,6 +112,16 @@ class FileOrganizer:
             with open(FileOrganizer.local_database_dir / "project_record.json", "w", encoding="utf-8") as __proj_rec_file:
                 json.dump(FileOrganizer.proj_rec_json, __proj_rec_file, indent=4)
 
+    def create_folder(self, folder_name: str) -> None:
+        """
+        create a folder in the project folder
+
+        Args:
+            folder_name: str
+                The name(relative path if not in the root folder) of the folder to be created
+        """
+        (self.out_database_dir_proj / folder_name).mkdir(exist_ok=True)
+
     def add_measurement(self, measure_name: str) -> None:
         """
         Add a measurement to the project record file.
@@ -125,10 +146,27 @@ class FileOrganizer:
             return
 
         # add the measurement folder if not exists
-        (self.out_database_dir_proj / measure_name).mkdir(exist_ok=True)
+        self.create_folder(measure_name)
         print(f"{measure_name} folder has been created in the project folder.")
         # sync the project record file
         FileOrganizer._sync_json("proj_rec")
+
+    def add_plan(self, plan_title: str, plan_item: str) -> None:
+        """
+        Add/Supplement a plan_item to the project record file. If the plan_title is already in the project record file, then supplement the plan_item to the plan_title, otherwise add a new plan_title with the plan_item. (each plan_item contains a list)
+
+        Args:
+            plan_title: str
+                The title of the plan_item to be added
+            plan_item: str
+                The content of the plan
+        """
+        if plan_title in FileOrganizer.proj_rec_json[self.proj_name]["plan"]:
+            FileOrganizer.proj_rec_json[self.proj_name]["plan"][plan_title].append(plan_item)
+            print(f"plan is added to {plan_title}")
+        else:
+            FileOrganizer.proj_rec_json[self.proj_name]["plan"][plan_title] = [plan_item]
+            print(f"{plan_title} has been added to the project record file.")
 
     @staticmethod
     def add_measurement_type(measure_name: str, name_str: Union[str, dict]) -> None:
@@ -153,7 +191,6 @@ class FileOrganizer:
         """
         Query the project record file to find the project.
         """
-        print(FileOrganizer.proj_rec_json[self.proj_name])
         return FileOrganizer.proj_rec_json[self.proj_name]
 
     @staticmethod
