@@ -87,6 +87,17 @@ class FileOrganizer:
         return name_str.format(**var_dict)
 
     @staticmethod
+    def query_namestr(measure_name: str) -> str:
+        """
+        This method is for querying the naming string of a certain measure type
+        """
+        if measure_name in FileOrganizer.measure_types_json:
+            return FileOrganizer.measure_types_json[measure_name]
+        else:
+            print("measure type not found, please add it first")
+            return
+
+    @staticmethod
     def out_database_init(out_database_path: str) -> None:
         """
         Set the out_database_dir variable to the given path, should be called before any instances of the class are created
