@@ -87,7 +87,7 @@ class FileOrganizer:
         return name_str.format(**var_dict)
 
     @staticmethod
-    def query_namestr(measure_name: str) -> str:
+    def query_namestr(measure_name: str) -> str | None:
         """
         This method is for querying the naming string of a certain measure type
         """
@@ -95,7 +95,7 @@ class FileOrganizer:
             return FileOrganizer.measure_types_json[measure_name]
         else:
             print("measure type not found, please add it first")
-            return
+            return None
 
     @staticmethod
     def out_database_init(out_database_path: str) -> None:
