@@ -3,7 +3,7 @@
 """
 This module is responsible for managing the measure-related folders and data
 """
-from  file_organizer import FileOrganizer
+from common.file_organizer import FileOrganizer
 
 class MeasureManager(FileOrganizer):
     """This class is a subclass of FileOrganizer and is responsible for managing the measure-related folders and data"""

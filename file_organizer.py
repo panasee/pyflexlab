@@ -45,8 +45,6 @@ class FileOrganizer:
         Args:
             proj_name: str
                 The name of the project, used as the name of the base directory
-            out_database_path: str
-                The ABSOLUTE path to the directory where the projects' main data has been or will be stored
         """
         if FileOrganizer.out_database_dir is None:
             raise ValueError("The out_database_dir has not been set, please call the out_database_init method first.")
