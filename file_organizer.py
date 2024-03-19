@@ -74,11 +74,34 @@ class FileOrganizer:
         if not FileOrganizer.__measure_type_file.closed:
             FileOrganizer.__measure_type_file.close()
  
+    def get_filepath(self, measure_name: str, *var_tuple, tmpfolder: str=None) -> Path:
+        """
+        Get the filepath of the measurement file.
+
+        Args:
+            measure_name: str
+                The name of the measurement type
+            var_tuple: Tuple[int, str, float]
+                a tuple containing all parameters for the measurement
+        """
+        try:
+            filename = FileOrganizer.filename_format(FileOrganizer.measure_types_json[measure_name], *var_tuple)
+            if tmpfolder is not None:
+                filepath = self.out_database_dir_proj / measure_name / tmpfolder / filename
+            else:
+                filepath = self.out_database_dir_proj / measure_name / filename
+            return filepath
+
+        except Exception:
+            print("Wrong parameters, please ensure the parameters are correct.")
+            FileOrganizer.query_namestr(measure_name)
+            return None
+
     @staticmethod
     def filename_format(name_str: str, *var_tuple) -> str:
         """This method is used to format the filename"""
         # Extract variable names from the format string
-        var_names = re.findall(r'\{(\w+)\}', name_str)
+        var_names = re.findall(r'{(\w+)}', name_str)
         # Create a dictionary that maps variable names to values
         var_dict = dict(zip(var_names, var_tuple))
         # Substitute variables into the format string
@@ -90,7 +113,10 @@ class FileOrganizer:
         This method is for querying the naming string of a certain measure type
         """
         if measure_name in FileOrganizer.measure_types_json:
-            return FileOrganizer.measure_types_json[measure_name]
+            var_names = re.findall(r'{(\w+)}', FileOrganizer.measure_types_json[measure_name])
+            print(FileOrganizer.measure_types_json[measure_name])
+            print(var_names)
+            return None
         else:
             print("measure type not found, please add it first")
             return None
