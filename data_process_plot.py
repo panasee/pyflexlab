@@ -87,6 +87,34 @@ class DataPlot(DataProcess):
     legend_font: dict
     """A constant dict used to set the font of the legend in the plot"""
 
+    class PlotParam:
+        """
+        This class is used to store the parameters for the plot
+        """
+        def __init__(self, no_of_figs: int = 1) -> None:
+            """
+            initialize the PlotParam
+
+            Args:
+            - no_of_figs: the number of figures to be plotted
+            """
+            self.params = [{} for i in range(no_of_figs)]
+
+        def set_param(self, no_of_fig: int = 0, **kwargs) -> None:
+            """
+            set the parameters for the plot assignated by no_of_fig
+
+            Args:
+            - no_of_fig: the number of the figure to be set(start from 0)
+            """
+            self.params[no_of_fig] = kwargs
+
+        def query_no(self) -> int:
+            """
+            query the number of figures to be plotted
+            """
+            return len(self.params)
+
     def __init__(self, proj_name: str, usetex: bool = False, usepgf: bool = False, if_folder_create = True) -> None:
         """
         Initialize the FileOrganizer and load the settings for matplotlib saved in another file
@@ -105,7 +133,17 @@ class DataPlot(DataProcess):
                 self.create_folder(f"plot/{i}")
 
 
-    def plot_nonlinear(self, *, ax=None, ax2 =None, c1 =colors.Genshin["Nilou"][0], c2=colors.Genshin["Nilou"][0], lt1="-",lt2="-",l1 = "Vw", l2="V2w", plot_order=[True,True], reverse_V = [False,False], custom_unit={"I":"uA","V":"V","R":"Ohm"}, in_ohm=False, xylog1 = [False,False], xylog2 = [False,False]):
+    def plot_nonlinear(self, *, params: PlotParam = None,
+                       ax: matplotlib.axes.Axes = None,
+                       ax2 : matplotlib.axes.Axes = None,
+                       c1: Tuple[float] = colors.Genshin["Nilou"][0],
+                       c2: Tuple[float] = colors.Genshin["Nilou"][0],
+                       lt1="-",lt2="-",l1 = "Vw", l2="V2w",
+                       plot_order: Tuple[bool] = None,
+                       reverse_V: Tuple[bool] = None,
+                       custom_unit: dict = None,
+                       in_ohm: bool = False,
+                       xylog1 = (False,False), xylog2 = (False,False)):
         """
         plot the nonlinear signals of a 1-2 omega measurement
 
@@ -118,6 +156,19 @@ class DataPlot(DataProcess):
             defined if the unit is not the default one(uA, V), the format is {"I":"uA", "V":"mV", "R":"mOhm"}
         """
 
+        if plot_order is None:
+            plot_order = (True,True)
+        if reverse_V is None:
+            reverse_V = (False,False)
+        if custom_unit is None:
+            custom_unit = {"I":"uA","V":"V","R":"Ohm"}
+
+        plot_no = plot_order.count(True)
+        if params is None:
+            params = DataPlot.PlotParam(plot_no)
+            for i in plot_no:
+                params.set_param(i,)
+        
         nhe = self.df
 
         if reverse_V[0]:
