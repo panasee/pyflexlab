@@ -1,82 +1,19 @@
 #!/usr/bin/env python
+"""This module is responsible for processing and plotting the data"""
 
+from __future__ import annotations
 import importlib
+from typing import List, Tuple
+import numpy as np
 import matplotlib
 import matplotlib.pyplot as plt
+import pandas as pd
 from common.file_organizer import FileOrganizer
 from common.measure_manager import MeasureManager
-import pandas as pd
-import numpy as np
 import common.pltconfig.color_preset as colors
-from common.constants import cm_to_inch, factor
-from typing import List, Tuple
+from common.constants import cm_to_inch, factor, default_plot_dict
+from common.data_process import DataProcess
 
-
-class DataProcess(FileOrganizer):
-    """This class is responsible for processing the data"""
-    def __init__(self, proj_name: str) -> None:
-        """
-        Initialize the FileOrganizer and load the settings for matplotlib saved in another file
-        
-        Args:
-        - proj_name: the name of the project
-        """
-        super().__init__(proj_name)
-        self.df = None
-
-    def load_df(self, measurename: str, *var_tuple, tmpfolder: str = None) -> pd.DataFrame:
-        """
-        Load a dataframe from a file, save the dataframe as a memeber variable and also return it
-
-        Args:
-        - measurename: the measurement name
-        - **kwargs: the arguments for the pd.read_csv function
-        """
-        filepath = self.get_filepath(measurename, *var_tuple, tmpfolder)
-        self.df = pd.read_csv(filepath, sep=r'\s+', skiprows=1, header=None)
-        return self.df
-
-    def rename_columns(self, columns: dict) -> None:
-        """
-        Rename the columns of the dataframe
-
-        Args:
-        - columns: the renaming rules, e.g. {"old_name": "new_name"}
-        """
-        self.df.rename(columns = columns, inplace=True)
-
-    @staticmethod
-    def merge_with_tolerance(df1: pd.DataFrame, df2: pd.DataFrame, on: any, tolerance: float, suffixes = ("_1", "_2")) -> pd.DataFrame:
-        """
-        Merge two dataframes with tolerance
-
-        Args:
-        - df1: the first dataframe
-        - df2: the second dataframe
-        - on: the column to merge on
-        - tolerance: the tolerance for the merge
-        - suffixes: the suffixes for the columns of the two dataframes
-        """
-        df1 = df1.sort_values(by=on).reset_index(drop=True)
-        df2 = df2.sort_values(by=on).reset_index(drop=True)
-
-        i = 0
-        j = 0
-
-        result = []
-
-        while i < len(df1) and j < len(df2):
-            if abs(df1.loc[i, on] - df2.loc[j, on]) <= tolerance:
-                row = pd.concat([df1.loc[i].add_suffix(suffixes[0]), df2.loc[j].add_suffix(suffixes[1])])
-                result.append(row)
-                i += 1
-                j += 1
-            elif df1.loc[i, on] < df2.loc[j, on]:
-                i += 1
-            else:
-                j += 1
-
-        return pd.DataFrame(result)
 
 class DataPlot(DataProcess):
     """
@@ -98,22 +35,32 @@ class DataPlot(DataProcess):
             Args:
             - no_of_figs: the number of figures to be plotted
             """
-            self.params = [{} for i in range(no_of_figs)]
+            self.params_list = [default_plot_dict for _ in range(no_of_figs)]
 
-        def set_param(self, no_of_fig: int = 0, **kwargs) -> None:
+        def set_param_dict(self, no_of_fig: int = 0, **kwargs) -> None:
             """
             set the parameters for the plot assignated by no_of_fig
 
             Args:
             - no_of_fig: the number of the figure to be set(start from 0)
             """
-            self.params[no_of_fig] = kwargs
+            self.params_list[no_of_fig].update(kwargs)
 
         def query_no(self) -> int:
             """
             query the number of figures to be plotted
             """
-            return len(self.params)
+            return len(self.params_list)
+
+        def merge(self, params2: 'PlotParam') -> None:
+            """
+            merge the parameters from another PlotParam to the end of the current one
+
+            Args:
+            - params: the PlotParam to be merged
+            """
+            self.params_list += params2.params_list
+
 
     def __init__(self, proj_name: str, usetex: bool = False, usepgf: bool = False, if_folder_create = True) -> None:
         """
@@ -132,15 +79,27 @@ class DataPlot(DataProcess):
             for i in self.query_proj()["measurements"]:
                 self.create_folder(f"plot/{i}")
 
+    @staticmethod
+    def get_unit_factor_and_texname(unit: str) -> Tuple[float, str]:
+        """
+        Used in plotting, to get the factor and the TeX name of the unit
+        
+        Args:
+        - unit: the unit name string (like: uA)
+        """
+        _factor = factor(unit)
+        if unit[0] == "u":
+            namestr = rf"$\mathrm{{\mu {unit[1:]}}}$".replace("Ohm",r"\Omega")
+        else:
+            namestr = rf"$\mathrm{{{unit}}}$".replace("Ohm",r"\Omega")
+        return _factor, namestr
 
     def plot_nonlinear(self, *, params: PlotParam = None,
+                        params2: PlotParam = None,
                        ax: matplotlib.axes.Axes = None,
                        ax2 : matplotlib.axes.Axes = None,
-                       c1: Tuple[float] = colors.Genshin["Nilou"][0],
-                       c2: Tuple[float] = colors.Genshin["Nilou"][0],
-                       lt1="-",lt2="-",l1 = "Vw", l2="V2w",
-                       plot_order: Tuple[bool] = None,
-                       reverse_V: Tuple[bool] = None,
+                       plot_order: Tuple[bool] = (True, True),
+                       reverse_V: Tuple[bool] = (False, False),
                        custom_unit: dict = None,
                        in_ohm: bool = False,
                        xylog1 = (False,False), xylog2 = (False,False)):
@@ -148,6 +107,9 @@ class DataPlot(DataProcess):
         plot the nonlinear signals of a 1-2 omega measurement
 
         Parameters:
+        params: PlotParam class containing the parameters for the 1st 
+            signal plot, if None, the default parameters will be used.         
+        params2: the PlotParam class for the 2nd harmonic signal
         plot_order : list of booleans
             [Vw, V2w]
         reverse_V : list of booleans
@@ -156,62 +118,53 @@ class DataPlot(DataProcess):
             defined if the unit is not the default one(uA, V), the format is {"I":"uA", "V":"mV", "R":"mOhm"}
         """
 
-        if plot_order is None:
-            plot_order = (True,True)
-        if reverse_V is None:
-            reverse_V = (False,False)
         if custom_unit is None:
             custom_unit = {"I":"uA","V":"V","R":"Ohm"}
 
-        plot_no = plot_order.count(True)
+        # assign and merge the plotting parameters
         if params is None:
-            params = DataPlot.PlotParam(plot_no)
-            for i in plot_no:
-                params.set_param(i,)
-        
+            if params2 is None:
+                params = DataPlot.PlotParam(2)
+                params.set_param_dict(0, label="Vw")
+                params.set_param_dict(1, label="V2w")
+            else:
+                params = params2
+        else:
+            if params2 is not None:
+                params.merge(params2)
+
+        plot_no = plot_order.count(True)
+        if params.query_no() < plot_no:
+            raise ValueError("The number of plot parameters should be equal to the number of plots")
+
         nhe = self.df
+        if_indep = False
+        return_ax2 = False
 
         if reverse_V[0]:
             nhe["Vw"] = -nhe["Vw"]
         if reverse_V[1]:
             nhe["V2w"] = -nhe["V2w"]
 
-        if_indep = False
-        return_ax2 = False
+        factor_i, unit_i_print = DataPlot.get_unit_factor_and_texname(custom_unit["I"])
+        factor_v, unit_v_print = DataPlot.get_unit_factor_and_texname(custom_unit["V"])
+        factor_r, unit_r_print = DataPlot.get_unit_factor_and_texname(custom_unit["R"])
 
-        unit_i = custom_unit["I"]
-        unit_v = custom_unit["V"]
-        unit_r = custom_unit["R"]
-
-        factor_i = factor(unit_i)
-        factor_v = factor(unit_v)
-        factor_r = factor(unit_r)
-        if unit_i == "uA":
-            unit_i_print = "$\\mathrm{\\mu}$A"
-        else:
-            unit_i_print = unit_i
-        if unit_v == "uV":
-            unit_v_print = "$\\mathrm{\\mu}$V"
-        else:
-            unit_v_print = unit_v
-        if unit_r == "uOhm":
-            unit_r_print = "$\\mathrm{\\mu\\Omega}$"
-        else:
-            unit_r_print = unit_r.replace("Ohm","$\\mathrm{\\Omega}$")
+        plot_no = plot_order.count(True)
+        if params.query_no() == 1 and plot_no == 2 and params2 is not None:
+            params.merge(params2)
 
         if ax is None:
             if_indep = True
-            #fig, ax = plt.subplots(2,1,figsize=(6 * cm_to_inch, 10* cm_to_inch),sharex=True)
-            fig, ax = plt.subplots(1,1,figsize=(10 * cm_to_inch,6.2 * cm_to_inch))
-            fig.subplots_adjust(left=.19, bottom=.13, right=.97, top=.97)
+            fig, ax = DataPlot.init_canvas(2, 1, 6, 10)
 
-
+        # plot the 2nd harmonic signal
         if plot_order[1]:
             if in_ohm:
-                ax.plot(nhe["curr"]*factor_i, nhe["V2w"]*factor_r/nhe["curr"], lt2,color=c2,label=l2)
+                ax.plot(nhe["curr"]*factor_i, nhe["V2w"]*factor_r/nhe["curr"], **params.params_list[1])
                 ax.set_ylabel("$\\mathrm{R^{2\\omega}}$"+f"({unit_r_print})")
             else:
-                ax.plot(nhe["curr"]*factor_i, nhe["V2w"]*factor_v, lt2,color=c2,label=l2)
+                ax.plot(nhe["curr"]*factor_i, nhe["V2w"]*factor_v, **params.params_list[1])
                 ax.set_ylabel("$\\mathrm{V^{2\\omega}}$"+f"({unit_v_print})")
             ax.legend(edgecolor='black',prop=DataPlot.legend_font)
             ax.set_xlabel(f"I ({unit_i_print})")
@@ -225,10 +178,10 @@ class DataPlot(DataProcess):
                     ax2 = ax.twinx()
                     return_ax2 = True
                 if in_ohm:
-                    ax2.plot(nhe["curr"]*factor_i, nhe["Vw"]*factor_r/nhe["curr"], lt1,color=c1,label=l1)
+                    ax2.plot(nhe["curr"]*factor_i, nhe["Vw"]*factor_r/nhe["curr"], **params.params_list[0])
                     ax2.set_ylabel("$\\mathrm{R^\\omega}$"+f"({unit_r_print})")
                 else:
-                    ax2.plot(nhe["curr"]*factor_i, nhe["Vw"]*factor_v, lt1,color=c1,label=l1)
+                    ax2.plot(nhe["curr"]*factor_i, nhe["Vw"]*factor_v, **params.params_list[0])
                     ax2.set_ylabel("$\\mathrm{V^\\omega}$"+f"({unit_v_print})")
                 ax2.legend(edgecolor='black',prop=DataPlot.legend_font)
                 if xylog1[1]:
@@ -237,10 +190,10 @@ class DataPlot(DataProcess):
                     pass
         else: # assume at least one is true
             if in_ohm:
-                ax.plot(nhe["curr"]*factor_i, nhe["Vw"]*factor_r/nhe["curr"], lt1,color=c1,label=l1)
+                ax.plot(nhe["curr"]*factor_i, nhe["Vw"]*factor_r/nhe["curr"], **params.params_list[0])
                 ax.set_ylabel("$\\mathrm{R^\\omega}$"+f"({unit_r_print})")
             else:
-                ax.plot(nhe["curr"]*factor_i, nhe["Vw"]*factor_v, lt1,color=c1,label=l1)
+                ax.plot(nhe["curr"]*factor_i, nhe["Vw"]*factor_v, **params.params_list[0])
                 ax.set_ylabel("$\\mathrm{V^\\omega}$"+f"({unit_v_print})")
             ax.legend(edgecolor='black',prop=DataPlot.legend_font)
             ax.set_xlabel(f"I ({unit_i_print})")
@@ -248,7 +201,6 @@ class DataPlot(DataProcess):
                 ax.set_yscale("log")
             if xylog1[0]:
                 ax.set_yscale("log")
-
 
         if if_indep:
             plt.show()
