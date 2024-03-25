@@ -147,7 +147,7 @@ class FileOrganizer:
             return None
 
     @staticmethod
-    def out_database_init(out_database_path: str) -> None:
+    def out_database_init(out_database_path: str | Path) -> None:
         """
         Set the out_database_dir variable to the given path, should be called before any instances of the class are created
         """
