@@ -25,6 +25,12 @@ def factor(unit:str, mode: str = "from_SI"):
         The direction of the transformation. "from_SI" means transforming from SI unit to the targeted unit, and "to_SI" means transforming from the targeted unit to SI unit.
     """
     if mode == "from_SI":
-        return unit_factor_fromSI.get(unit[0])
+        if unit[0] in unit_factor_fromSI:
+            return unit_factor_fromSI.get(unit[0])
+        else:
+            return 1
     if mode == "to_SI":
-        return unit_factor_toSI.get(unit[0])
+        if unit[0] in unit_factor_fromSI:
+            return unit_factor_toSI.get(unit[0])
+        else:
+            return 1

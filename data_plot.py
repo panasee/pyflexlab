@@ -4,11 +4,10 @@
 from __future__ import annotations
 import importlib
 from typing import List, Tuple
-import numpy as np
 import matplotlib
 import matplotlib.pyplot as plt
-import pandas as pd
-from common.file_organizer import FileOrganizer
+import copy
+from common.file_organizer import FileOrganizer, script_base_dir
 from common.measure_manager import MeasureManager
 import common.pltconfig.color_preset as colors
 from common.constants import cm_to_inch, factor, default_plot_dict
@@ -35,7 +34,7 @@ class DataPlot(DataProcess):
             Args:
             - no_of_figs: the number of figures to be plotted
             """
-            self.params_list = [default_plot_dict for _ in range(no_of_figs)]
+            self.params_list = [copy.deepcopy(default_plot_dict) for _ in range(no_of_figs)]
 
         def set_param_dict(self, no_of_fig: int = 0, **kwargs) -> None:
             """
@@ -62,12 +61,13 @@ class DataPlot(DataProcess):
             self.params_list += params2.params_list
 
 
-    def __init__(self, proj_name: str, usetex: bool = False, usepgf: bool = False, if_folder_create = True) -> None:
+    def __init__(self, proj_name: str, *, no_params: int = 4, usetex: bool = False, usepgf: bool = False, if_folder_create = True) -> None:
         """
         Initialize the FileOrganizer and load the settings for matplotlib saved in another file
         
         Args:
         - proj_name: the name of the project
+        - no_params: the number of params to be initiated (default:4) 
         - usetex: whether to use the TeX engine to render text
         - usepgf: whether to use the pgf backend to render text
         - if_folder_create: whether to create the folder for all the measurements in project
@@ -75,7 +75,16 @@ class DataPlot(DataProcess):
         super().__init__(proj_name)
         DataPlot.load_settings(usetex, usepgf)
         self.create_folder("plot")
+        self.unit = {"I":"A", "V":"V", "R":"Ohm", "T":"K", "B":"T","f":"Hz"}
+        self.params = DataPlot.PlotParam(no_params)
         if if_folder_create:
+            self.assign_folder()
+
+    def assign_folder(self, folder_name:str = None) -> None:
+        """ Assign the folder for the measurements """
+        if folder_name is not None:
+            self.create_folder(f"plot/{folder_name}")
+        else:
             for i in self.query_proj()["measurements"]:
                 self.create_folder(f"plot/{i}")
 
@@ -94,7 +103,16 @@ class DataPlot(DataProcess):
             namestr = rf"$\mathrm{{{unit}}}$".replace("Ohm",r"\Omega")
         return _factor, namestr
 
-    def plot_RT(self, *, params: PlotParam = None, ax: matplotlib.axes.Axes = None, custom_unit: dict = None, xylog = (False,False)) -> None:
+    def set_unit(self, unit_new:dict =None) -> None:
+        """
+        Set the unit for the plot, default to SI
+
+        Args:
+        - unit: the unit dictionary, the format is {"I":"uA", "V":"V", "R":"Ohm"}
+        """
+        self.unit.update(unit_new)
+
+    def plot_RT(self, *, ax: matplotlib.axes.Axes = None, xylog = (False,False)) -> None:
         """
         plot the RT curve
 
@@ -103,30 +121,29 @@ class DataPlot(DataProcess):
         - ax: the axes to plot the figure
         - custom_unit: defined if the unit is not the default one(uA, V), the format is {"I":"uA", "V":"mV", "R":"mOhm"}
         """
-        if custom_unit is None:
-            custom_unit = {"T":"K","R":"Ohm"}
-        if params is None:
-            params = DataPlot.PlotParam(1)
-            params.set_param_dict(0, label="RT")
+        self.params.set_param_dict(0, label="RT")
 
         rt_df = self.dfs["RT"]
         if ax is None:
             if_indep = True
             fig, ax = DataPlot.init_canvas(2, 1, 10, 6)
-        factor_r, unit_r_print = DataPlot.get_unit_factor_and_texname(custom_unit["R"])
-        factor_T, unit_T_print = DataPlot.get_unit_factor_and_texname(custom_unit["T"])
+        factor_r, unit_r_print = DataPlot.get_unit_factor_and_texname(self.unit["R"])
+        factor_T, unit_T_print = DataPlot.get_unit_factor_and_texname(self.unit["T"])
 
-        ax.plot(rt_df["T"]*factor_T, rt_df["R"]*factor_r, **params.params_list[0])
+        ax.plot(rt_df["T"]*factor_T, rt_df["R"]*factor_r, **self.params.params_list[0])
         ax.set_ylabel("$\\mathrm{R}$"+f"({unit_r_print})")
         ax.set_xlabel(f"$\\mathrm{{T}}$ ({unit_T_print})")
+        ax.legend(edgecolor='black',prop=DataPlot.legend_font)
+        if xylog[1]:
+            ax.set_yscale("log")
+        if xylog[0]:
+            ax.set_xscale("log")
 
-    def plot_nonlinear(self, *, params: PlotParam = None,
-                        params2: PlotParam = None,
+    def plot_nonlinear(self, *,
                        ax: matplotlib.axes.Axes = None,
                        ax2 : matplotlib.axes.Axes = None,
                        plot_order: Tuple[bool] = (True, True),
                        reverse_V: Tuple[bool] = (False, False),
-                       custom_unit: dict = None,
                        in_ohm: bool = False,
                        xylog1 = (False,False), xylog2 = (False,False)) -> matplotlib.axes.Axes | None:
         """
@@ -144,24 +161,9 @@ class DataPlot(DataProcess):
             defined if the unit is not the default one(uA, V), the format is {"I":"uA", "V":"mV", "R":"mOhm"}
         """
 
-        if custom_unit is None:
-            custom_unit = {"I":"uA","V":"V","R":"Ohm"}
-
         # assign and merge the plotting parameters
-        if params is None:
-            if params2 is None:
-                params = DataPlot.PlotParam(2)
-                params.set_param_dict(0, label="Vw")
-                params.set_param_dict(1, label="V2w")
-            else:
-                params = params2
-        else:
-            if params2 is not None:
-                params.merge(params2)
-
-        plot_no = plot_order.count(True)
-        if params.query_no() < plot_no:
-            raise ValueError("The number of plot parameters should be equal to the number of plots")
+        self.params.set_param_dict(0, label="Vw")
+        self.params.set_param_dict(1, label="V2w")
 
         nonlinear = self.dfs["nonlinear"]
         if_indep = False
@@ -172,17 +174,13 @@ class DataPlot(DataProcess):
         if reverse_V[1]:
             nonlinear["V2w"] = -nonlinear["V2w"]
 
-        factor_i, unit_i_print = DataPlot.get_unit_factor_and_texname(custom_unit["I"])
-        factor_v, unit_v_print = DataPlot.get_unit_factor_and_texname(custom_unit["V"])
-        factor_r, unit_r_print = DataPlot.get_unit_factor_and_texname(custom_unit["R"])
-
-        plot_no = plot_order.count(True)
-        if params.query_no() == 1 and plot_no == 2 and params2 is not None:
-            params.merge(params2)
+        factor_i, unit_i_print = DataPlot.get_unit_factor_and_texname(self.unit["I"])
+        factor_v, unit_v_print = DataPlot.get_unit_factor_and_texname(self.unit["V"])
+        factor_r, unit_r_print = DataPlot.get_unit_factor_and_texname(self.unit["R"])
 
         if ax is None:
             if_indep = True
-            fig, ax = DataPlot.init_canvas(2, 1, 10, 6)
+            fig, ax = DataPlot.init_canvas(1, 1, 10, 6)
 
         # plot the 2nd harmonic signal
         if plot_order[1]:
@@ -190,7 +188,7 @@ class DataPlot(DataProcess):
                 ax.plot(nonlinear["curr"]*factor_i, nonlinear["V2w"]*factor_r/nonlinear["curr"], **params.params_list[1])
                 ax.set_ylabel("$\\mathrm{R^{2\\omega}}$"+f"({unit_r_print})")
             else:
-                ax.plot(nonlinear["curr"]*factor_i, nonlinear["V2w"]*factor_v, **params.params_list[1])
+                ax.plot(nonlinear["curr"]*factor_i, nonlinear["V2w"]*factor_v, **self.params.params_list[1])
                 ax.set_ylabel("$\\mathrm{V^{2\\omega}}$"+f"({unit_v_print})")
             ax.legend(edgecolor='black',prop=DataPlot.legend_font)
             ax.set_xlabel(f"I ({unit_i_print})")
@@ -236,7 +234,7 @@ class DataPlot(DataProcess):
     @staticmethod
     def load_settings(usetex: bool = False, usepgf: bool = False) -> None:
         """load the settings for matplotlib saved in another file"""
-        file_name = "pltconfig.plot_config"
+        file_name = "common.pltconfig.plot_config"
         if usetex:
             file_name += "_tex"
             if usepgf:
@@ -244,7 +242,7 @@ class DataPlot(DataProcess):
         else:
             file_name += "_notex"
 
-        config_module = importlib.import_module(f"{file_name}.py")
+        config_module = importlib.import_module(f"{file_name}", script_base_dir)
         DataPlot.legend_font = getattr(config_module, 'legend_font')
 
     @staticmethod
@@ -273,3 +271,20 @@ class DataPlot(DataProcess):
         fig.subplots_adjust(left=.19, bottom=.13, right=.97, top=.97)
         return fig, ax
 
+    def mapping(self):
+        """
+        This function is used to map the data to the corresponding functions
+        """
+        pass
+
+    def live_plot(self, measure_name: str, *, ax: matplotlib.axes.Axes = None, **kwargs) -> None:
+        """
+        plot the live data
+
+        Args:
+        - measure_name: the name of the measurement
+        - ax: the axes to plot the figure
+        - kwargs: the parameters for the plot
+        """
+        ##TODO##
+        pass

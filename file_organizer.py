@@ -64,6 +64,7 @@ class FileOrganizer:
 
         # create project folder in the out database for storing main data
         self.out_database_dir_proj.mkdir(exist_ok=True)
+        shutil.copy(FileOrganizer.local_database_dir / "assist.ipynb", self.out_database_dir_proj)
         # sync the project record file at the end of the function
         FileOrganizer._sync_json("proj_rec")
 
@@ -74,7 +75,7 @@ class FileOrganizer:
         if not FileOrganizer.__measure_type_file.closed:
             FileOrganizer.__measure_type_file.close()
  
-    def get_filepath(self, measure_name: str, *var_tuple, tmpfolder: str=None) -> Path:
+    def get_filepath(self, measure_name_all: str, *var_tuple, tmpfolder: str=None) -> Path:
         """
         Get the filepath of the measurement file.
 
@@ -84,8 +85,14 @@ class FileOrganizer:
             var_tuple: Tuple[int, str, float]
                 a tuple containing all parameters for the measurement
         """
+        measure_name,measure_sub = FileOrganizer.measurename_decom(measure_name_all)
+
         try:
-            filename = FileOrganizer.filename_format(FileOrganizer.measure_types_json[measure_name], *var_tuple)
+            if measure_sub is None:
+                filename = FileOrganizer.filename_format(FileOrganizer.measure_types_json[measure_name], *var_tuple)
+            else:
+                filename = FileOrganizer.filename_format(FileOrganizer.measure_types_json[measure_name][measure_sub], *var_tuple)
+
             if tmpfolder is not None:
                 filepath = self.out_database_dir_proj / measure_name / tmpfolder / filename
             else:
@@ -96,6 +103,17 @@ class FileOrganizer:
             print("Wrong parameters, please ensure the parameters are correct.")
             FileOrganizer.query_namestr(measure_name)
             return None
+
+    @staticmethod
+    def measurename_decom(measurename_all: str) -> tuple[str]:
+        """this method will decompose the measurename string into a tuple of measurename and submeasurename(None if not exist)"""
+        measure_name_list = measurename_all.split("__")
+        if len(measure_name_list) > 2:
+            raise ValueError("The measurename string is not in the correct format, please check.")
+        if_sub = (len(measure_name_list) == 2)
+        measure_name = measure_name_list[0]
+        measure_sub = measure_name_list[1] if if_sub else None
+        return (measure_name, measure_sub)
 
     @staticmethod
     def filename_format(name_str: str, *var_tuple) -> str:
@@ -113,10 +131,17 @@ class FileOrganizer:
         This method is for querying the naming string of a certain measure type
         """
         if measure_name in FileOrganizer.measure_types_json:
-            var_names = re.findall(r'{(\w+)}', FileOrganizer.measure_types_json[measure_name])
-            print(FileOrganizer.measure_types_json[measure_name])
-            print(var_names)
-            return None
+            if isinstance(FileOrganizer.measure_types_json[measure_name], str):
+                var_names = re.findall(r'{(\w+)}', FileOrganizer.measure_types_json[measure_name])
+                print(FileOrganizer.measure_types_json[measure_name])
+                print(var_names)
+                return None
+            elif isinstance(FileOrganizer.measure_types_json[measure_name], dict):
+                for key, value in FileOrganizer.measure_types_json[measure_name].items():
+                    var_names = re.findall(r'{(\w+)}', value)
+                    print(f"{key}: {value}")
+                    print(var_names)
+                return None
         else:
             print("measure type not found, please add it first")
             return None
@@ -163,7 +188,7 @@ class FileOrganizer:
 
         Args:
             measure_name: str
-                The name of the measurement to be added, preferred to be one of current measurements, if not then use “add_measurement_type” to add a new measurement type first
+                The name of the measurement(not with subcat) to be added, preferred to be one of current measurements, if not then use “add_measurement_type” to add a new measurement type first
             measure_paras: Tuple[int, str, float]
                 a tuple containing all parameters for the measurement
         """
@@ -197,27 +222,40 @@ class FileOrganizer:
                 The content of the plan
         """
         if plan_title in FileOrganizer.proj_rec_json[self.proj_name]["plan"]:
-            FileOrganizer.proj_rec_json[self.proj_name]["plan"][plan_title].append(plan_item)
-            print(f"plan is added to {plan_title}")
+            if plan_item not in FileOrganizer.proj_rec_json[self.proj_name]["plan"][plan_title]:
+                FileOrganizer.proj_rec_json[self.proj_name]["plan"][plan_title].append(plan_item)
+                print(f"plan is added to {plan_title}")
+            else:
+                print(f"{plan_item} is already in the plan.")
         else:
             FileOrganizer.proj_rec_json[self.proj_name]["plan"][plan_title] = [plan_item]
             print(f"{plan_title} has been added to the project record file.")
+        # sync the measure type file
+        FileOrganizer._sync_json("proj_rec")
 
     @staticmethod
-    def add_measurement_type(measure_name: str, name_str: Union[str, dict]) -> None:
+    def add_measurement_type(measure_name_all: str, name_str: str, overwrite: bool = False) -> None:
         """
         Add a new measurement type to the measure type file.
 
         Args:
-            measure_name: str or dict
-                The name(s) of the measurement type to be added
-            name_str: str or dict
+            measure_name: str
+                The name(whole with subcat) of the measurement type to be added
+            name_str: str
                 The name string of the naming rules in this measurement type, use dict when there are many subtypes in the measurement type
+            overwrite: bool
+                Whether to overwrite the existing measurement type, default is False
         """
+        measure_name,measure_sub = FileOrganizer.measurename_decom(measure_name_all)
+
         if measure_name in FileOrganizer.measure_types_json:
-            print(f"{measure_name} is already in the measure type file.")
+            if measure_sub in FileOrganizer.measure_types_json[measure_name] and not overwrite:
+                print(f"{measure_name} is already in the measure type file.")
+            else:
+                FileOrganizer.measure_types_json[measure_name][measure_sub] = name_str
+                print(f"{measure_name} has been added to the measure type file.")
         else:
-            FileOrganizer.measure_types_json[measure_name] = name_str
+            FileOrganizer.measure_types_json[measure_name] = {measure_sub: name_str}
             print(f"{measure_name} has been added to the measure type file.")
         # sync the measure type file
         FileOrganizer._sync_json("measure_type")
@@ -227,6 +265,13 @@ class FileOrganizer:
         Query the project record file to find the project.
         """
         return FileOrganizer.proj_rec_json[self.proj_name]
+
+    @staticmethod
+    def query_proj_all() -> dict:
+        """
+        Query the project record file to find all the projects.
+        """
+        return FileOrganizer.proj_rec_json
 
     @staticmethod
     def del_proj(proj_name:str) -> None:
@@ -279,7 +324,7 @@ class FileOrganizer:
         print(f'\n{directories} directories' + (f', {files} files' if files else ''))
 
 if __name__ == "__main__":
-    FileOrganizer.out_database_init(r"C:\Users\Dongkai\Downloads\testtmp")
+    FileOrganizer.out_database_init(r"C:\Users\Downloads\testtmp")
     test = FileOrganizer("test")
     FileOrganizer.add_measurement_type("RT","I-_iin_-_iout_-_currstr_-Vup-_v1high_-_v1low_-Vdown-_v2high_-v2low_-_temp1str_-temp2str__fileappen_")
     test.add_measurement("RT")
