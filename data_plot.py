@@ -94,6 +94,32 @@ class DataPlot(DataProcess):
             namestr = rf"$\mathrm{{{unit}}}$".replace("Ohm",r"\Omega")
         return _factor, namestr
 
+    def plot_RT(self, *, params: PlotParam = None, ax: matplotlib.axes.Axes = None, custom_unit: dict = None, xylog = (False,False)) -> None:
+        """
+        plot the RT curve
+
+        Args:
+        - params: the PlotParam class containing the parameters for the plot, if None, the default parameters will be used.
+        - ax: the axes to plot the figure
+        - custom_unit: defined if the unit is not the default one(uA, V), the format is {"I":"uA", "V":"mV", "R":"mOhm"}
+        """
+        if custom_unit is None:
+            custom_unit = {"T":"K","R":"Ohm"}
+        if params is None:
+            params = DataPlot.PlotParam(1)
+            params.set_param_dict(0, label="RT")
+
+        rt_df = self.dfs["RT"]
+        if ax is None:
+            if_indep = True
+            fig, ax = DataPlot.init_canvas(2, 1, 10, 6)
+        factor_r, unit_r_print = DataPlot.get_unit_factor_and_texname(custom_unit["R"])
+        factor_T, unit_T_print = DataPlot.get_unit_factor_and_texname(custom_unit["T"])
+
+        ax.plot(rt_df["T"]*factor_T, rt_df["R"]*factor_r, **params.params_list[0])
+        ax.set_ylabel("$\\mathrm{R}$"+f"({unit_r_print})")
+        ax.set_xlabel(f"$\\mathrm{{T}}$ ({unit_T_print})")
+
     def plot_nonlinear(self, *, params: PlotParam = None,
                         params2: PlotParam = None,
                        ax: matplotlib.axes.Axes = None,
@@ -102,7 +128,7 @@ class DataPlot(DataProcess):
                        reverse_V: Tuple[bool] = (False, False),
                        custom_unit: dict = None,
                        in_ohm: bool = False,
-                       xylog1 = (False,False), xylog2 = (False,False)):
+                       xylog1 = (False,False), xylog2 = (False,False)) -> matplotlib.axes.Axes | None:
         """
         plot the nonlinear signals of a 1-2 omega measurement
 
@@ -137,14 +163,14 @@ class DataPlot(DataProcess):
         if params.query_no() < plot_no:
             raise ValueError("The number of plot parameters should be equal to the number of plots")
 
-        nhe = self.df
+        nonlinear = self.dfs["nonlinear"]
         if_indep = False
         return_ax2 = False
 
         if reverse_V[0]:
-            nhe["Vw"] = -nhe["Vw"]
+            nonlinear["Vw"] = -nonlinear["Vw"]
         if reverse_V[1]:
-            nhe["V2w"] = -nhe["V2w"]
+            nonlinear["V2w"] = -nonlinear["V2w"]
 
         factor_i, unit_i_print = DataPlot.get_unit_factor_and_texname(custom_unit["I"])
         factor_v, unit_v_print = DataPlot.get_unit_factor_and_texname(custom_unit["V"])
@@ -156,15 +182,15 @@ class DataPlot(DataProcess):
 
         if ax is None:
             if_indep = True
-            fig, ax = DataPlot.init_canvas(2, 1, 6, 10)
+            fig, ax = DataPlot.init_canvas(2, 1, 10, 6)
 
         # plot the 2nd harmonic signal
         if plot_order[1]:
             if in_ohm:
-                ax.plot(nhe["curr"]*factor_i, nhe["V2w"]*factor_r/nhe["curr"], **params.params_list[1])
+                ax.plot(nonlinear["curr"]*factor_i, nonlinear["V2w"]*factor_r/nonlinear["curr"], **params.params_list[1])
                 ax.set_ylabel("$\\mathrm{R^{2\\omega}}$"+f"({unit_r_print})")
             else:
-                ax.plot(nhe["curr"]*factor_i, nhe["V2w"]*factor_v, **params.params_list[1])
+                ax.plot(nonlinear["curr"]*factor_i, nonlinear["V2w"]*factor_v, **params.params_list[1])
                 ax.set_ylabel("$\\mathrm{V^{2\\omega}}$"+f"({unit_v_print})")
             ax.legend(edgecolor='black',prop=DataPlot.legend_font)
             ax.set_xlabel(f"I ({unit_i_print})")
@@ -178,10 +204,10 @@ class DataPlot(DataProcess):
                     ax2 = ax.twinx()
                     return_ax2 = True
                 if in_ohm:
-                    ax2.plot(nhe["curr"]*factor_i, nhe["Vw"]*factor_r/nhe["curr"], **params.params_list[0])
+                    ax2.plot(nonlinear["curr"]*factor_i, nonlinear["Vw"]*factor_r/nonlinear["curr"], **params.params_list[0])
                     ax2.set_ylabel("$\\mathrm{R^\\omega}$"+f"({unit_r_print})")
                 else:
-                    ax2.plot(nhe["curr"]*factor_i, nhe["Vw"]*factor_v, **params.params_list[0])
+                    ax2.plot(nonlinear["curr"]*factor_i, nonlinear["Vw"]*factor_v, **params.params_list[0])
                     ax2.set_ylabel("$\\mathrm{V^\\omega}$"+f"({unit_v_print})")
                 ax2.legend(edgecolor='black',prop=DataPlot.legend_font)
                 if xylog1[1]:
@@ -190,10 +216,10 @@ class DataPlot(DataProcess):
                     pass
         else: # assume at least one is true
             if in_ohm:
-                ax.plot(nhe["curr"]*factor_i, nhe["Vw"]*factor_r/nhe["curr"], **params.params_list[0])
+                ax.plot(nonlinear["curr"]*factor_i, nonlinear["Vw"]*factor_r/nonlinear["curr"], **params.params_list[0])
                 ax.set_ylabel("$\\mathrm{R^\\omega}$"+f"({unit_r_print})")
             else:
-                ax.plot(nhe["curr"]*factor_i, nhe["Vw"]*factor_v, **params.params_list[0])
+                ax.plot(nonlinear["curr"]*factor_i, nonlinear["Vw"]*factor_v, **params.params_list[0])
                 ax.set_ylabel("$\\mathrm{V^\\omega}$"+f"({unit_v_print})")
             ax.legend(edgecolor='black',prop=DataPlot.legend_font)
             ax.set_xlabel(f"I ({unit_i_print})")

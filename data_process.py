@@ -23,9 +23,9 @@ class DataProcess(FileOrganizer):
         - proj_name: the name of the project
         """
         super().__init__(proj_name)
-        self.df = None
+        self.dfs = {}
 
-    def load_df(self, measurename: str, *var_tuple, tmpfolder: str = None) -> pd.DataFrame:
+    def load_dfs(self, measurename: str, *var_tuple, tmpfolder: str = None) -> None:
         """
         Load a dataframe from a file, save the dataframe as a memeber variable and also return it
 
@@ -34,20 +34,19 @@ class DataProcess(FileOrganizer):
         - **kwargs: the arguments for the pd.read_csv function
         """
         filepath = self.get_filepath(measurename, *var_tuple, tmpfolder)
-        self.df = pd.read_csv(filepath, sep=r'\s+', skiprows=1, header=None)
-        return self.df
+        self.dfs[measurename] = pd.read_csv(filepath, sep=r'\s+', skiprows=1, header=None)
 
-    def rename_columns(self, columns: dict) -> None:
+    def rename_columns(self, measurename: str, columns_name: dict) -> None:
         """
         Rename the columns of the dataframe
 
         Args:
         - columns: the renaming rules, e.g. {"old_name": "new_name"}
         """
-        self.df.rename(columns = columns, inplace=True)
+        self.dfs[measurename].rename(columns = columns_name, inplace=True)
 
     @staticmethod
-    def merge_with_tolerance(df1: pd.DataFrame, df2: pd.DataFrame, on: any, tolerance: float, suffixes = ("_1", "_2")) -> pd.DataFrame:
+    def merge_with_tolerance(df1: pd.DataFrame, df2: pd.DataFrame, on: any, tolerance: float, suffixes: Tuple[str] = ("_1", "_2")) -> pd.DataFrame:
         """
         Merge two dataframes with tolerance
 
