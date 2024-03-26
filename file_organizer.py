@@ -38,7 +38,7 @@ class FileOrganizer:
     with open(local_database_dir / "project_record.json", "r", encoding="utf-8") as __proj_rec_file:
         proj_rec_json: dict = json.load(__proj_rec_file)
 
-    def __init__(self, proj_name:str)->None:
+    def __init__(self, proj_name:str, copy_from:str = None)->None:
         """
         initialize the class with the project name and judge if the name is in the accepted project names. Only out_database_path is required, as the local_database_dir is attached with the base_dir
 
@@ -53,14 +53,22 @@ class FileOrganizer:
         self.proj_name = proj_name
 
         # try to find the project in the record file, if not, then add a new item in record
-        if proj_name not in FileOrganizer.proj_rec_json:
+        if proj_name not in FileOrganizer.proj_rec_json and copy_from is None:
             FileOrganizer.proj_rec_json[proj_name] = {
                 "created_date": today.strftime("%Y-%m-%d"),
                 "last_modified": today.strftime("%Y-%m-%d"), 
                 "measurements": [], 
                 "plan": {}}
             print(f"{proj_name} is not found in the project record file, a new item has been added.")
-            # not dump the json file here, but in the write method, to avoid the file being dumped multiple times
+            # not dump the json file here, but in the sync method, to avoid the file being dumped multiple times
+        elif proj_name not in FileOrganizer.proj_rec_json and copy_from is not None:
+            if copy_from not in FileOrganizer.proj_rec_json:
+                print(f"{copy_from} is not found in the project record file, please check the name.")
+                return
+            FileOrganizer.proj_rec_json[proj_name] = FileOrganizer.proj_rec_json[copy_from]
+            FileOrganizer.proj_rec_json[proj_name]["created_date"] = today.strftime("%Y-%m-%d")
+            FileOrganizer.proj_rec_json[proj_name]["last_modified"] = today.strftime("%Y-%m-%d")
+            print(f"{proj_name} has been copied from {copy_from}.")
 
         # create project folder in the out database for storing main data
         self.out_database_dir_proj.mkdir(exist_ok=True)
@@ -322,6 +330,7 @@ class FileOrganizer:
         if next(iterator, None):
             print(f'... length_limit, {length_limit}, reached, counted:')
         print(f'\n{directories} directories' + (f', {files} files' if files else ''))
+
 
 if __name__ == "__main__":
     FileOrganizer.out_database_init(r"C:\Users\Downloads\testtmp")

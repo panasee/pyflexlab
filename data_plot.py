@@ -3,7 +3,7 @@
 
 from __future__ import annotations
 import importlib
-from typing import List, Tuple
+from typing import List, Tuple, Literal
 import matplotlib
 import matplotlib.pyplot as plt
 import copy
@@ -257,7 +257,7 @@ class DataPlot(DataProcess):
         ax_list[0].legend(handles=handles, labels=labels, loc=loc, prop=DataPlot.legend_font)
 
     @staticmethod
-    def init_canvas(n_row: int, n_col: int, figsize_x: float, figsize_y: float) -> Tuple[matplotlib.figure.Figure, matplotlib.axes.Axes]:
+    def init_canvas(n_row: int, n_col: int, figsize_x: float, figsize_y: float, sub_adj: Tuple[float] = (0.19,0.13,0.97,0.97,0.2,0.2), **kwargs) -> Tuple[matplotlib.figure.Figure, matplotlib.axes.Axes]:
         """
         initialize the canvas for the plot, return the fig and ax variables
 
@@ -266,9 +266,11 @@ class DataPlot(DataProcess):
         - n_col: the fig no. of columns
         - figsize_x: the width of the whole figure in cm
         - figsize_y: the height of the whole figure in cm
+        - sub_adj: the adjustment of the subplots (left, bottom, right, top, wspace, hspace)
+        - **kwargs: keyword arguments for the plt.subplots function
         """
-        fig, ax = plt.subplots(n_row, n_col, figsize=(figsize_x * cm_to_inch, figsize_y * cm_to_inch))
-        fig.subplots_adjust(left=.19, bottom=.13, right=.97, top=.97)
+        fig, ax = plt.subplots(n_row, n_col, figsize=(figsize_x * cm_to_inch, figsize_y * cm_to_inch), **kwargs)
+        fig.subplots_adjust(left=sub_adj[0], bottom=sub_adj[1], right=sub_adj[2], top=sub_adj[3], wspace=sub_adj[4], hspace=sub_adj[5])
         return fig, ax
 
     def mapping(self):
