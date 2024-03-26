@@ -79,40 +79,31 @@ class DataProcess(FileOrganizer):
 
         return pd.DataFrame(result)
     
-    def symmetrize(self, index_col: any, obj_col: List[any]) -> None:
+    def symmetrize(self, index_col: any, obj_col: List[any], neutral_point: float = 0) -> Tuple[pd.DataFrame, pd.DataFrame]:
         """
         do symmetrization to the dataframe and save the symmetric and antisymmetric parts in the original dataframe as new columns 
 
         Args:
         - index_col: the name of the index column for symmetrization
         - obj_col: a list of the name(s) of the objective column for symmetrization
+        - neutral_point: the neutral point for symmetrization
         """
         # Separate the negative and positive parts for interpolation
-        df_negative = self.dfs[self.dfs[index_col] < 0][obj_col].copy()
-        df_positive = self.dfs[self.dfs[index_col] > 0][obj_col].copy()
+        df_negative = self.dfs[self.dfs[index_col] < neutral_point][obj_col].copy()
+        df_positive = self.dfs[self.dfs[index_col] > neutral_point][obj_col].copy()
         # For symmetrization, we need to flip the negative part and make positions positive
         df_negative[index_col] = -df_negative[index_col]
-        # Combine and sort for interpolation, filling gaps in the measurements
-        combined = pd.concat([df_negative, df_positive]).sort_values(by=index_col).reset_index(drop=True)
-        # Use interpolation to fill in any missing measurements at positions
-        interpolated = combined.set_index(index_col).interpolate(method='linear').reset_index()
-        # Now, perform the symmetrization: value(positive) - interpolated value at corresponding negative
-        # First, ensure every positive position has a corresponding negative one (after interpolation)
-        symmetrized_values = []
-        antisymmetrized_values = []
-        for pos in df_positive[index_col]:
-            if pos in interpolated[index_col].values:
-                original_value = df_positive[df_positive[index_col] == pos]['Value'].values[0]
-                interpolated_value = interpolated[interpolated[index_col] == pos]['Value'].values[0]
-                symmetrized_values.append(original_value - interpolated_value)
-            else:
-                # If there's no matching position after interpolation, this can be handled as needed
-                symmetrized_values.append(np.nan)
-        # Create a new DataFrame with the symmetrized results
-        symmetrized_df = pd.DataFrame({
-            index_col: df_positive[index_col],
-            'Symmetrized_Value': symmetrized_values
-        })
+        # do interpolation for the union of the two parts
+        index_union = np.union1d(df_negative[index_col], df_positive[index_col])
+        pos_interpolated = np.array([np.interp(index_union, df_positive[index_col], df_positive[obj_col[i]]) for i in range(len(obj_col))])
+        neg_interpolated = np.array([np.interp(index_union, df_negative[index_col], df_negative[obj_col[i]]) for i in range(len(obj_col))])
+        # Symmetrize and save to DataFrame
+        sym = (pos_interpolated + neg_interpolated) / 2
+        sym_df = pd.DataFrame(np.transpose(np.append([index_union], sym, axis=0)), columns=[index_col] + [f"{obj_col[i]}sym" for i in range(len(obj_col))])
+        antisym = (pos_interpolated - neg_interpolated) / 2
+        antisym_df = pd.DataFrame(np.transpose(np.append([index_union], antisym, axis=0)), columns=[index_col] + [f"{obj_col[i]}antisym" for i in range(len(obj_col))])
+
+        return sym_df, antisym_df
 
     def compare(self, measurename_main: str, columns: List[str], plot_dict: dict = default_plot_dict) -> None:
         ##TODO##
