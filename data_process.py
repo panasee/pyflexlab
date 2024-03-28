@@ -79,7 +79,7 @@ class DataProcess(FileOrganizer):
 
         return pd.DataFrame(result)
     
-    def symmetrize(self, index_col: any, obj_col: List[any], neutral_point: float = 0) -> Tuple[pd.DataFrame, pd.DataFrame]:
+    def symmetrize(self, measurename, index_col: any, obj_col: List[any], neutral_point: float = 0) -> Tuple[pd.DataFrame, pd.DataFrame]:
         """
         do symmetrization to the dataframe and save the symmetric and antisymmetric parts in the original dataframe as new columns 
 
@@ -88,11 +88,15 @@ class DataProcess(FileOrganizer):
         - obj_col: a list of the name(s) of the objective column for symmetrization
         - neutral_point: the neutral point for symmetrization
         """
+        measurename_main, _ = FileOrganizer.measurename_decom(measurename)
         # Separate the negative and positive parts for interpolation
-        df_negative = self.dfs[self.dfs[index_col] < neutral_point][obj_col].copy()
-        df_positive = self.dfs[self.dfs[index_col] > neutral_point][obj_col].copy()
+        df_negative = self.dfs[measurename_main][self.dfs[measurename_main][index_col] < neutral_point][[index_col]+obj_col].copy()
+        df_positive = self.dfs[measurename_main][self.dfs[measurename_main][index_col] > neutral_point][[index_col]+obj_col].copy()
         # For symmetrization, we need to flip the negative part and make positions positive
         df_negative[index_col] = -df_negative[index_col]
+        # sort them
+        df_negative = df_negative.sort_values(by=index_col).reset_index(drop=True)
+        df_positive = df_positive.sort_values(by=index_col).reset_index(drop=True)
         # do interpolation for the union of the two parts
         index_union = np.union1d(df_negative[index_col], df_positive[index_col])
         pos_interpolated = np.array([np.interp(index_union, df_positive[index_col], df_positive[obj_col[i]]) for i in range(len(obj_col))])
