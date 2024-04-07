@@ -2,7 +2,7 @@
 """This module is responsible for processing and plotting the data"""
 
 import importlib
-from typing import List, Tuple
+from typing import List, Tuple, Literal
 import numpy as np
 import matplotlib
 import matplotlib.pyplot as plt
@@ -11,6 +11,7 @@ from common.file_organizer import FileOrganizer
 from common.measure_manager import MeasureManager
 import common.pltconfig.color_preset as colors
 from common.constants import cm_to_inch, factor, default_plot_dict
+from datetime import datetime
 
 
 class DataProcess(FileOrganizer):
@@ -25,7 +26,7 @@ class DataProcess(FileOrganizer):
         super().__init__(proj_name)
         self.dfs = {}
 
-    def load_dfs(self, measurename: str, *var_tuple, tmpfolder: str = None) -> None:
+    def load_dfs(self, measurename_all: str, *var_tuple, tmpfolder: str = None) -> None:
         """
         Load a dataframe from a file, save the dataframe as a memeber variable and also return it
 
@@ -33,8 +34,8 @@ class DataProcess(FileOrganizer):
         - measurename: the measurement name
         - **kwargs: the arguments for the pd.read_csv function
         """
-        filepath = self.get_filepath(measurename, *var_tuple, tmpfolder=tmpfolder)
-        measurename_main, _ = FileOrganizer.measurename_decom(measurename)
+        filepath = self.get_filepath(measurename_all, *var_tuple, tmpfolder=tmpfolder)
+        measurename_main, _ = FileOrganizer.measurename_decom(measurename_all)
         self.dfs[measurename_main] = pd.read_csv(filepath, sep=r'\s+', skiprows=1, header=None)
 
     def rename_columns(self, measurename_main: str, columns_name: dict) -> None:
@@ -112,3 +113,39 @@ class DataProcess(FileOrganizer):
     def compare(self, measurename_main: str, columns: List[str], plot_dict: dict = default_plot_dict) -> None:
         ##TODO##
         pass
+
+    @staticmethod
+    def time_to_datetime(t : pd.Series, *, past_time: Literal["min", "hour", "no"]="min")-> List[datetime]:
+        """
+        Convert the time to datetime object, used to split time series without day information
+
+        Args:
+        t : pd.Series
+            The time series to be converted, format should be like "11:30 PM"
+        past_time : Literal["min", "hour", "no"]
+            Whether to return the time past from first time points instead of return datetime list 
+        Returns:
+        List[datetime.datetime]
+            The converted datetime object list, year and month are meaningless, just use the date from 1
+        """
+        datetimes = [datetime.strptime(ts,"%I:%M %p").time() for ts in t]
+        day = 1
+        datetime_list = []
+        tmp = None
+        # Iterate over the datetime objects
+        for tm in datetimes:
+            # Get the date part of the datetime
+            if tmp == None:
+                pass
+            elif tmp > tm:
+                day += 1
+            tmp = tm
+            datetime_list.append(datetime.combine(datetime(1971,9,day),tm))
+        if past_time == "no":
+            return datetime_list
+        else:   
+            if past_time == "min":
+                factor_time = 60
+            if past_time == "hour":
+                factor_time = 3600
+            return [(t - datetime_list[0]).total_seconds()/factor_time for t in datetime_list]

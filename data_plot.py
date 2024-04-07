@@ -112,7 +112,16 @@ class DataPlot(DataProcess):
         """
         self.unit.update(unit_new)
 
-    def plot_RT(self, *, ax: matplotlib.axes.Axes = None, xylog = (False,False)) -> None:
+    def df_plot_Tt(self, *, ax: matplotlib.axes.Axes = None) -> None:
+        """
+        Plot the T-t curve from the RT measurement (resolved to minute)
+        """
+        self.params.set_param_dict(0, label="T-t")
+        tt_df = self.dfs["RT"]["t1"] + self.dfs["RT"]["t2"]
+        day_time = DataProcess.time_to_datetime(tt_df)
+        ##TODO##
+
+    def df_plot_RT(self, *, ax: matplotlib.axes.Axes = None, xylog = (False,False)) -> None:
         """
         plot the RT curve
 
@@ -139,9 +148,8 @@ class DataPlot(DataProcess):
         if xylog[0]:
             ax.set_xscale("log")
 
-    def plot_nonlinear(self, *,
-                       ax: matplotlib.axes.Axes = None,
-                       ax2 : matplotlib.axes.Axes = None,
+    def df_plot_nonlinear(self, *,
+                       handlers: Tuple[matplotlib.axes.Axes] = None,
                        plot_order: Tuple[bool] = (True, True),
                        reverse_V: Tuple[bool] = (False, False),
                        in_ohm: bool = False,
@@ -149,7 +157,9 @@ class DataPlot(DataProcess):
         """
         plot the nonlinear signals of a 1-2 omega measurement
 
-        Parameters:
+        Args:
+        handlers: Tuple[matplotlib.axes.Axes]
+            the handlers for the plot, the content should be (ax_1w, ax_1w_phi,ax_2w, ax_2w)
         params: PlotParam class containing the parameters for the 1st 
             signal plot, if None, the default parameters will be used.         
         params2: the PlotParam class for the 2nd harmonic signal
@@ -160,14 +170,17 @@ class DataPlot(DataProcess):
         custom_unit : dict
             defined if the unit is not the default one(uA, V), the format is {"I":"uA", "V":"mV", "R":"mOhm"}
         """
+        ##TODO##: merge legend
 
         # assign and merge the plotting parameters
-        self.params.set_param_dict(0, label="Vw")
-        self.params.set_param_dict(1, label="V2w")
+        self.params.set_param_dict(0, label=r"V_w")
+        self.params.set_param_dict(1, label=r"V_{2w}")
+        self.params.set_param_dict(2, label=r"$\phi_w$", color="c", linestyle="--",marker="",alpha=0.37)
+        self.params.set_param_dict(3, label=r"$\phi_{2w}$", color="m", linestyle="--",marker="",alpha=0.37)
 
         nonlinear = self.dfs["nonlinear"]
         if_indep = False
-        return_ax2 = False
+        return_handlers = False
 
         if reverse_V[0]:
             nonlinear["Vw"] = -nonlinear["Vw"]
@@ -178,58 +191,53 @@ class DataPlot(DataProcess):
         factor_v, unit_v_print = DataPlot.get_unit_factor_and_texname(self.unit["V"])
         factor_r, unit_r_print = DataPlot.get_unit_factor_and_texname(self.unit["R"])
 
-        if ax is None:
+        if handlers is None:
             if_indep = True
-            fig, ax = DataPlot.init_canvas(1, 1, 10, 6)
+            fig, ax = DataPlot.init_canvas(2, 1, 10, 6)
+            ax_1w, ax_2w = ax
+            ax_1w_phi = ax_1w.twinx()
+            ax_2w_phi = ax_2w.twinx()
+            return_handlers = True
+        else:
+            ax_1w, ax_1w_phi,ax_2w, ax_2w_phi = handlers
 
         # plot the 2nd harmonic signal
         if plot_order[1]:
             if in_ohm:
-                ax.plot(nonlinear["curr"]*factor_i, nonlinear["V2w"]*factor_r/nonlinear["curr"], **params.params_list[1])
-                ax.set_ylabel("$\\mathrm{R^{2\\omega}}$"+f"({unit_r_print})")
+                ax_2w.plot(nonlinear["curr"]*factor_i, nonlinear["V2w"]*factor_r/nonlinear["curr"], **self.params.params_list[1])
+                ax_2w.set_ylabel("$\\mathrm{R^{2\\omega}}$"+f"({unit_r_print})")
             else:
-                ax.plot(nonlinear["curr"]*factor_i, nonlinear["V2w"]*factor_v, **self.params.params_list[1])
-                ax.set_ylabel("$\\mathrm{V^{2\\omega}}$"+f"({unit_v_print})")
-            ax.legend(edgecolor='black',prop=DataPlot.legend_font)
-            ax.set_xlabel(f"I ({unit_i_print})")
+                ax_2w.plot(nonlinear["curr"]*factor_i, nonlinear["V2w"]*factor_v, **self.params.params_list[1])
+                ax_2w.set_ylabel("$\\mathrm{V^{2\\omega}}$"+f"({unit_v_print})")
+            
+            ax_2w_phi.plot(nonlinear["curr"]*factor_i, nonlinear["phi2w"], **self.params.params_list[3])
+            ax_2w_phi.set_ylabel(r"$\phi(\mathrm{^\circ})$")
+            ax_2w.legend(edgecolor='black',prop=DataPlot.legend_font)
+            ax_2w.set_xlabel(f"I ({unit_i_print})")
             if xylog2[1]:
-                ax.set_yscale("log")
+                ax_2w.set_yscale("log")
             if xylog2[0]:
-                ax.set_xscale("log")
+                ax_2w.set_xscale("log")
             #ax.set_xlim(-0.00003,None)
-            if plot_order[0]:
-                if ax2 is None:
-                    ax2 = ax.twinx()
-                    return_ax2 = True
-                if in_ohm:
-                    ax2.plot(nonlinear["curr"]*factor_i, nonlinear["Vw"]*factor_r/nonlinear["curr"], **params.params_list[0])
-                    ax2.set_ylabel("$\\mathrm{R^\\omega}$"+f"({unit_r_print})")
-                else:
-                    ax2.plot(nonlinear["curr"]*factor_i, nonlinear["Vw"]*factor_v, **params.params_list[0])
-                    ax2.set_ylabel("$\\mathrm{V^\\omega}$"+f"({unit_v_print})")
-                ax2.legend(edgecolor='black',prop=DataPlot.legend_font)
-                if xylog1[1]:
-                    ax2.set_yscale("log")
-                if xylog1[0]:
-                    pass
-        else: # assume at least one is true
+        if plot_order[0]:
             if in_ohm:
-                ax.plot(nonlinear["curr"]*factor_i, nonlinear["Vw"]*factor_r/nonlinear["curr"], **params.params_list[0])
-                ax.set_ylabel("$\\mathrm{R^\\omega}$"+f"({unit_r_print})")
+                ax_1w.plot(nonlinear["curr"]*factor_i, nonlinear["Vw"]*factor_r/nonlinear["curr"], **self.params.params_list[0])
+                ax_1w.set_ylabel("$\\mathrm{R^\\omega}$"+f"({unit_r_print})")
             else:
-                ax.plot(nonlinear["curr"]*factor_i, nonlinear["Vw"]*factor_v, **params.params_list[0])
-                ax.set_ylabel("$\\mathrm{V^\\omega}$"+f"({unit_v_print})")
-            ax.legend(edgecolor='black',prop=DataPlot.legend_font)
-            ax.set_xlabel(f"I ({unit_i_print})")
-            if xylog1[1]:
-                ax.set_yscale("log")
-            if xylog1[0]:
-                ax.set_yscale("log")
+                ax_1w.plot(nonlinear["curr"]*factor_i, nonlinear["Vw"]*factor_v, **self.params.params_list[0])
+                ax_1w.set_ylabel("$\\mathrm{V^\\omega}$"+f"({unit_v_print})")
 
+            ax_1w_phi.plot(nonlinear["curr"]*factor_i, nonlinear["phi1w"], **self.params.params_list[3])
+            ax_1w_phi.set_ylabel(r"$\phi(\mathrm{^\circ})$")
+            ax_1w.legend(edgecolor='black',prop=DataPlot.legend_font)
+            if xylog1[1]:
+                ax_1w.set_yscale("log")
+            if xylog1[0]:
+                ax_1w.set_xscale("log")
         if if_indep:
             plt.show()
-        if return_ax2:
-            return ax2
+        if return_handlers:
+            return (ax_1w, ax_1w_phi,ax_2w, ax_2w_phi)
 
     @staticmethod
     def load_settings(usetex: bool = False, usepgf: bool = False) -> None:

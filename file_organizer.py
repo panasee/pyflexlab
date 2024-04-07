@@ -65,7 +65,7 @@ class FileOrganizer:
             if copy_from not in FileOrganizer.proj_rec_json:
                 print(f"{copy_from} is not found in the project record file, please check the name.")
                 return
-            FileOrganizer.proj_rec_json[proj_name] = FileOrganizer.proj_rec_json[copy_from]
+            FileOrganizer.proj_rec_json[proj_name] = FileOrganizer.proj_rec_json[copy_from].copy()
             FileOrganizer.proj_rec_json[proj_name]["created_date"] = today.strftime("%Y-%m-%d")
             FileOrganizer.proj_rec_json[proj_name]["last_modified"] = today.strftime("%Y-%m-%d")
             print(f"{proj_name} has been copied from {copy_from}.")
