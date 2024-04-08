@@ -20,21 +20,39 @@ class LabViewPost(DataPlot):
     def __init__(self, proj_name: str) -> None:
         super().__init__(proj_name)
     
-    def nonlinear_df_labview(self, *var_tuple, tmpfolder: str = None, measurename_sub: str = "1-pair") -> pd.DataFrame:
+    def nonlinear_df_labview(self, *var_tuple, tmpfolder: str = None, measurename_sub: str = "1-pair", lin_antisym: bool = False, harmo_sym: bool = False, position_I: int = None) -> pd.DataFrame:
         """
-        Process the RT data
+        Process the nonlinear data, both modify the self.dfs inplace and return it as well for convenience. Could also do anti-symmetrization to 1w signal and symmetrization to 2w signal (choosable)
         
         Args:
         - measurename_sub: the sub measurement name used to appoint the detailed configuration
         - *vars: the arguments for the pd.read_csv function
         - tmpfolder: the temporary folder
+        - lin_antisym: bool
+            do the anti-symmetrization to 1w signal
+        - harmo_sym: bool
+            do the symmetrization to 2w signal
+        - position_I: int
+            the position of the current in the var_tuple(start from 0), used in combination with sym/antisym labels
         """
         self.load_dfs(f"nonlinear__{measurename_sub}", *var_tuple, tmpfolder=tmpfolder)
+        if lin_antisym or harmo_sym:
+            if position_I is None:
+                raise ValueError("position_I should be specified when lin_antisym or harmo_sym is True")
+            var_reversed = list(var_tuple)
+            var_reversed[position_I], var_reversed[position_I+1] = var_reversed[position_I+1], var_reversed[position_I]
+            self.load_dfs(f"nonlinear__{measurename_sub}", *var_reversed, tmpfolder=tmpfolder, cached=True)
+
+        # rename_columns will rename the "cache" as well
         self.rename_columns("nonlinear", {0: "curr", 2:"V2w", 4:"phi2w", 5:"V1w", 6: "phi1w"})
+        if lin_antisym:
+            self.dfs["nonlinear"]["V1w"] = (self.dfs["nonlinear"]["V1w"] - self.dfs["cache"]["V1w"])/2
+        if harmo_sym:
+            self.dfs["nonlinear"]["V2w"] = (self.dfs["nonlinear"]["V2w"] + self.dfs["cache"]["V2w"])/2
         # here the self.dfs has already been updated, the return is just for possible other usage
         return self.dfs["nonlinear"]
 
-    def nonlinear_plot_labview(self, *var_tuple, tmpfolder:str = None, measurename_sub: str = "1-pair", handlers: Tuple[matplotlib.axes.Axes] | None = None, units: dict = None, **kwargs) -> matplotlib.axes.Axes | None:
+    def nonlinear_plot_labview(self, *var_tuple, tmpfolder:str = None, measurename_sub: str = "1-pair", handlers: Tuple[matplotlib.axes.Axes] = None, units: dict = None, **kwargs) -> matplotlib.axes.Axes | None:
         """
         Plot the nonlinear data
         

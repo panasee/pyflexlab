@@ -26,17 +26,21 @@ class DataProcess(FileOrganizer):
         super().__init__(proj_name)
         self.dfs = {}
 
-    def load_dfs(self, measurename_all: str, *var_tuple, tmpfolder: str = None) -> None:
+    def load_dfs(self, measurename_all: str, *var_tuple, tmpfolder: str = None, cached: bool = False) -> None:
         """
         Load a dataframe from a file, save the dataframe as a memeber variable and also return it
 
         Args:
         - measurename: the measurement name
         - **kwargs: the arguments for the pd.read_csv function
+        - cached: whether to save the df into self.dfs["cache"] instead of self.dfs (note this will be easily overwritten by the next load_dfs call, so only with temperary usage)
         """
         filepath = self.get_filepath(measurename_all, *var_tuple, tmpfolder=tmpfolder)
         measurename_main, _ = FileOrganizer.measurename_decom(measurename_all)
-        self.dfs[measurename_main] = pd.read_csv(filepath, sep=r'\s+', skiprows=1, header=None)
+        if not cached:
+            self.dfs[measurename_main] = pd.read_csv(filepath, sep=r'\s+', skiprows=1, header=None)
+        else:
+            self.dfs["cache"] = pd.read_csv(filepath, sep=r'\s+', skiprows=1, header=None)
 
     def rename_columns(self, measurename_main: str, columns_name: dict) -> None:
         """
@@ -46,6 +50,8 @@ class DataProcess(FileOrganizer):
         - columns: the renaming rules, e.g. {"old_name": "new_name"}
         """
         self.dfs[measurename_main].rename(columns = columns_name, inplace=True)
+        if "cache" in self.dfs:
+            self.dfs["cache"].rename(columns = columns_name, inplace=True)
 
     @staticmethod
     def merge_with_tolerance(df1: pd.DataFrame, df2: pd.DataFrame, on: any, tolerance: float, suffixes: Tuple[str] = ("_1", "_2")) -> pd.DataFrame:
@@ -80,16 +86,17 @@ class DataProcess(FileOrganizer):
 
         return pd.DataFrame(result)
     
-    def symmetrize(self, measurename, index_col: any, obj_col: List[any], neutral_point: float = 0) -> Tuple[pd.DataFrame, pd.DataFrame]:
+    def symmetrize(self, measurename_all: str, index_col: any, obj_col: List[any], neutral_point: float = 0) -> Tuple[pd.DataFrame, pd.DataFrame]:
         """
-        do symmetrization to the dataframe and save the symmetric and antisymmetric parts in the original dataframe as new columns 
+        do symmetrization to the dataframe and save the symmetric and antisymmetric parts in the original dataframe as new columns, note that this function is dealing with only one line of data, meaning the positive and negative parts are to be combined first (no need to sort)
 
         Args:
+        - measurename_all: the full name of the measurement
         - index_col: the name of the index column for symmetrization
         - obj_col: a list of the name(s) of the objective column for symmetrization
         - neutral_point: the neutral point for symmetrization
         """
-        measurename_main, _ = FileOrganizer.measurename_decom(measurename)
+        measurename_main, _ = FileOrganizer.measurename_decom(measurename_all)
         # Separate the negative and positive parts for interpolation
         df_negative = self.dfs[measurename_main][self.dfs[measurename_main][index_col] < neutral_point][[index_col]+obj_col].copy()
         df_positive = self.dfs[measurename_main][self.dfs[measurename_main][index_col] > neutral_point][[index_col]+obj_col].copy()
@@ -135,7 +142,7 @@ class DataProcess(FileOrganizer):
         # Iterate over the datetime objects
         for tm in datetimes:
             # Get the date part of the datetime
-            if tmp == None:
+            if tmp is None:
                 pass
             elif tmp > tm:
                 day += 1
@@ -143,7 +150,7 @@ class DataProcess(FileOrganizer):
             datetime_list.append(datetime.combine(datetime(1971,9,day),tm))
         if past_time == "no":
             return datetime_list
-        else:   
+        else:
             if past_time == "min":
                 factor_time = 60
             if past_time == "hour":
