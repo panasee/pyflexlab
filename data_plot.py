@@ -204,15 +204,15 @@ class DataPlot(DataProcess):
         # plot the 2nd harmonic signal
         if plot_order[1]:
             if in_ohm:
-                ax_2w.plot(nonlinear["curr"]*factor_i, nonlinear["V2w"]*factor_r/nonlinear["curr"], **self.params.params_list[1])
+                line_v2w = ax_2w.plot(nonlinear["curr"]*factor_i, nonlinear["V2w"]*factor_r/nonlinear["curr"], **self.params.params_list[1])
                 ax_2w.set_ylabel("$\\mathrm{R^{2\\omega}}$"+f"({unit_r_print})")
             else:
-                ax_2w.plot(nonlinear["curr"]*factor_i, nonlinear["V2w"]*factor_v, **self.params.params_list[1])
+                line_v2w = ax_2w.plot(nonlinear["curr"]*factor_i, nonlinear["V2w"]*factor_v, **self.params.params_list[1])
                 ax_2w.set_ylabel("$\\mathrm{V^{2\\omega}}$"+f"({unit_v_print})")
             
-            ax_2w_phi.plot(nonlinear["curr"]*factor_i, nonlinear["phi2w"], **self.params.params_list[3])
+            line_v2w_phi = ax_2w_phi.plot(nonlinear["curr"]*factor_i, nonlinear["phi2w"], **self.params.params_list[3])
             ax_2w_phi.set_ylabel(r"$\phi(\mathrm{^\circ})$")
-            ax_2w.legend(edgecolor='black',prop=DataPlot.legend_font)
+            ax_2w.legend(handles = line_v2w+line_v2w_phi, labels = [line_v2w[0].get_label(), line_v2w_phi[0].get_label()], edgecolor='black',prop=DataPlot.legend_font)
             ax_2w.set_xlabel(f"I ({unit_i_print})")
             if xylog2[1]:
                 ax_2w.set_yscale("log")
@@ -221,15 +221,15 @@ class DataPlot(DataProcess):
             #ax.set_xlim(-0.00003,None)
         if plot_order[0]:
             if in_ohm:
-                ax_1w.plot(nonlinear["curr"]*factor_i, nonlinear["Vw"]*factor_r/nonlinear["curr"], **self.params.params_list[0])
+                line_v1w = ax_1w.plot(nonlinear["curr"]*factor_i, nonlinear["Vw"]*factor_r/nonlinear["curr"], **self.params.params_list[0])
                 ax_1w.set_ylabel("$\\mathrm{R^\\omega}$"+f"({unit_r_print})")
             else:
-                ax_1w.plot(nonlinear["curr"]*factor_i, nonlinear["Vw"]*factor_v, **self.params.params_list[0])
+                line_v1w = ax_1w.plot(nonlinear["curr"]*factor_i, nonlinear["Vw"]*factor_v, **self.params.params_list[0])
                 ax_1w.set_ylabel("$\\mathrm{V^\\omega}$"+f"({unit_v_print})")
 
-            ax_1w_phi.plot(nonlinear["curr"]*factor_i, nonlinear["phi1w"], **self.params.params_list[3])
+            line_v1w_phi = ax_1w_phi.plot(nonlinear["curr"]*factor_i, nonlinear["phi1w"], **self.params.params_list[3])
             ax_1w_phi.set_ylabel(r"$\phi(\mathrm{^\circ})$")
-            ax_1w.legend(edgecolor='black',prop=DataPlot.legend_font)
+            ax_1w.legend(handles = line_v1w+line_v1w_phi, labels = [line_v1w[0].get_label(), line_v1w_phi[0].get_label()],edgecolor='black',prop=DataPlot.legend_font)
             if xylog1[1]:
                 ax_1w.set_yscale("log")
             if xylog1[0]:
@@ -252,17 +252,6 @@ class DataPlot(DataProcess):
 
         config_module = importlib.import_module(f"{file_name}", script_base_dir)
         DataPlot.legend_font = getattr(config_module, 'legend_font')
-
-    @staticmethod
-    def merge_legends(*ax_list: List[matplotlib.axes.Axes],loc: str = "best") -> None:
-        """
-        Merge and show the legends of multiple axes
-
-        Args:
-        - ax_list: a list of axes
-        """
-        handles, labels = zip(*[ax.get_legend_handles_labels() for ax in ax_list])
-        ax_list[0].legend(handles=handles, labels=labels, loc=loc, prop=DataPlot.legend_font)
 
     @staticmethod
     def init_canvas(n_row: int, n_col: int, figsize_x: float, figsize_y: float, sub_adj: Tuple[float] = (0.19,0.13,0.97,0.97,0.2,0.2), **kwargs) -> Tuple[matplotlib.figure.Figure, matplotlib.axes.Axes]:

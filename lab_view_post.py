@@ -73,12 +73,6 @@ class LabViewPost(DataPlot):
         if return_handlers:
             return handlers
 
-    def df_xx_xy():
-        pass
-
-    def freq_dep():
-        pass
-
     @staticmethod
     def gen_iter_appen(num: int) -> iter:
         """
