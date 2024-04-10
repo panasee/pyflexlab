@@ -170,8 +170,6 @@ class DataPlot(DataProcess):
         custom_unit : dict
             defined if the unit is not the default one(uA, V), the format is {"I":"uA", "V":"mV", "R":"mOhm"}
         """
-        ##TODO##: merge legend
-
         # assign and merge the plotting parameters
         self.params.set_param_dict(0, label=r"V_w")
         self.params.set_param_dict(1, label=r"V_{2w}")
