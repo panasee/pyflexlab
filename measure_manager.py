@@ -11,11 +11,24 @@ from pymeasure.instruments.oxfordinstruments import ITC503
 import pyvisa
 import pandas as pd
 import matplotlib.pyplot as plt
+from pathlib import Path
+import re
 
 
 from common.file_organizer import FileOrganizer
 from common.data_plot import DataPlot
+from common.constants import factor
 
+
+def print_help_if_needed(func: callable) -> callable:
+    """decorator used to print the help message if the first argument is '-h'"""
+    def wrapper(self,measurename_all, *var_tuple, **kwargs):
+        if var_tuple[0] == "-h":
+            measure_name,_ = FileOrganizer.measurename_decom(measurename_all)
+            print(FileOrganizer.query_namestr(measure_name))
+            return None
+        return func(self, measurename_all,*var_tuple, **kwargs)
+    return wrapper
 
 class MeasureManager(FileOrganizer):
     """This class is a subclass of FileOrganizer and is responsible for managing the measure-related folders and data"""
@@ -26,16 +39,6 @@ class MeasureManager(FileOrganizer):
         self.instrs = {}
         # load params for plotting in measurement
         DataPlot.load_settings(False, False)
-
-    @staticmethod
-    def print_help_if_needed(func: callable) -> callable:
-        def wrapper(self,measurename_all, *var_tuple, **kwargs):
-            if var_tuple[0] == "-h":
-                measure_name, = FileOrganizer.measurename_decom(measurename_all)
-                print(FileOrganizer.query_namestr(measure_name))
-                return
-            return func(self, measurename_all,*var_tuple, **kwargs)
-        return wrapper
 
     def load_SR830(self, *addresses: List[str]) -> None:
         """
@@ -59,22 +62,99 @@ class MeasureManager(FileOrganizer):
     
     def setup_SR830(self) -> None:
         """
-        setup the SR830 instruments using pre-stored setups here
+        setup the SR830 instruments using pre-stored setups here, this function will not fully reset the instruments, only overwrite the specific settings here, other settings will all be reserved
         """
         for instr in self.instrs["sr830"]:
             instr.filter_slope = 24
             instr.time_constant = 0.3
             instr.input_config = "A-B"
             instr.input_coupling = "AC"
+            instr.sine_voltage = 0
 
     @print_help_if_needed
-    def measure_RT_SR830(self, measurename_all, *var_tuple):
-        pass
+    def measure_RT_SR830_ITC503(self, measurename_all, *var_tuple, resist: float) -> None:
+        """
+        Measure the Resist-Temperature relation using SR830 as both meter and source and store the data in the corresponding file(meters need to be loaded before calling this function, and the first is the source)
+
+        Args:
+            measurename_all (str): the full name of the measurement
+            var_tuple (Tuple): the variables of the measurement, use "-h" to see the available options
+            resist (float): the resistance for the source, used only to calculate corresponding voltage
+        """
+        file_path = self.get_filepath(measurename_all,*var_tuple)
+        self.add_measurement(measurename_all)
+        curr = MeasureManager.split_no_str(var_tuple[0])
+        curr = factor(curr[1], "to_SI") * curr[0] # [A]
+        print(f"Filename is: {file_path.name}")
+        print(f"Curr: {curr} A")
+        print(f"estimated T range: {var_tuple[7]}-{var_tuple[8]} K")
+        measure_delay = 0.5 # [s]
+        frequency = 51.637 # [Hz]
+        volt = curr * resist # [V]
+        conversion_T = 5 # [K], the temperature for changing between pot_low and pot_high
+
+        self.setup_SR830()
+        itc503 = self.instrs["itc503"]
+        meter1 = self.instrs["sr830"][0]
+        meter2 = self.instrs["sr830"][1]
+        print("====================")
+        print(f"The first meter is {meter1.adapter}")
+        print(f"Measuring {meter1.harmonic}-order signal")
+        print("====================")
+        print(f"The second meter is {meter2.adapter}")
+        print(f"Measuring {meter2.harmonic}-order signal")
+        print("====================")
+
+        # increase voltage 0.02V/s to the needed value
+        print(f"increasing voltage to targeted value {volt} V")
+        amp = np.arange(0, volt, 0.01)
+        for v in amp:
+            meter1.sine_voltage = v
+            time.sleep(0.5)
+        print("voltage reached, start measurement")
+
+        fig, ax = DataPlot.init_canvas(1,2,10,6)
+        phi = [i.twinx() for i in ax]
+        meter1.reference_source = "Internal"
+        meter1.frequency = frequency
+        tmp_df = pd.DataFrame(columns=["pot_low","pot_high","X1","Y1","R1","phi1","X2","Y2","R2","phi2"])
+        try:
+            count = 0
+            while True:
+                count += 1
+                time.sleep(measure_delay)
+                list1 = meter1.snap("X","Y","R","THETA")
+                list2 = meter2.snap("X","Y","R","THETA")
+                temp = [itc503.temperatures["pot_low"], itc503.temperatures["pot_high"]]
+                list_tot = temp + list1 + list2
+                tmp_df.loc[len(tmp_df)] = list_tot
+
+                if var_tuple[-3] > conversion_T or var_tuple[-2] > conversion_T:
+                    temp_str = "pot_high"
+                else:
+                    temp_str = "pot_low"
+                ax[0].plot(tmp_df[temp_str],tmp_df["X1"],label="X1")
+                ax[0].plot(tmp_df[temp_str],tmp_df["Y1"],label="Y1")
+                phi[0].plot(tmp_df[temp_str],tmp_df["phi1"],label="phi1")
+                ax[0].legend()
+                ax[1].plot(tmp_df[temp_str],tmp_df["X2"],label="X2")
+                ax[1].plot(tmp_df[temp_str],tmp_df["Y2"],label="Y2")
+                phi[1].plot(tmp_df[temp_str],tmp_df["phi2"],label="phi2")
+                ax[1].legend()
+                plt.draw()
+                if count % 10 == 0:
+                    tmp_df.to_csv(file_path, index=False)
+        except KeyboardInterrupt:
+            print("Measurement interrupted")
+        finally:
+            tmp_df.to_csv(file_path, index=False)
+            meter1.sine_voltage = 0
+                
 
     @print_help_if_needed
     def measure_nonlinear_SR830(self,measurename_all, *var_tuple, tmpfolder:str = None, source : Literal["sr830", "6221"]) -> None:
         """
-        conduct the nonlinear measurement using SR830 and store the data in the corresponding file
+        conduct the 1-pair nonlinear measurement using 2 SR830 meters and store the data in the corresponding file. Using first meter to measure 2w signal and also as the source if appoint SR830 as source. (meters need to be loaded before calling this function)
 
         Args:
             measurename_all (str): the full name of the measurement
@@ -84,6 +164,7 @@ class MeasureManager(FileOrganizer):
         """
         file_path = self.get_filepath(measurename_all,*var_tuple, tmpfolder)
         file_path.parent.mkdir(parents=True, exist_ok=True)
+        self.add_measurement(measurename_all)
         print(f"Filename is: {file_path.name}")
         print(f"Max Curr: {var_tuple[0]/var_tuple[1]} A")
         print(f"steps: {var_tuple[2]-1}")
@@ -106,21 +187,27 @@ class MeasureManager(FileOrganizer):
         if source == "sr830":
             meter_2w.reference_source = "Internal"
             meter_2w.frequency = freq
-            for i, v in enumerate(amp):
-                meter_2w.sine_voltage = v
-                time.sleep(measure_delay)
-                list_2w = meter_2w.snap("X","Y","R","THETA")
-                list_1w = meter_1w.snap("X","Y","R","THETA")
-                list_tot = [v/resist] + list_2w + list_1w
-                tmp_df.loc[len(tmp_df)] = list_tot
-                ax[0].plot(tmp_df["curr"],tmp_df["Y_2w"],label="2w")
-                phi[0].plot(tmp_df["curr"],tmp_df["phi_2w"],label="2w")
-                ax[1].plot(tmp_df["curr"],tmp_df["R_1w"],label="1w")
-                phi[1].plot(tmp_df["curr"],tmp_df["phi_1w"],label="1w")
-                plt.draw()
-                if i % 30 == 0:
-                    tmp_df.to_csv(file_path, index=False)
-            tmp_df.to_csv(file_path, index=False)
+            try:
+                for i, v in enumerate(amp):
+                    meter_2w.sine_voltage = v
+                    time.sleep(measure_delay)
+                    list_2w = meter_2w.snap("X","Y","R","THETA")
+                    list_1w = meter_1w.snap("X","Y","R","THETA")
+                    list_tot = [v/resist] + list_2w + list_1w
+                    tmp_df.loc[len(tmp_df)] = list_tot
+                    ax[0].plot(tmp_df["curr"],tmp_df["Y_2w"],label="2w")
+                    phi[0].plot(tmp_df["curr"],tmp_df["phi_2w"],label="2w")
+                    ax[1].plot(tmp_df["curr"],tmp_df["R_1w"],label="1w")
+                    phi[1].plot(tmp_df["curr"],tmp_df["phi_1w"],label="1w")
+                    plt.draw()
+                    if i % 10 == 0:
+                        tmp_df.to_csv(file_path, index=False)
+            except KeyboardInterrupt:
+                print("Measurement interrupted")
+            finally:
+                tmp_df.to_csv(file_path, index=False)
+                meter_2w.sine_voltage = 0
+
         elif source == "6221":
             ##TODO: add the 6221 source##
             pass
@@ -132,6 +219,36 @@ class MeasureManager(FileOrganizer):
         """
         return pyvisa.ResourceManager().list_resources()
 
+    @staticmethod
+    def write_header(file_path: Path, header: str) -> None:
+        """
+        write the header to the file
+
+        Args:
+            file_path (str): the file path
+            header (str): the header to write
+        """
+        with open(file_path, "w") as f:
+            f.write(header)
+    
+    @staticmethod
+    def split_no_str(s: str) -> Tuple[float, str]:
+        """
+        split the string into the string part and the float part.
+
+        Args:
+            s (str): the string to split
+
+        Returns:
+            Tuple[float,str]: the string part and the integer part
+        """
+        match = re.match(r"([0-9.]+)([a-zA-Z]+)", s, re.I)
+
+        if match:
+            items = match.groups()
+            return float(items[0]), items[1]
+        else:
+            return None, None
 
 
 

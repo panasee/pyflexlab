@@ -16,7 +16,7 @@ default_plot_dict = {"color":colors.Genshin["Nilou"][0], "linewidth":1, "linesty
 
 def factor(unit:str, mode: str = "from_SI"):
     """
-    Transform the SI unit to targeted unit.
+    Transform the SI unit to targeted unit or in the reverse order.
 
     Args:
     unit: str

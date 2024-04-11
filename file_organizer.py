@@ -190,32 +190,30 @@ class FileOrganizer:
         """
         (self.out_database_dir_proj / folder_name).mkdir(exist_ok=True)
 
-    def add_measurement(self, measure_name: str) -> None:
+    def add_measurement(self, measurename_all: str) -> None:
         """
         Add a measurement to the project record file.
 
         Args:
             measure_name: str
                 The name of the measurement(not with subcat) to be added, preferred to be one of current measurements, if not then use “add_measurement_type” to add a new measurement type first
-            measure_paras: Tuple[int, str, float]
-                a tuple containing all parameters for the measurement
         """
-
+        measurename_main, _ = FileOrganizer.measurename_decom(measurename_all)
         # first add it into the project record file
-        if measure_name in FileOrganizer.measure_types_json:
-            if measure_name in FileOrganizer.proj_rec_json[self.proj_name]["measurements"]:
-                print(f"{measure_name} is already in the project record file.")
+        if measurename_main in FileOrganizer.measure_types_json:
+            if measurename_main in FileOrganizer.proj_rec_json[self.proj_name]["measurements"]:
+                print(f"{measurename_main} is already in the project record file.")
                 return
-            FileOrganizer.proj_rec_json[self.proj_name]["measurements"].append(measure_name)
+            FileOrganizer.proj_rec_json[self.proj_name]["measurements"].append(measurename_main)
             FileOrganizer.proj_rec_json[self.proj_name]["last_modified"] = today.strftime("%Y-%m-%d")
-            print(f"{measure_name} has been added to the project record file.")
+            print(f"{measurename_main} has been added to the project record file.")
         else:
-            print(f"{measure_name} is not in the measure type file, please add it first.")
+            print(f"{measurename_main} is not in the measure type file, please add it first.")
             return
 
         # add the measurement folder if not exists
-        self.create_folder(measure_name)
-        print(f"{measure_name} folder has been created in the project folder.")
+        self.create_folder(measurename_main)
+        print(f"{measurename_main} folder has been created in the project folder.")
         # sync the project record file
         FileOrganizer._sync_json("proj_rec")
 
