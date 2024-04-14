@@ -8,7 +8,6 @@ import matplotlib
 import matplotlib.pyplot as plt
 import pandas as pd
 from common.file_organizer import FileOrganizer
-from common.measure_manager import MeasureManager
 import common.pltconfig.color_preset as colors
 from common.constants import cm_to_inch, factor, default_plot_dict
 from datetime import datetime
@@ -86,20 +85,24 @@ class DataProcess(FileOrganizer):
 
         return pd.DataFrame(result)
     
-    def symmetrize(self, measurename_all: str, index_col: any, obj_col: List[any], neutral_point: float = 0) -> Tuple[pd.DataFrame, pd.DataFrame]:
+    def symmetrize(self, measurename_all: str | pd.DataFrame, index_col: any, obj_col: List[any], neutral_point: float = 0) -> Tuple[pd.DataFrame, pd.DataFrame]:
         """
-        do symmetrization to the dataframe and save the symmetric and antisymmetric parts in the original dataframe as new columns, note that this function is dealing with only one line of data, meaning the positive and negative parts are to be combined first (no need to sort)
+        do symmetrization to the dataframe and return the symmetric and antisymmetric parts as new DataFrames, note that this function is dealing with only one line of data, meaning the positive and negative parts are to be combined first (no need to sort)
 
         Args:
-        - measurename_all: the full name of the measurement
+        - measurename_all: the full name of the measurement or a external dataframe
         - index_col: the name of the index column for symmetrization
         - obj_col: a list of the name(s) of the objective column for symmetrization
         - neutral_point: the neutral point for symmetrization
         """
-        measurename_main, _ = FileOrganizer.measurename_decom(measurename_all)
+        if isinstance(measurename_all, str):
+            measurename_main, _ = FileOrganizer.measurename_decom(measurename_all)
+            tmp_df = self.dfs[measurename_main]
+        elif isinstance(measurename_all, pd.DataFrame):
+            tmp_df = measurename_all
         # Separate the negative and positive parts for interpolation
-        df_negative = self.dfs[measurename_main][self.dfs[measurename_main][index_col] < neutral_point][[index_col]+obj_col].copy()
-        df_positive = self.dfs[measurename_main][self.dfs[measurename_main][index_col] > neutral_point][[index_col]+obj_col].copy()
+        df_negative = tmp_df[tmp_df[index_col] < neutral_point][[index_col]+obj_col].copy()
+        df_positive = tmp_df[tmp_df[index_col] > neutral_point][[index_col]+obj_col].copy()
         # For symmetrization, we need to flip the negative part and make positions positive
         df_negative[index_col] = -df_negative[index_col]
         # sort them
@@ -115,7 +118,7 @@ class DataProcess(FileOrganizer):
         antisym = (pos_interpolated - neg_interpolated) / 2
         antisym_df = pd.DataFrame(np.transpose(np.append([index_union], antisym, axis=0)), columns=[index_col] + [f"{obj_col[i]}antisym" for i in range(len(obj_col))])
 
-        return sym_df, antisym_df
+        return pd.concat([sym_df, antisym_df], axis = 1)
 
     def compare(self, measurename_main: str, columns: List[str], plot_dict: dict = default_plot_dict) -> None:
         ##TODO##

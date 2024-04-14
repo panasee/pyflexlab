@@ -8,7 +8,6 @@ import matplotlib
 import matplotlib.pyplot as plt
 import copy
 from common.file_organizer import FileOrganizer, script_base_dir
-from common.measure_manager import MeasureManager
 import common.pltconfig.color_preset as colors
 from common.constants import cm_to_inch, factor, default_plot_dict
 from common.data_process import DataProcess
@@ -181,7 +180,7 @@ class DataPlot(DataProcess):
         return_handlers = False
 
         if reverse_V[0]:
-            nonlinear["Vw"] = -nonlinear["Vw"]
+            nonlinear["V1w"] = -nonlinear["V1w"]
         if reverse_V[1]:
             nonlinear["V2w"] = -nonlinear["V2w"]
 
@@ -219,10 +218,10 @@ class DataPlot(DataProcess):
             #ax.set_xlim(-0.00003,None)
         if plot_order[0]:
             if in_ohm:
-                line_v1w = ax_1w.plot(nonlinear["curr"]*factor_i, nonlinear["Vw"]*factor_r/nonlinear["curr"], **self.params.params_list[0])
+                line_v1w = ax_1w.plot(nonlinear["curr"]*factor_i, nonlinear["V1w"]*factor_r/nonlinear["curr"], **self.params.params_list[0])
                 ax_1w.set_ylabel("$\\mathrm{R^\\omega}$"+f"({unit_r_print})")
             else:
-                line_v1w = ax_1w.plot(nonlinear["curr"]*factor_i, nonlinear["Vw"]*factor_v, **self.params.params_list[0])
+                line_v1w = ax_1w.plot(nonlinear["curr"]*factor_i, nonlinear["V1w"]*factor_v, **self.params.params_list[0])
                 ax_1w.set_ylabel("$\\mathrm{V^\\omega}$"+f"({unit_v_print})")
 
             line_v1w_phi = ax_1w_phi.plot(nonlinear["curr"]*factor_i, nonlinear["phi1w"], **self.params.params_list[3])

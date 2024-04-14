@@ -52,7 +52,7 @@ class LabViewPost(DataPlot):
         # here the self.dfs has already been updated, the return is just for possible other usage
         return self.dfs["nonlinear"]
 
-    def nonlinear_plot_labview(self, *var_tuple, tmpfolder:str = None, measurename_sub: str = "1-pair", handlers: Tuple[matplotlib.axes.Axes] = None, units: dict = None, **kwargs) -> matplotlib.axes.Axes | None:
+    def nonlinear_plot_labview(self, *var_tuple, tmpfolder:str = None, measurename_sub: str = "1-pair", handlers: Tuple[matplotlib.axes.Axes] = None, units: dict = None, lin_antisym: bool =False, harmo_sym:bool = False, position_I: int = None, **kwargs) -> matplotlib.axes.Axes | None:
         """
         Plot the nonlinear data
         
@@ -67,7 +67,7 @@ class LabViewPost(DataPlot):
         if units is not None:
             self.set_unit(units)
 
-        self.nonlinear_df_labview(*var_tuple, tmpfolder=tmpfolder, measurename_sub=measurename_sub)
+        self.nonlinear_df_labview(*var_tuple, tmpfolder=tmpfolder, measurename_sub=measurename_sub, lin_antisym=lin_antisym, harmo_sym=harmo_sym, position_I=position_I)
         self.df_plot_nonlinear(handlers = handlers, **kwargs)
 
         if return_handlers:

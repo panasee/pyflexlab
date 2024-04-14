@@ -13,11 +13,14 @@ import pandas as pd
 import matplotlib.pyplot as plt
 from pathlib import Path
 import re
+import qcodes as qc
+from qcodes.instrument_drivers.oxford import OxfordMercuryiPS
 
 
 from common.file_organizer import FileOrganizer
 from common.data_plot import DataPlot
 from common.constants import factor
+from common.mercury_itc_driver import MercuryITC
 
 
 def print_help_if_needed(func: callable) -> callable:
@@ -42,7 +45,7 @@ class MeasureManager(FileOrganizer):
 
     def load_SR830(self, *addresses: List[str]) -> None:
         """
-        load SR830 instruments according the addresses, store them in self.sr830 in corresponding order
+        load SR830 instruments according the addresses, store them in self.instrs["sr830"] in corresponding order
 
         Args:
             addresses (List[str]): the addresses of the SR830 instruments (take care of the order)
@@ -53,13 +56,26 @@ class MeasureManager(FileOrganizer):
 
     def load_ITC503(self, gpib_up: str, gpib_down: str) -> None:
         """
-        load ITC503 instruments according the addresses, store them in self.itc503 in corresponding order
+        load ITC503 instruments according to the addresses, store them in self.instrs["itc503"] in corresponding order
 
         Args:
             addresses (List[str]): the addresses of the ITC503 instruments (take care of the order)
         """
         self.instrs["itc503"] = ITCs(gpib_up, gpib_down)
-    
+
+    def load_mercury_ips(self, address: str = "TCPIP0::10.101.30.192::7020::SOCKET") -> None:
+        """
+        load Mercury iPS instrument according to the address, store it in self.instrs["mercury_ips"]
+        """
+        self.instrs["mercury_ips"] = OxfordMercuryiPS("mips", address)
+
+    def load_mercury_ips(self, address: str = "TCPIP0::10.101.30.192::7020::SOCKET") -> None:
+        """
+        load Mercury iPS instrument according to the address, store it in self.instrs["mercury_ips"]
+        """
+        self.instrs["mercury_itc"] = MercuryITC(address)
+        print(self.instrs["mercury_itc"].modules)
+     
     def setup_SR830(self) -> None:
         """
         setup the SR830 instruments using pre-stored setups here, this function will not fully reset the instruments, only overwrite the specific settings here, other settings will all be reserved
@@ -69,6 +85,7 @@ class MeasureManager(FileOrganizer):
             instr.time_constant = 0.3
             instr.input_config = "A-B"
             instr.input_coupling = "AC"
+            instr.input_grounding = "Float"
             instr.sine_voltage = 0
 
     @print_help_if_needed
