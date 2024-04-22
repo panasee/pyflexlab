@@ -8,12 +8,14 @@ import time
 import numpy as np
 from pymeasure.instruments.srs import SR830
 from pymeasure.instruments.oxfordinstruments import ITC503
+from pymeasure.instruments.keithley import Keithley2400
+from pymeasure.instruments.keithley import Keithley6221
 import pyvisa
 import pandas as pd
 import matplotlib.pyplot as plt
 from pathlib import Path
 import re
-import qcodes as qc
+#import qcodes as qc
 from qcodes.instrument_drivers.oxford import OxfordMercuryiPS
 
 
@@ -54,6 +56,18 @@ class MeasureManager(FileOrganizer):
         for addr in addresses:
             self.instrs["sr830"].append(SR830(addr))
 
+    def load_2400(self, address: str) -> None:
+        """
+        load Keithley 2400 instrument according to the address, store it in self.instrs["2400"]
+        """
+        self.instrs["2400"] = Keithley2400(address)
+
+    def load_6221(self, address: str) -> None:
+        """
+        load Keithley 6221 instrument according to the address, store it in self.instrs["6221"]
+        """
+        self.instrs["6221"] = Keithley6221(address)
+
     def load_ITC503(self, gpib_up: str, gpib_down: str) -> None:
         """
         load ITC503 instruments according to the addresses, store them in self.instrs["itc503"] in corresponding order
@@ -69,7 +83,7 @@ class MeasureManager(FileOrganizer):
         """
         self.instrs["mercury_ips"] = OxfordMercuryiPS("mips", address)
 
-    def load_mercury_ips(self, address: str = "TCPIP0::10.101.30.192::7020::SOCKET") -> None:
+    def load_mercury_ipc(self, address: str = "TCPIP0::10.101.30.192::7020::SOCKET") -> None:
         """
         load Mercury iPS instrument according to the address, store it in self.instrs["mercury_ips"]
         """
@@ -87,6 +101,51 @@ class MeasureManager(FileOrganizer):
             instr.input_coupling = "AC"
             instr.input_grounding = "Float"
             instr.sine_voltage = 0
+
+    @print_help_if_needed
+    def test_contact_2400(self, v_max:float = 1E-3, v_step:float = 1E-5, curr_compliance: float = 1E-6, mode: Literal["0-max-0","0--max-max-0"] = "0-max-0") -> None:
+        """
+        Measure the IV curve using Keithley 2400 to test the contacts. No data will be saved. (meter need to be loaded before calling this function)
+
+        Args:
+            v_max (float): the maximum voltage to apply
+            v_step (float): the step of the voltage
+            curr_compliance (float): the current compliance
+            mode (Literal["0-max-0","0--max-max-0"]): the mode of the measurement
+        """
+        print(f"Max Voltage: {v_max} V")
+        print(f"Voltage Step: {v_step} V")
+        print(f"Max Curr: {curr_compliance} A")
+        print(f"Meter: {self.instrs['2400'].adapter}")
+        measure_delay = 0.3 # [s]
+        fig, ax = DataPlot.init_canvas(1,2,10,6)
+        instr_2400 = self.instrs["2400"]
+        instr_2400.apply_voltage(compliance_current=curr_compliance)
+        instr_2400.source_voltage = 0
+        instr_2400.enable_source()
+        instr_2400.measure_current()
+
+        v_array = np.arange(0, v_max, v_step)
+        if mode == "0-max-0":
+            v_array = np.concatenate((v_array, v_array[::-1]))
+        elif mode == "0--max-max-0":
+            v_array = np.concatenate((-v_array[::-1], v_array, v_array[::-1]))
+        i_array = np.zeros_like(v_array)
+
+        for ii,v in enumerate(v_array):
+            instr_2400.ramp_to_voltage(v,steps=10,pause=0.02)
+            time.sleep(measure_delay)
+            i_array[ii] = instr_2400.current
+
+            ax[0].plot(v_array[:ii+1],i_array[:ii+1])
+            ax[1].plot(v_array[:ii+1],v_array[:ii+1]/i_array[:ii+1],label="V/I")
+            ax[1].plot(v_array[:ii+1],np.diff(v_array[:ii+1])/np.diff(i_array[:ii+1]),label="dV/dI")
+            ax[1].legend()
+            plt.draw()
+        instr_2400.shutdown()
+            
+
+
 
     @print_help_if_needed
     def measure_RT_SR830_ITC503(self, measurename_all, *var_tuple, resist: float) -> None:
@@ -204,30 +263,69 @@ class MeasureManager(FileOrganizer):
         if source == "sr830":
             meter_2w.reference_source = "Internal"
             meter_2w.frequency = freq
-            try:
-                for i, v in enumerate(amp):
-                    meter_2w.sine_voltage = v
-                    time.sleep(measure_delay)
-                    list_2w = meter_2w.snap("X","Y","R","THETA")
-                    list_1w = meter_1w.snap("X","Y","R","THETA")
-                    list_tot = [v/resist] + list_2w + list_1w
-                    tmp_df.loc[len(tmp_df)] = list_tot
-                    ax[0].plot(tmp_df["curr"],tmp_df["Y_2w"],label="2w")
-                    phi[0].plot(tmp_df["curr"],tmp_df["phi_2w"],label="2w")
-                    ax[1].plot(tmp_df["curr"],tmp_df["R_1w"],label="1w")
-                    phi[1].plot(tmp_df["curr"],tmp_df["phi_1w"],label="1w")
-                    plt.draw()
-                    if i % 10 == 0:
-                        tmp_df.to_csv(file_path, index=False)
-            except KeyboardInterrupt:
-                print("Measurement interrupted")
-            finally:
-                tmp_df.to_csv(file_path, index=False)
-                meter_2w.sine_voltage = 0
-
         elif source == "6221":
-            ##TODO: add the 6221 source##
-            pass
+            source_6221 = self.instrs["6221"]
+            source_6221.clear()
+            source_6221.waveform_function = "sine"
+            source_6221.waveform_amplitude = 0
+            source_6221.waveform_offset = 0
+            source_6221.source_compliance = amp[-1]+0.1
+            source_6221.waveform_frequency = freq
+            source_6221.waveform_ranging = "best"
+            source_6221.waveform_duration_set_infinity()
+        try:
+            for i, v in enumerate(amp):
+                if source == "sr830":
+                    meter_2w.sine_voltage = v
+                elif source == "6221":
+                    source_6221.waveform_amplitude = v
+                time.sleep(measure_delay)
+                list_2w = meter_2w.snap("X","Y","R","THETA")
+                list_1w = meter_1w.snap("X","Y","R","THETA")
+                list_tot = [v/resist] + list_2w + list_1w
+                tmp_df.loc[len(tmp_df)] = list_tot
+                ax[0].plot(tmp_df["curr"],tmp_df["Y_2w"],label="2w")
+                phi[0].plot(tmp_df["curr"],tmp_df["phi_2w"],label="2w")
+                ax[1].plot(tmp_df["curr"],tmp_df["R_1w"],label="1w")
+                phi[1].plot(tmp_df["curr"],tmp_df["phi_1w"],label="1w")
+                plt.draw()
+                if i % 10 == 0:
+                    tmp_df.to_csv(file_path, index=False)
+        except KeyboardInterrupt:
+                print("Measurement interrupted")
+        finally:
+                tmp_df.to_csv(file_path, index=False)
+                if source == "sr830":
+                    meter_2w.sine_voltage = 0
+                if source == "6221":
+                    source_6221.waveform_amplitude = 0
+
+
+#=============
+#        if source == "sr830":
+#            meter_2w.reference_source = "Internal"
+#            meter_2w.frequency = freq
+#            try:
+#                for i, v in enumerate(amp):
+#                    meter_2w.sine_voltage = v
+#                    time.sleep(measure_delay)
+#                    list_2w = meter_2w.snap("X","Y","R","THETA")
+#                    list_1w = meter_1w.snap("X","Y","R","THETA")
+#                    list_tot = [v/resist] + list_2w + list_1w
+#                    tmp_df.loc[len(tmp_df)] = list_tot
+#                    ax[0].plot(tmp_df["curr"],tmp_df["Y_2w"],label="2w")
+#                    phi[0].plot(tmp_df["curr"],tmp_df["phi_2w"],label="2w")
+#                    ax[1].plot(tmp_df["curr"],tmp_df["R_1w"],label="1w")
+#                    phi[1].plot(tmp_df["curr"],tmp_df["phi_1w"],label="1w")
+#                    plt.draw()
+#                    if i % 10 == 0:
+#                        tmp_df.to_csv(file_path, index=False)
+#            except KeyboardInterrupt:
+#                print("Measurement interrupted")
+#            finally:
+#                tmp_df.to_csv(file_path, index=False)
+#                meter_2w.sine_voltage = 0
+
 
     @staticmethod
     def get_visa_resources() -> Tuple[str]:
@@ -245,7 +343,7 @@ class MeasureManager(FileOrganizer):
             file_path (str): the file path
             header (str): the header to write
         """
-        with open(file_path, "w") as f:
+        with open(file_path, "w", encoding="utf-8") as f:
             f.write(header)
     
     @staticmethod
