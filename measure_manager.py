@@ -102,6 +102,20 @@ class MeasureManager(FileOrganizer):
             instr.input_grounding = "Float"
             instr.sine_voltage = 0
 
+
+    def setup_6221(self) -> None:
+        """
+        setup the Keithley 6221 instruments, overwrite the specific settings here, other settings will all be reserved. Note that the waveform will not begin here
+        """
+        source_6221 = self.instrs["6221"]
+        source_6221.clear()
+        source_6221.waveform_function = "sine"
+        source_6221.waveform_amplitude = 1E-11 # minimum value is 2E-12
+        source_6221.waveform_offset = 0
+        source_6221.waveform_ranging = "best"
+        source_6221.waveform_duration_set_infinity()
+
+
     @print_help_if_needed
     def test_contact_2400(self, v_max:float = 1E-3, v_step:float = 1E-5, curr_compliance: float = 1E-6, mode: Literal["0-max-0","0--max-max-0"] = "0-max-0") -> None:
         """
@@ -265,20 +279,18 @@ class MeasureManager(FileOrganizer):
             meter_2w.frequency = freq
         elif source == "6221":
             source_6221 = self.instrs["6221"]
-            source_6221.clear()
-            source_6221.waveform_function = "sine"
-            source_6221.waveform_amplitude = 0
-            source_6221.waveform_offset = 0
+            self.setup_6221()
             source_6221.source_compliance = amp[-1]+0.1
             source_6221.waveform_frequency = freq
-            source_6221.waveform_ranging = "best"
-            source_6221.waveform_duration_set_infinity()
         try:
             for i, v in enumerate(amp):
                 if source == "sr830":
                     meter_2w.sine_voltage = v
                 elif source == "6221":
+                    source_6221.waveform_abort()
                     source_6221.waveform_amplitude = v
+                    source_6221.waveform_arm()
+                    source_6221.waveform_start()
                 time.sleep(measure_delay)
                 list_2w = meter_2w.snap("X","Y","R","THETA")
                 list_1w = meter_1w.snap("X","Y","R","THETA")
@@ -298,7 +310,7 @@ class MeasureManager(FileOrganizer):
                 if source == "sr830":
                     meter_2w.sine_voltage = 0
                 if source == "6221":
-                    source_6221.waveform_amplitude = 0
+                    source_6221.shutdown()
 
 
 #=============
