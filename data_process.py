@@ -25,7 +25,7 @@ class DataProcess(FileOrganizer):
         super().__init__(proj_name)
         self.dfs = {}
 
-    def load_dfs(self, measurename_all: str, *var_tuple, tmpfolder: str = None, cached: bool = False) -> None:
+    def load_dfs(self, measurename_all: str, *var_tuple, tmpfolder: str = None, cached: bool = False, header: Literal[None, "infer"] = "infer", skiprows: int = None) -> None:
         """
         Load a dataframe from a file, save the dataframe as a memeber variable and also return it
 
@@ -37,9 +37,9 @@ class DataProcess(FileOrganizer):
         filepath = self.get_filepath(measurename_all, *var_tuple, tmpfolder=tmpfolder)
         measurename_main, _ = FileOrganizer.measurename_decom(measurename_all)
         if not cached:
-            self.dfs[measurename_main] = pd.read_csv(filepath, sep=r'\s+', skiprows=1, header=None)
+            self.dfs[measurename_main] = pd.read_csv(filepath, sep=r'\s+', skiprows=skiprows, header=header)
         else:
-            self.dfs["cache"] = pd.read_csv(filepath, sep=r'\s+', skiprows=1, header=None)
+            self.dfs["cache"] = pd.read_csv(filepath, sep=r'\s+', skiprows=skiprows, header=header)
 
     def rename_columns(self, measurename_main: str, columns_name: dict) -> None:
         """
@@ -51,6 +51,47 @@ class DataProcess(FileOrganizer):
         self.dfs[measurename_main].rename(columns = columns_name, inplace=True)
         if "cache" in self.dfs:
             self.dfs["cache"].rename(columns = columns_name, inplace=True)
+
+    def nonlinear_load_symmetrize(self, measurename_sub:str = "1-pair", *var_tuple, tmpfolder: str = None, lin_antisym: bool = False, harmo_sym: bool = False, position_I: int = 4, inplace: bool = False) -> pd.DataFrame:
+        """
+        Process the nonlinear data, both modify the self.dfs inplace and return it as well for convenience. Could also do anti-symmetrization to 1w signal and symmetrization to 2w signal (choosable)
+        
+        Args:
+        - measurename_sub: the sub measurement name used to appoint the detailed configuration
+        - *vartuple: the arguments for the pd.read_csv function
+        - tmpfolder: the temporary folder
+        - lin_antisym: bool
+            do the anti-symmetrization to 1w signal
+        - harmo_sym: bool
+            do the symmetrization to 2w signal
+        - position_I: int
+            the position of the current in the var_tuple(start from 0), used in combination with sym/antisym labels
+        - inplace: bool
+            whether to modify the self.dfs V1w and V2w inplace or add two new columns
+        """
+        self.load_dfs(f"nonlinear__{measurename_sub}", *var_tuple, tmpfolder=tmpfolder)
+        if lin_antisym or harmo_sym:
+            var_reversed = list(var_tuple)
+            var_reversed[position_I], var_reversed[position_I+1] = var_reversed[position_I+1], var_reversed[position_I]
+            self.load_dfs(f"nonlinear__{measurename_sub}", *var_reversed, tmpfolder=tmpfolder, cached=True)
+
+        # rename_columns will rename the "cache" as well
+        if "V1w" not in self.dfs["nonlinear"].columns:
+            self.rename_columns("nonlinear", {"X_1w":"V1w"})
+        if "V2w" not in self.dfs["nonlinear"].columns:
+            self.rename_columns("nonlinear", {"Y_2w":"V2w"})
+        if lin_antisym:
+            if not inplace:
+                self.dfs["nonlinear"]["V1w_antisym"] = (self.dfs["nonlinear"]["V1w"] - self.dfs["cache"]["V1w"])/2
+            if inplace:
+                self.dfs["nonlinear"]["V1w"] = (self.dfs["nonlinear"]["V1w"] - self.dfs["cache"]["V1w"])/2
+        if harmo_sym:
+            if not inplace:
+                self.dfs["nonlinear"]["V2w_sym"] = (self.dfs["nonlinear"]["V2w"] + self.dfs["cache"]["V2w"])/2
+            if inplace:
+                self.dfs["nonlinear"]["V2w"] = (self.dfs["nonlinear"]["V2w"] + self.dfs["cache"]["V2w"])/2
+        # here the self.dfs has already been updated, the return is just for possible other usage
+        return self.dfs["nonlinear"]
 
     @staticmethod
     def merge_with_tolerance(df1: pd.DataFrame, df2: pd.DataFrame, on: any, tolerance: float, suffixes: Tuple[str] = ("_1", "_2")) -> pd.DataFrame:

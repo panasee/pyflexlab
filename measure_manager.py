@@ -35,7 +35,7 @@ def print_help_if_needed(func: callable) -> callable:
         return func(self, measurename_all,*var_tuple, **kwargs)
     return wrapper
 
-class MeasureManager(FileOrganizer):
+class MeasureManager(DataPlot):
     """This class is a subclass of FileOrganizer and is responsible for managing the measure-related folders and data"""
 
     def __init__(self, proj_name: str) -> None:
@@ -45,7 +45,7 @@ class MeasureManager(FileOrganizer):
         # load params for plotting in measurement
         DataPlot.load_settings(False, False)
 
-    def load_SR830(self, *addresses: List[str]) -> None:
+    def load_SR830(self, *addresses: Tuple[str]) -> None:
         """
         load SR830 instruments according the addresses, store them in self.instrs["sr830"] in corresponding order
 
@@ -97,10 +97,12 @@ class MeasureManager(FileOrganizer):
         for instr in self.instrs["sr830"]:
             instr.filter_slope = 24
             instr.time_constant = 0.3
-            instr.input_config = "A-B"
+            instr.input_config = "A - B"
             instr.input_coupling = "AC"
             instr.input_grounding = "Float"
             instr.sine_voltage = 0
+            instr.input_notch_config = "None"
+            instr.reference_source = "External"
 
 
     def setup_6221(self) -> None:
@@ -110,13 +112,16 @@ class MeasureManager(FileOrganizer):
         source_6221 = self.instrs["6221"]
         source_6221.clear()
         source_6221.waveform_function = "sine"
-        source_6221.waveform_amplitude = 1E-11 # minimum value is 2E-12
+        source_6221.waveform_amplitude = 0
         source_6221.waveform_offset = 0
-        source_6221.waveform_ranging = "best"
+        source_6221.waveform_ranging = "fixed"
+        source_6221.source_auto_range = False
+        source_6221.waveform_use_phasemarker = True
+        source_6221.waveform_phasemarker_line = 3
         source_6221.waveform_duration_set_infinity()
+        source_6221.output_low_grounded = True
 
 
-    @print_help_if_needed
     def test_contact_2400(self, v_max:float = 1E-3, v_step:float = 1E-5, curr_compliance: float = 1E-6, mode: Literal["0-max-0","0--max-max-0"] = "0-max-0") -> None:
         """
         Measure the IV curve using Keithley 2400 to test the contacts. No data will be saved. (meter need to be loaded before calling this function)
@@ -153,7 +158,7 @@ class MeasureManager(FileOrganizer):
 
             ax[0].plot(v_array[:ii+1],i_array[:ii+1])
             ax[1].plot(v_array[:ii+1],v_array[:ii+1]/i_array[:ii+1],label="V/I")
-            ax[1].plot(v_array[:ii+1],np.diff(v_array[:ii+1])/np.diff(i_array[:ii+1]),label="dV/dI")
+            ax[1].plot(v_array[1:ii+1],np.diff(v_array[:ii+1])/np.diff(i_array[:ii+1]),label="dV/dI")
             ax[1].legend()
             plt.draw()
         instr_2400.shutdown()
@@ -203,7 +208,7 @@ class MeasureManager(FileOrganizer):
             time.sleep(0.5)
         print("voltage reached, start measurement")
 
-        fig, ax = DataPlot.init_canvas(1,2,10,6)
+        fig, ax = DataPlot.init_canvas(1,2,15,10)
         phi = [i.twinx() for i in ax]
         meter1.reference_source = "Internal"
         meter1.frequency = frequency
@@ -233,26 +238,27 @@ class MeasureManager(FileOrganizer):
                 ax[1].legend()
                 plt.draw()
                 if count % 10 == 0:
-                    tmp_df.to_csv(file_path, index=False)
+                    tmp_df.to_csv(file_path,sep="\t" ,index=False)
         except KeyboardInterrupt:
             print("Measurement interrupted")
         finally:
-            tmp_df.to_csv(file_path, index=False)
+            tmp_df.to_csv(file_path,sep="\t", index=False)
             meter1.sine_voltage = 0
                 
 
     @print_help_if_needed
-    def measure_nonlinear_SR830(self,measurename_all, *var_tuple, tmpfolder:str = None, source : Literal["sr830", "6221"]) -> None:
+    def measure_nonlinear_SR830(self,measurename_all, *var_tuple, tmpfolder:str = None, source : Literal["sr830", "6221"], tempsource: Literal["itc503","mercury_itc"], delay:int = 15) -> None:
         """
-        conduct the 1-pair nonlinear measurement using 2 SR830 meters and store the data in the corresponding file. Using first meter to measure 2w signal and also as the source if appoint SR830 as source. (meters need to be loaded before calling this function)
+        conduct the 1-pair nonlinear measurement using 2 SR830 meters and store the data in the corresponding file. Using first meter to measure 2w signal and also as the source if appoint SR830 as source. (meters need to be loaded before calling this function). When using Keithley 6221 current source, the max voltage is the compliance voltage and the resistance does not have specific meaning, just used for calculating the current.
 
         Args:
             measurename_all (str): the full name of the measurement
             var_tuple (Tuple): the variables of the measurement, use "-h" to see the available options
             tmpfolder (str): the temporary folder to store the data
             source (Literal["sr830", "6221"]): the source of the measurement
+            tempsource (Literal["itc503","mercury_itc"]): the source of the temperature
         """
-        file_path = self.get_filepath(measurename_all,*var_tuple, tmpfolder)
+        file_path = self.get_filepath(measurename_all,*var_tuple, tmpfolder=tmpfolder)
         file_path.parent.mkdir(parents=True, exist_ok=True)
         self.add_measurement(measurename_all)
         print(f"Filename is: {file_path.name}")
@@ -263,8 +269,9 @@ class MeasureManager(FileOrganizer):
         amp = np.linspace(0, var_tuple[0], var_tuple[2])
         freq = var_tuple[3]
         resist = var_tuple[1]
-        measure_delay = 3 # [s]
-        tmp_df = pd.DataFrame(columns=["curr","X_2w","Y_2w","R_2w","phi_2w","X_1w","Y_1w","R_1w","phi_1w"])
+        measure_delay = delay # [s]
+        tmp_df = pd.DataFrame(columns=["curr","X_2w","Y_2w","R_2w","phi_2w","X_1w","Y_1w","R_1w","phi_1w","T"])
+        out_range = False
 
         self.setup_SR830()
         meter_2w = self.instrs['sr830'][0]
@@ -272,72 +279,70 @@ class MeasureManager(FileOrganizer):
         meter_2w.harmonic = 2
         meter_1w.harmonic = 1
 
-        fig, ax = DataPlot.init_canvas(1,2,10,6)
+        fig, ax = DataPlot.init_canvas(1,2,15,10)
+        fig.tight_layout()
         phi = [i.twinx() for i in ax]
         if source == "sr830":
+            meter_1w.reference_source_trigger = "POS EDGE"
+            meter_2w.reference_source_trigger = "SINE"
             meter_2w.reference_source = "Internal"
             meter_2w.frequency = freq
         elif source == "6221":
             source_6221 = self.instrs["6221"]
             self.setup_6221()
             source_6221.source_compliance = amp[-1]+0.1
+            source_6221.source_range = amp[-1]/resist/0.7
+            print(f"Keithley 6221 source range is set to {amp[-1]/resist/0.7} A")
             source_6221.waveform_frequency = freq
+            meter_1w.reference_source_trigger = "POS EDGE"
+            meter_2w.reference_source_trigger = "POS EDGE"
         try:
             for i, v in enumerate(amp):
                 if source == "sr830":
                     meter_2w.sine_voltage = v
                 elif source == "6221":
                     source_6221.waveform_abort()
-                    source_6221.waveform_amplitude = v
+                    source_6221.waveform_amplitude = v/resist
                     source_6221.waveform_arm()
                     source_6221.waveform_start()
                 time.sleep(measure_delay)
+                if meter_1w.is_out_of_range():
+                    out_range = True
+                if meter_2w.is_out_of_range():
+                    out_range = True
                 list_2w = meter_2w.snap("X","Y","R","THETA")
                 list_1w = meter_1w.snap("X","Y","R","THETA")
-                list_tot = [v/resist] + list_2w + list_1w
+                if tempsource == "itc503":
+                    temp = self.instrs[tempsource].temperatures["pot_low"]
+                    if temp >= 6.9:
+                        temp = self.instrs[tempsource].temperatures["pot_high"]
+                if tempsource == "mercury_itc":
+                    ##TODO##
+                    pass
+                list_tot = [v/resist] + list_2w + list_1w + [temp]
+                print(f"curr: {list_tot[0]*1E3:.4f} mA\t 2w: {list_tot[1:5]}\t 1w: {list_tot[5:9]}\t T: {list_tot[-1]}")
                 tmp_df.loc[len(tmp_df)] = list_tot
-                ax[0].plot(tmp_df["curr"],tmp_df["Y_2w"],label="2w")
-                phi[0].plot(tmp_df["curr"],tmp_df["phi_2w"],label="2w")
-                ax[1].plot(tmp_df["curr"],tmp_df["R_1w"],label="1w")
-                phi[1].plot(tmp_df["curr"],tmp_df["phi_1w"],label="1w")
-                plt.draw()
                 if i % 10 == 0:
-                    tmp_df.to_csv(file_path, index=False)
+                    tmp_df.to_csv(file_path,sep="\t", index=False)
+            self.dfs["nonlinear"] = tmp_df.copy()
+            self.rename_columns("nonlinear", {"Y_2w":"V2w","X_1w":"V1w"})
+            self.set_unit({"I":"uA","V":"uV"})
+            self.df_plot_nonlinear(handlers=(ax[1],phi[1],ax[0],phi[0]))
+            if out_range:
+                print("out-range happened, rerun")
+                #self.measure_nonlinear_SR830(measurename_all, *var_tuple, tmpfolder=tmpfolder , source=source, tempsource=tempsource)
+            #ax[0].plot(tmp_df["curr"],tmp_df["Y_2w"],color="r",label="2w")
+            #phi[0].plot(tmp_df["curr"],tmp_df["phi_2w"],color="c",alpha=0.5,label="2w")
+            #ax[1].plot(tmp_df["curr"],tmp_df["R_1w"],color="b",label="1w")
+            #phi[1].plot(tmp_df["curr"],tmp_df["phi_1w"],color="m",alpha=0.5,label="1w")
         except KeyboardInterrupt:
-                print("Measurement interrupted")
+            print("Measurement interrupted")
         finally:
-                tmp_df.to_csv(file_path, index=False)
-                if source == "sr830":
-                    meter_2w.sine_voltage = 0
-                if source == "6221":
-                    source_6221.shutdown()
-
-
-#=============
-#        if source == "sr830":
-#            meter_2w.reference_source = "Internal"
-#            meter_2w.frequency = freq
-#            try:
-#                for i, v in enumerate(amp):
-#                    meter_2w.sine_voltage = v
-#                    time.sleep(measure_delay)
-#                    list_2w = meter_2w.snap("X","Y","R","THETA")
-#                    list_1w = meter_1w.snap("X","Y","R","THETA")
-#                    list_tot = [v/resist] + list_2w + list_1w
-#                    tmp_df.loc[len(tmp_df)] = list_tot
-#                    ax[0].plot(tmp_df["curr"],tmp_df["Y_2w"],label="2w")
-#                    phi[0].plot(tmp_df["curr"],tmp_df["phi_2w"],label="2w")
-#                    ax[1].plot(tmp_df["curr"],tmp_df["R_1w"],label="1w")
-#                    phi[1].plot(tmp_df["curr"],tmp_df["phi_1w"],label="1w")
-#                    plt.draw()
-#                    if i % 10 == 0:
-#                        tmp_df.to_csv(file_path, index=False)
-#            except KeyboardInterrupt:
-#                print("Measurement interrupted")
-#            finally:
-#                tmp_df.to_csv(file_path, index=False)
-#                meter_2w.sine_voltage = 0
-
+            tmp_df.to_csv(file_path, sep="\t", index=False)
+            if source == "sr830":
+                meter_2w.sine_voltage = 0
+            if source == "6221":
+                source_6221.shutdown()
 
     @staticmethod
     def get_visa_resources() -> Tuple[str]:
@@ -435,6 +440,23 @@ class ITCs():
             self.itc_down.temperature_setpoint = tempe
             self.itc_down.wait_for_temperature(tempe)
 
+    def ramp_to_temperature(self, itc_name: Literal["up","down"], temp, P, I, D, wait=False):
+        """
+        used to ramp the temperature of the ITCs, this method will not occupy the ITC if wait is False(default)
+        """
+        self.control_mode = ("RU",itc_name)
+        if itc_name == "up":
+            itc_here = self.itc_up
+        if itc_name == "down":
+            itc_here = self.itc_down
+        itc_here.temperature_setpoint = temp
+        itc_here.proportional_band = P
+        itc_here.integral_action_time = I
+        itc_here.derivative_action_time = D
+        itc_here.heater_gas_mode = "AM"
+        if wait:
+            itc_here.wait_for_temperature(temp)
+
     def chg_sensor(self, target:str):
         """
         used to change the sensor of the ITCs for heater control
@@ -468,7 +490,7 @@ class ITCs():
         return [self.itc_up.control_mode,self.itc_down.control_mode]
     
     @control_mode.setter
-    def control_mode(self,mode):
+    def control_mode(self,mode: Tuple[Literal["LU","RU","LL","RL"],Literal["all","up","down"]]):
         """ Sets the control mode of the ITC503. A two-element list is required. The second elecment is "all" or "up" or "down" to specify which ITC503 to set. """
         if mode[1] == "all":
             self.itc_up.control_mode = mode[0]
@@ -484,7 +506,7 @@ class ITCs():
         return [self.itc_up.heater_gas_mode,self.itc_down.heater_gas_mode]
 
     @heater_gas_mode.setter
-    def heater_gas_mode(self,mode):
+    def heater_gas_mode(self,mode: Tuple[Literal["MANUAL","AM","MA","AUTO"],Literal["all","up","down"]]):
         """ Sets the heater gas mode of the ITC503. A two-element list is required. The second elecment is "all" or "up" or "down" to specify which ITC503 to set. """
         if mode[1] == "all":
             self.itc_up.heater_gas_mode = mode[0]
@@ -524,10 +546,11 @@ class ITCs():
         """ Returns the derivative action time of the ITC503. """
         return [self.itc_up.derivative_action_time,self.itc_down.derivative_action_time]
 
-    def set_pid(self, P, I, D, mode="all"):
+    def set_pid(self, P:float, I:float, D:float, mode:Literal["all","up","down"]="all"):
         """ Sets the PID of the ITC503. A three-element list is required. The second elecment is "all" or "up" or "down" to specify which ITC503 to set. 
         The P,I,D here are the proportional band (K), integral action time (min), and derivative action time(min), respectively.
         """
+        self.control_mode = ("RU",mode)
         if mode == "all":
             self.itc_up.proportional_band = P
             self.itc_down.proportional_band = P

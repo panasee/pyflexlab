@@ -116,7 +116,7 @@ class DataPlot(DataProcess):
         Plot the T-t curve from the RT measurement (resolved to minute)
         """
         self.params.set_param_dict(0, label="T-t")
-        tt_df = self.dfs["RT"]["t1"] + self.dfs["RT"]["t2"]
+        tt_df = self.dfs["RT"]["t1"] +" "+ self.dfs["RT"]["t2"]
         day_time = DataProcess.time_to_datetime(tt_df)
         ##TODO##
 
@@ -170,8 +170,8 @@ class DataPlot(DataProcess):
             defined if the unit is not the default one(uA, V), the format is {"I":"uA", "V":"mV", "R":"mOhm"}
         """
         # assign and merge the plotting parameters
-        self.params.set_param_dict(0, label=r"V_w")
-        self.params.set_param_dict(1, label=r"V_{2w}")
+        self.params.set_param_dict(0, label=r"$V_w$")
+        self.params.set_param_dict(1, label=r"$V_{2w}$")
         self.params.set_param_dict(2, label=r"$\phi_w$", color="c", linestyle="--",marker="",alpha=0.37)
         self.params.set_param_dict(3, label=r"$\phi_{2w}$", color="m", linestyle="--",marker="",alpha=0.37)
 
@@ -207,7 +207,7 @@ class DataPlot(DataProcess):
                 line_v2w = ax_2w.plot(nonlinear["curr"]*factor_i, nonlinear["V2w"]*factor_v, **self.params.params_list[1])
                 ax_2w.set_ylabel("$\\mathrm{V^{2\\omega}}$"+f"({unit_v_print})")
             
-            line_v2w_phi = ax_2w_phi.plot(nonlinear["curr"]*factor_i, nonlinear["phi2w"], **self.params.params_list[3])
+            line_v2w_phi = ax_2w_phi.plot(nonlinear["curr"]*factor_i, nonlinear["phi_2w"], **self.params.params_list[3])
             ax_2w_phi.set_ylabel(r"$\phi(\mathrm{^\circ})$")
             ax_2w.legend(handles = line_v2w+line_v2w_phi, labels = [line_v2w[0].get_label(), line_v2w_phi[0].get_label()], edgecolor='black',prop=DataPlot.legend_font)
             ax_2w.set_xlabel(f"I ({unit_i_print})")
@@ -224,7 +224,7 @@ class DataPlot(DataProcess):
                 line_v1w = ax_1w.plot(nonlinear["curr"]*factor_i, nonlinear["V1w"]*factor_v, **self.params.params_list[0])
                 ax_1w.set_ylabel("$\\mathrm{V^\\omega}$"+f"({unit_v_print})")
 
-            line_v1w_phi = ax_1w_phi.plot(nonlinear["curr"]*factor_i, nonlinear["phi1w"], **self.params.params_list[3])
+            line_v1w_phi = ax_1w_phi.plot(nonlinear["curr"]*factor_i, nonlinear["phi_1w"], **self.params.params_list[3])
             ax_1w_phi.set_ylabel(r"$\phi(\mathrm{^\circ})$")
             ax_1w.legend(handles = line_v1w+line_v1w_phi, labels = [line_v1w[0].get_label(), line_v1w_phi[0].get_label()],edgecolor='black',prop=DataPlot.legend_font)
             if xylog1[1]:
@@ -232,6 +232,7 @@ class DataPlot(DataProcess):
             if xylog1[0]:
                 ax_1w.set_xscale("log")
         if if_indep:
+            fig.tight_layout()
             plt.show()
         if return_handlers:
             return (ax_1w, ax_1w_phi,ax_2w, ax_2w_phi)

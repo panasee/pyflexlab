@@ -19,7 +19,7 @@ plt.rcParams.update({
     # the following bold settings don't work in tex cases
     #'font.weight': 'bold',
     #'axes.labelweight': 'bold',
-    'font.size': 12,
+    'font.size': 10.5,
     'text.antialiased': True,
     'figure.dpi': 300,
     'savefig.dpi': 300,
@@ -27,8 +27,8 @@ plt.rcParams.update({
     'xtick.direction': 'in',
     'ytick.direction': 'in',
    
-    'xtick.labelsize': 12,
-    'ytick.labelsize': 12,
+    'xtick.labelsize': 10.5,
+    'ytick.labelsize': 10.5,
    
     'xtick.top': True,
     'xtick.bottom': True,

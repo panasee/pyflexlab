@@ -72,7 +72,8 @@ class FileOrganizer:
 
         # create project folder in the out database for storing main data
         self.out_database_dir_proj.mkdir(exist_ok=True)
-        shutil.copy(FileOrganizer.local_database_dir / "assist.ipynb", self.out_database_dir_proj)
+        shutil.copy(FileOrganizer.local_database_dir / "assist.ipynb", self.out_database_dir_proj / "assist_post.ipynb")
+        shutil.copy(FileOrganizer.local_database_dir / "assist.ipynb", self.out_database_dir_proj / "assist_measure.ipynb")
         # sync the project record file at the end of the function
         FileOrganizer._sync_json("proj_rec")
 

@@ -35,16 +35,16 @@ class LabViewPost(DataPlot):
         - position_I: int
             the position of the current in the var_tuple(start from 0), used in combination with sym/antisym labels
         """
-        self.load_dfs(f"nonlinear__{measurename_sub}", *var_tuple, tmpfolder=tmpfolder)
+        self.load_dfs(f"nonlinear__{measurename_sub}", *var_tuple, tmpfolder=tmpfolder, header=None, skiprows=1)
         if lin_antisym or harmo_sym:
             if position_I is None:
                 raise ValueError("position_I should be specified when lin_antisym or harmo_sym is True")
             var_reversed = list(var_tuple)
             var_reversed[position_I], var_reversed[position_I+1] = var_reversed[position_I+1], var_reversed[position_I]
-            self.load_dfs(f"nonlinear__{measurename_sub}", *var_reversed, tmpfolder=tmpfolder, cached=True)
+            self.load_dfs(f"nonlinear__{measurename_sub}", *var_reversed, tmpfolder=tmpfolder, cached=True, header=None, skiprows=1)
 
         # rename_columns will rename the "cache" as well
-        self.rename_columns("nonlinear", {0: "curr", 2:"V2w", 4:"phi2w", 5:"V1w", 6: "phi1w"})
+        self.rename_columns("nonlinear", {0: "curr", 2:"V2w", 4:"phi_2w", 5:"V1w", 6: "phi_1w"})
         if lin_antisym:
             self.dfs["nonlinear"]["V1w"] = (self.dfs["nonlinear"]["V1w"] - self.dfs["cache"]["V1w"])/2
         if harmo_sym:
