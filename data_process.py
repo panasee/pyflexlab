@@ -7,7 +7,7 @@ import numpy as np
 import matplotlib
 import matplotlib.pyplot as plt
 import pandas as pd
-from common.file_organizer import FileOrganizer
+from common.file_organizer import FileOrganizer, print_help_if_needed
 import common.pltconfig.color_preset as colors
 from common.constants import cm_to_inch, factor, default_plot_dict
 from datetime import datetime
@@ -25,7 +25,8 @@ class DataProcess(FileOrganizer):
         super().__init__(proj_name)
         self.dfs = {}
 
-    def load_dfs(self, measurename_all: str, *var_tuple, tmpfolder: str = None, cached: bool = False, header: Literal[None, "infer"] = "infer", skiprows: int = None) -> None:
+    @print_help_if_needed
+    def load_dfs(self, measurename_all: str, *var_tuple, tmpfolder: str = None, cached: bool = False, header: Literal[None, "infer"] = "infer", skiprows: int = None) -> pd.DataFrame:
         """
         Load a dataframe from a file, save the dataframe as a memeber variable and also return it
 
@@ -38,8 +39,10 @@ class DataProcess(FileOrganizer):
         measurename_main, _ = FileOrganizer.measurename_decom(measurename_all)
         if not cached:
             self.dfs[measurename_main] = pd.read_csv(filepath, sep=r'\s+', skiprows=skiprows, header=header)
+            return self.dfs[measurename_main]
         else:
             self.dfs["cache"] = pd.read_csv(filepath, sep=r'\s+', skiprows=skiprows, header=header)
+            return self.dfs["cache"]
 
     def rename_columns(self, measurename_main: str, columns_name: dict) -> None:
         """
@@ -52,6 +55,7 @@ class DataProcess(FileOrganizer):
         if "cache" in self.dfs:
             self.dfs["cache"].rename(columns = columns_name, inplace=True)
 
+    @print_help_if_needed
     def nonlinear_load_symmetrize(self, measurename_sub:str = "1-pair", *var_tuple, tmpfolder: str = None, lin_antisym: bool = False, harmo_sym: bool = False, position_I: int = 4, inplace: bool = False) -> pd.DataFrame:
         """
         Process the nonlinear data, both modify the self.dfs inplace and return it as well for convenience. Could also do anti-symmetrization to 1w signal and symmetrization to 2w signal (choosable)

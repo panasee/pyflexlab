@@ -5,6 +5,7 @@ from __future__ import annotations
 import importlib
 from typing import List, Tuple, Literal
 import matplotlib
+import matplotlib.axes
 import matplotlib.pyplot as plt
 import copy
 from common.file_organizer import FileOrganizer, script_base_dir
@@ -26,41 +27,76 @@ class DataPlot(DataProcess):
         """
         This class is used to store the parameters for the plot
         """
-        def __init__(self, no_of_figs: int = 1) -> None:
+        def __init__(self, *dims) -> None:
             """
             initialize the PlotParam
 
             Args:
             - no_of_figs: the number of figures to be plotted
             """
-            self.params_list = [copy.deepcopy(default_plot_dict) for _ in range(no_of_figs)]
-
-        def set_param_dict(self, no_of_fig: int = 0, **kwargs) -> None:
+            self.shape = dims
+            self.params_list = self._create_params_list(dims)
+            # define a tmp params used for temporary storage, especially in class methods for convenience
+            self.tmp = copy.deepcopy(default_plot_dict)
+        
+        def _create_params_list(self, dims: Tuple[int]) -> List[dict]:
             """
-            set the parameters for the plot assignated by no_of_fig
+            create the list of parameters for the plot
 
             Args:
-            - no_of_fig: the number of the figure to be set(start from 0)
+            - dims: the dimensions of the parameters
             """
-            self.params_list[no_of_fig].update(kwargs)
+            if len(dims) == 1:
+                return [copy.deepcopy(default_plot_dict) for _ in range(dims[0])]
+            else:
+                return [self._create_params_list(dims[1:]) for _ in range(dims[0])]
+        
+        def _get_subarray(self, array, index: Tuple[int]) -> List[dict]:
+            """
+            get the subarray of the parameters for the plot assignated by the index
+            """
+            if len(index) == 1:
+                return array[index[0]]
+            else:
+                return self._get_subarray(array[index[0]],index[1:])
 
-        def query_no(self) -> int:
+        def _set_subarray(self, array, index: Tuple[int], target_dict:dict) -> None:
             """
-            query the number of figures to be plotted
+            set the subarray of the parameters for the plot assignated by the index
             """
-            return len(self.params_list)
+            if len(index) == 1:
+                array[index[0]] = copy.deepcopy(target_dict)
+            else:
+                self._set_subarray(array[index[0]], index[1:], target_dict)
+        
+        def _flatten(self, lst):
+            """
+            Flatten a multi-dimensional list using recursion
+            """
+            return [item for sublist in lst for item in (self._flatten(sublist) if isinstance(sublist, list) else [sublist])]
 
-        def merge(self, params2: 'PlotParam') -> None:
+
+        def __getitem__(self, index:Tuple[int] | int) -> dict:
             """
-            merge the parameters from another PlotParam to the end of the current one
+            get the parameters for the plot assignated by the index
 
             Args:
-            - params: the PlotParam to be merged
+            - index: the index of the figure to be get
             """
-            self.params_list += params2.params_list
+            if isinstance(index, int):
+                flat_list = self._flatten(self.params_list)
+                return flat_list[index]
+            result = self._get_subarray(self.params_list, index)
+            while isinstance(result, list) and len(result) == 1:
+                result = result[0]
+            return result
 
+        def __setitem__(self, index: Tuple[int] | int, value):
+            if isinstance(index, int):
+                index = (index,)
+            self._set_subarray(self.params_list, index, value)
 
-    def __init__(self, proj_name: str, *, no_params: int = 4, usetex: bool = False, usepgf: bool = False, if_folder_create = True) -> None:
+    def __init__(self, proj_name: str, *, no_params: Tuple[int] | int = 4, usetex: bool = False, usepgf: bool = False, if_folder_create = True) -> None:
         """
         Initialize the FileOrganizer and load the settings for matplotlib saved in another file
         
@@ -68,13 +104,14 @@ class DataPlot(DataProcess):
         - proj_name: the name of the project
         - no_params: the number of params to be initiated (default:4) 
         - usetex: whether to use the TeX engine to render text
-        - usepgf: whether to use the pgf backend to render text
+        - usepgf: whether to use the pgf backend
         - if_folder_create: whether to create the folder for all the measurements in project
         """
         super().__init__(proj_name)
         DataPlot.load_settings(usetex, usepgf)
         self.create_folder("plot")
         self.unit = {"I":"A", "V":"V", "R":"Ohm", "T":"K", "B":"T","f":"Hz"}
+        # params here are mainly used for internal methods
         self.params = DataPlot.PlotParam(no_params)
         if if_folder_create:
             self.assign_folder()
@@ -115,7 +152,7 @@ class DataPlot(DataProcess):
         """
         Plot the T-t curve from the RT measurement (resolved to minute)
         """
-        self.params.set_param_dict(0, label="T-t")
+        self.params.tmp.update(label="T-t")
         tt_df = self.dfs["RT"]["t1"] +" "+ self.dfs["RT"]["t2"]
         day_time = DataProcess.time_to_datetime(tt_df)
         ##TODO##
@@ -129,7 +166,7 @@ class DataPlot(DataProcess):
         - ax: the axes to plot the figure
         - custom_unit: defined if the unit is not the default one(uA, V), the format is {"I":"uA", "V":"mV", "R":"mOhm"}
         """
-        self.params.set_param_dict(0, label="RT")
+        self.params.tmp.update(label="RT")
 
         rt_df = self.dfs["RT"]
         if ax is None:
@@ -170,10 +207,10 @@ class DataPlot(DataProcess):
             defined if the unit is not the default one(uA, V), the format is {"I":"uA", "V":"mV", "R":"mOhm"}
         """
         # assign and merge the plotting parameters
-        self.params.set_param_dict(0, label=r"$V_w$")
-        self.params.set_param_dict(1, label=r"$V_{2w}$")
-        self.params.set_param_dict(2, label=r"$\phi_w$", color="c", linestyle="--",marker="",alpha=0.37)
-        self.params.set_param_dict(3, label=r"$\phi_{2w}$", color="m", linestyle="--",marker="",alpha=0.37)
+        self.params[0].update(label=r"$V_w$")
+        self.params[1].update(label=r"$V_{2w}$")
+        self.params[2].update(label=r"$\phi_w$", color="c", linestyle="--",marker="",alpha=0.37)
+        self.params[3].update(label=r"$\phi_{2w}$", color="m", linestyle="--",marker="",alpha=0.37)
 
         nonlinear = self.dfs["nonlinear"]
         if_indep = False
@@ -190,7 +227,7 @@ class DataPlot(DataProcess):
 
         if handlers is None:
             if_indep = True
-            fig, ax = DataPlot.init_canvas(2, 1, 10, 6)
+            fig, ax = DataPlot.init_canvas(2, 1, 10, 12)
             ax_1w, ax_2w = ax
             ax_1w_phi = ax_1w.twinx()
             ax_2w_phi = ax_2w.twinx()
@@ -252,7 +289,23 @@ class DataPlot(DataProcess):
         DataPlot.legend_font = getattr(config_module, 'legend_font')
 
     @staticmethod
-    def init_canvas(n_row: int, n_col: int, figsize_x: float, figsize_y: float, sub_adj: Tuple[float] = (0.19,0.13,0.97,0.97,0.2,0.2), **kwargs) -> Tuple[matplotlib.figure.Figure, matplotlib.axes.Axes]:
+    def paint_colors_twin_axes(*, ax_left:matplotlib.axes.Axes, color_left: str, ax_right:matplotlib.axes.Axes, color_right: str) -> None:
+        """
+        paint the colors for the twin y axes
+
+        Args:
+        - ax: the axes to paint the colors
+        - left: the color for the left y axis
+        - right: the color for the right y axis
+        """
+        ax_left.tick_params("y",colors=color_left)
+        ax_left.spines["left"].set_color(color_left)
+        ax_right.tick_params("y",colors=color_right)
+        ax_right.spines["right"].set_color(color_right)
+
+
+    @staticmethod
+    def init_canvas(n_row: int, n_col: int, figsize_x: float, figsize_y: float, sub_adj: Tuple[float] = (0.19,0.13,0.97,0.97,0.2,0.2), **kwargs) -> Tuple[matplotlib.figure.Figure, matplotlib.axes.Axes, DataPlot.PlotParam]:
         """
         initialize the canvas for the plot, return the fig and ax variables
 
@@ -266,7 +319,7 @@ class DataPlot(DataProcess):
         """
         fig, ax = plt.subplots(n_row, n_col, figsize=(figsize_x * cm_to_inch, figsize_y * cm_to_inch), **kwargs)
         fig.subplots_adjust(left=sub_adj[0], bottom=sub_adj[1], right=sub_adj[2], top=sub_adj[3], wspace=sub_adj[4], hspace=sub_adj[5])
-        return fig, ax
+        return fig, ax, DataPlot.PlotParam(n_row,n_col,2)
 
     def mapping(self):
         """

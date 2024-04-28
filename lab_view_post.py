@@ -20,7 +20,7 @@ class LabViewPost(DataPlot):
     def __init__(self, proj_name: str) -> None:
         super().__init__(proj_name)
     
-    def nonlinear_df_labview(self, *var_tuple, tmpfolder: str = None, measurename_sub: str = "1-pair", lin_antisym: bool = False, harmo_sym: bool = False, position_I: int = None) -> pd.DataFrame:
+    def nonlinear_df_labview(self,measurename_sub: str = "1-pair", *var_tuple, tmpfolder: str = None,  lin_antisym: bool = False, harmo_sym: bool = False, position_I: int = 4) -> pd.DataFrame:
         """
         Process the nonlinear data, both modify the self.dfs inplace and return it as well for convenience. Could also do anti-symmetrization to 1w signal and symmetrization to 2w signal (choosable)
         

@@ -2,6 +2,7 @@
 
 """
 This module is responsible for managing the measure-related folders and data
+Note each instrument better be initialzed right before the measurement, as there may be a long time between loading and measuremnt, leading to possibilities of parameter changing
 """
 from typing import List, Tuple, Literal
 import time
@@ -10,6 +11,7 @@ from pymeasure.instruments.srs import SR830
 from pymeasure.instruments.oxfordinstruments import ITC503
 from pymeasure.instruments.keithley import Keithley2400
 from pymeasure.instruments.keithley import Keithley6221
+#from pymeasure.instruments.keithley import Keithley2182
 import pyvisa
 import pandas as pd
 import matplotlib.pyplot as plt
@@ -19,21 +21,10 @@ import re
 from qcodes.instrument_drivers.oxford import OxfordMercuryiPS
 
 
-from common.file_organizer import FileOrganizer
+from common.file_organizer import print_help_if_needed
 from common.data_plot import DataPlot
 from common.constants import factor
 from common.mercury_itc_driver import MercuryITC
-
-
-def print_help_if_needed(func: callable) -> callable:
-    """decorator used to print the help message if the first argument is '-h'"""
-    def wrapper(self,measurename_all, *var_tuple, **kwargs):
-        if var_tuple[0] == "-h":
-            measure_name,_ = FileOrganizer.measurename_decom(measurename_all)
-            print(FileOrganizer.query_namestr(measure_name))
-            return None
-        return func(self, measurename_all,*var_tuple, **kwargs)
-    return wrapper
 
 class MeasureManager(DataPlot):
     """This class is a subclass of FileOrganizer and is responsible for managing the measure-related folders and data"""
@@ -55,6 +46,13 @@ class MeasureManager(DataPlot):
         self.instrs["sr830"] = []
         for addr in addresses:
             self.instrs["sr830"].append(SR830(addr))
+        self.setup_SR830()
+
+#    def load_2182(self, address: str) -> None:
+#        """
+#        load Keithley 2182 instrument according to the address, store it in self.instrs["2182"]
+#        """
+#        self.instrs["2182"] = Keithley2182(address)
 
     def load_2400(self, address: str) -> None:
         """
@@ -67,6 +65,7 @@ class MeasureManager(DataPlot):
         load Keithley 6221 instrument according to the address, store it in self.instrs["6221"]
         """
         self.instrs["6221"] = Keithley6221(address)
+        self.setup_6221()
 
     def load_ITC503(self, gpib_up: str, gpib_down: str) -> None:
         """
@@ -77,11 +76,53 @@ class MeasureManager(DataPlot):
         """
         self.instrs["itc503"] = ITCs(gpib_up, gpib_down)
 
-    def load_mercury_ips(self, address: str = "TCPIP0::10.101.30.192::7020::SOCKET") -> None:
+    def load_mercury_ips(self, address: str = "TCPIP0::10.101.30.192::7020::SOCKET", if_print: bool = False, limit_sphere: float = 14) -> None:
         """
         load Mercury iPS instrument according to the address, store it in self.instrs["mercury_ips"]
+
+        Args:
+            address (str): the address of the instrument
+            if_print (bool): whether to print the snapshot of the instrument
+            limit (float): the limit of the field
         """
         self.instrs["mercury_ips"] = OxfordMercuryiPS("mips", address)
+        if if_print:
+            self.instrs["mercury_ips"].print_readable_snapshot(update=True)
+        def spherical_limit(x,y,z) -> bool:
+            return np.sqrt(x**2 + y**2 + z**2) <= limit_sphere
+        self.instrs["mercury_ips"].set_new_field_limits(spherical_limit)
+    
+    def ramp_magfield(self, field: Tuple[float], rate: Tuple[float] = (0.00333,)*3, wait: bool = True ) -> None:
+        """
+        ramp the magnetic field to the target value with the rate
+
+        Args:
+            field (Tuple[float]): the target field coor
+            rate (float): the rate of the field change (T/s)
+            wait (bool): whether to wait for the ramping to finish
+        """
+        mips = self.instrs["mercury_ips"]
+        if max(rate)*60 > 0.2:
+            raise ValueError("The rate is too high, the maximum rate is 0.2 T/min")
+        mips.GRPX.field_ramp_rate(rate[0])
+        mips.GRPY.field_ramp_rate(rate[1])
+        mips.GRPZ.field_ramp_rate(rate[2])
+        mips.x_target(field[0])
+        mips.y_target(field[1])
+        mips.z_target(field[2])
+
+        mips.ramp(mode = "simul")
+        if wait:
+            # the is_ramping() method is not working properly, so we use the following method to wait for the ramping to finish
+            count = 0
+            while count < 120:
+                field_now = (mips.x_measured(),mips.y_measured(),mips.z_measured())
+                if np.linalg.norm(field_now) - np.linalg.norm(field) < 0.01:
+                    count += 1
+                else:
+                    count = 0
+                time.sleep(1)
+            print("ramping finished")
 
     def load_mercury_ipc(self, address: str = "TCPIP0::10.101.30.192::7020::SOCKET") -> None:
         """
@@ -104,6 +145,18 @@ class MeasureManager(DataPlot):
             instr.input_notch_config = "None"
             instr.reference_source = "External"
 
+#    def setup_2182(self, channel: Literal[0,1,2] = 1) -> None:
+#        """
+#        setup the Keithley 2182 instruments, overwrite the specific settings here, other settings will all be reserved
+#        currently initialized to measure voltage
+#        """
+#        source_2182 = self.instrs["2182"]
+#        source_2182.active_channel = channel
+#        source_2182.channel_function = "voltage"
+#        if channel == 1:
+#            source_2182.ch_1.setup_voltage()
+#        if channel == 2:
+#            source_2182.ch_2.setup_voltage()
 
     def setup_6221(self) -> None:
         """
@@ -122,7 +175,7 @@ class MeasureManager(DataPlot):
         source_6221.output_low_grounded = True
 
 
-    def test_contact_2400(self, v_max:float = 1E-3, v_step:float = 1E-5, curr_compliance: float = 1E-6, mode: Literal["0-max-0","0--max-max-0"] = "0-max-0") -> None:
+    def measure_iv_2400(self, v_max:float = 1E-4, v_step:float = 1E-5, curr_compliance: float = 1E-6, mode: Literal["0-max-0","0--max-max-0"] = "0-max-0",*, test: bool = True, source: int = None, drain: int = None, temp: int = None, tmpfolder: str = None) -> None:
         """
         Measure the IV curve using Keithley 2400 to test the contacts. No data will be saved. (meter need to be loaded before calling this function)
 
@@ -131,36 +184,46 @@ class MeasureManager(DataPlot):
             v_step (float): the step of the voltage
             curr_compliance (float): the current compliance
             mode (Literal["0-max-0","0--max-max-0"]): the mode of the measurement
+            test (bool): whether for testing use, if True, no data will be saved, and the parameters after will not be used
         """
+        if not test:
+            file_path = self.get_filepath("iv__2-terminal",v_max,v_step, source, drain, mode,temp, tmpfolder=tmpfolder)
+            file_path.parent.mkdir(parents=True, exist_ok=True)
         print(f"Max Voltage: {v_max} V")
         print(f"Voltage Step: {v_step} V")
         print(f"Max Curr: {curr_compliance} A")
         print(f"Meter: {self.instrs['2400'].adapter}")
         measure_delay = 0.3 # [s]
-        fig, ax = DataPlot.init_canvas(1,2,10,6)
         instr_2400 = self.instrs["2400"]
         instr_2400.apply_voltage(compliance_current=curr_compliance)
         instr_2400.source_voltage = 0
         instr_2400.enable_source()
         instr_2400.measure_current()
+        tmp_df = pd.DataFrame(columns=["V","I"])
 
         v_array = np.arange(0, v_max, v_step)
         if mode == "0-max-0":
             v_array = np.concatenate((v_array, v_array[::-1]))
         elif mode == "0--max-max-0":
-            v_array = np.concatenate((-v_array[::-1], v_array, v_array[::-1]))
+            v_array = np.concatenate((-v_array, -v_array[::-1], v_array, v_array[::-1]))
+        tmp_df["V"] = v_array
         i_array = np.zeros_like(v_array)
 
         for ii,v in enumerate(v_array):
             instr_2400.ramp_to_voltage(v,steps=10,pause=0.02)
             time.sleep(measure_delay)
             i_array[ii] = instr_2400.current
+        tmp_df["I"] = i_array
+        fig, ax = DataPlot.init_canvas(1,1,10,6)
+        ax.plot(tmp_df["V"],tmp_df["I"])
+        if not test:
+            tmp_df.to_csv(file_path,sep="\t",index=False)
 
-            ax[0].plot(v_array[:ii+1],i_array[:ii+1])
-            ax[1].plot(v_array[:ii+1],v_array[:ii+1]/i_array[:ii+1],label="V/I")
-            ax[1].plot(v_array[1:ii+1],np.diff(v_array[:ii+1])/np.diff(i_array[:ii+1]),label="dV/dI")
-            ax[1].legend()
-            plt.draw()
+            #ax[0].plot(v_array[:ii+1],i_array[:ii+1])
+            #ax[1].plot(v_array[:ii+1],v_array[:ii+1]/i_array[:ii+1],label="V/I")
+            #ax[1].plot(v_array[1:ii+1],np.diff(v_array[:ii+1])/np.diff(i_array[:ii+1]),label="dV/dI")
+            #ax[1].legend()
+            #plt.draw()
         instr_2400.shutdown()
             
 
@@ -288,6 +351,8 @@ class MeasureManager(DataPlot):
             meter_2w.reference_source = "Internal"
             meter_2w.frequency = freq
         elif source == "6221":
+            # 6221 use half peak-to-peak voltage as amplitude
+            amp *= np.sqrt(2)
             source_6221 = self.instrs["6221"]
             self.setup_6221()
             source_6221.source_compliance = amp[-1]+0.1
@@ -319,12 +384,16 @@ class MeasureManager(DataPlot):
                 if tempsource == "mercury_itc":
                     ##TODO##
                     pass
-                list_tot = [v/resist] + list_2w + list_1w + [temp]
+                if source == "sr830":
+                    list_tot = [v/resist] + list_2w + list_1w + [temp]
+                if source == "6221":
+                    list_tot = [v/resist/np.sqrt(2)] + list_2w + list_1w + [temp]
                 print(f"curr: {list_tot[0]*1E3:.4f} mA\t 2w: {list_tot[1:5]}\t 1w: {list_tot[5:9]}\t T: {list_tot[-1]}")
                 tmp_df.loc[len(tmp_df)] = list_tot
                 if i % 10 == 0:
                     tmp_df.to_csv(file_path,sep="\t", index=False)
             self.dfs["nonlinear"] = tmp_df.copy()
+            # rename the columns for compatibility with the plotting function
             self.rename_columns("nonlinear", {"Y_2w":"V2w","X_1w":"V1w"})
             self.set_unit({"I":"uA","V":"uV"})
             self.df_plot_nonlinear(handlers=(ax[1],phi[1],ax[0],phi[0]))
@@ -440,7 +509,7 @@ class ITCs():
             self.itc_down.temperature_setpoint = tempe
             self.itc_down.wait_for_temperature(tempe)
 
-    def ramp_to_temperature(self, itc_name: Literal["up","down"], temp, P, I, D, wait=False):
+    def ramp_to_temperature(self, itc_name: Literal["up","down"], temp, P=None, I=None, D=None):
         """
         used to ramp the temperature of the ITCs, this method will not occupy the ITC if wait is False(default)
         """
@@ -450,12 +519,15 @@ class ITCs():
         if itc_name == "down":
             itc_here = self.itc_down
         itc_here.temperature_setpoint = temp
-        itc_here.proportional_band = P
-        itc_here.integral_action_time = I
-        itc_here.derivative_action_time = D
+        if P is not None and I is not None and D is not None:
+            itc_here.auto_pid = False
+            itc_here.proportional_band = P
+            itc_here.integral_action_time = I
+            itc_here.derivative_action_time = D
+        else:
+            itc_here.auto_pid = True
         itc_here.heater_gas_mode = "AM"
-        if wait:
-            itc_here.wait_for_temperature(temp)
+        print(f"temperature setted to {temp}")
 
     def chg_sensor(self, target:str):
         """

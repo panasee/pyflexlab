@@ -19,6 +19,16 @@ script_base_dir: Path = Path(__file__).resolve().parents[1]
 today = datetime.date.today()
 os.chdir(script_base_dir)
 
+def print_help_if_needed(func: callable) -> callable:
+    """decorator used to print the help message if the first argument is '-h'"""
+    def wrapper(self,measurename_all, *var_tuple, **kwargs):
+        if var_tuple[0] == "-h":
+            measure_name,_ = FileOrganizer.measurename_decom(measurename_all)
+            print(FileOrganizer.query_namestr(measure_name))
+            return None
+        return func(self, measurename_all,*var_tuple, **kwargs)
+    return wrapper
+
 class FileOrganizer:
     """A class to manage file and directory operations."""
 
@@ -35,8 +45,6 @@ class FileOrganizer:
 
     with open(local_database_dir / "measure_types.json", "r", encoding="utf-8") as __measure_type_file:
         measure_types_json: dict = json.load(__measure_type_file)
-    with open(local_database_dir / "project_record.json", "r", encoding="utf-8") as __proj_rec_file:
-        proj_rec_json: dict = json.load(__proj_rec_file)
 
     def __init__(self, proj_name:str, copy_from:str = None)->None:
         """
@@ -72,15 +80,15 @@ class FileOrganizer:
 
         # create project folder in the out database for storing main data
         self.out_database_dir_proj.mkdir(exist_ok=True)
-        shutil.copy(FileOrganizer.local_database_dir / "assist.ipynb", self.out_database_dir_proj / "assist_post.ipynb")
-        shutil.copy(FileOrganizer.local_database_dir / "assist.ipynb", self.out_database_dir_proj / "assist_measure.ipynb")
+        if not os.path.exists(self.out_database_dir_proj / "assist_post.ipynb"):
+            shutil.copy(FileOrganizer.local_database_dir / "assist.ipynb", self.out_database_dir_proj / "assist_post.ipynb")
+        if not os.path.exists(self.out_database_dir_proj / "assist_measure.ipynb"):
+            shutil.copy(FileOrganizer.local_database_dir / "assist.ipynb", self.out_database_dir_proj / "assist_measure.ipynb")
         # sync the project record file at the end of the function
         FileOrganizer._sync_json("proj_rec")
 
     def __del__(self) -> None:
         """Make sure the files are closed when the class is deleted."""
-        if not FileOrganizer.__proj_rec_file.closed:
-            FileOrganizer.__proj_rec_file.close()
         if not FileOrganizer.__measure_type_file.closed:
             FileOrganizer.__measure_type_file.close()
  
@@ -164,6 +172,8 @@ class FileOrganizer:
         FileOrganizer.out_database_dir.mkdir(parents=True,exist_ok=True)
         FileOrganizer.trash_dir = FileOrganizer.out_database_dir / "trash"
         FileOrganizer.trash_dir.mkdir(exist_ok=True)
+        with open(FileOrganizer.out_database_dir / "project_record.json", "r", encoding="utf-8") as __proj_rec_file:
+            FileOrganizer.proj_rec_json = json.load(__proj_rec_file)
 
     @staticmethod
     def _sync_json(which_file: str) -> None:
