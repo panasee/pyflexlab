@@ -1,4 +1,5 @@
 #!/usr/bin/env python
+import sys
 import numpy as np
 import common.pltconfig.color_preset as colors
 
@@ -34,3 +35,22 @@ def factor(unit:str, mode: str = "from_SI"):
             return unit_factor_toSI.get(unit[0])
         else:
             return 1
+
+def is_notebook() -> bool:
+    """
+    judge if the code is running in a notebook environment.
+    """
+    if 'ipykernel' in sys.modules and 'IPython' in sys.modules:
+        try:
+            from IPython import get_ipython
+            if 'IPKernelApp' in get_ipython().config:
+                return True
+        except:
+            pass
+    return False
+
+if "__name__" == "__main__":
+    if is_notebook():
+        print("This is a notebook")
+    else:
+        print("This is not a notebook")

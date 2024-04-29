@@ -188,7 +188,7 @@ class FileOrganizer:
             with open(FileOrganizer.local_database_dir / "measure_types.json", "w", encoding="utf-8") as __measure_type_file:
                 json.dump(FileOrganizer.measure_types_json, __measure_type_file, indent=4)
         elif which_file == "proj_rec":
-            with open(FileOrganizer.local_database_dir / "project_record.json", "w", encoding="utf-8") as __proj_rec_file:
+            with open(FileOrganizer.out_database_dir / "project_record.json", "w", encoding="utf-8") as __proj_rec_file:
                 json.dump(FileOrganizer.proj_rec_json, __proj_rec_file, indent=4)
 
     def create_folder(self, folder_name: str) -> None:

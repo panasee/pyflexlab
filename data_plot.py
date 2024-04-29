@@ -4,13 +4,19 @@
 from __future__ import annotations
 import importlib
 from typing import List, Tuple, Literal
+import copy
+import time
 import matplotlib
 import matplotlib.axes
 import matplotlib.pyplot as plt
-import copy
+import plotly.graph_objects as go
+from plotly.subplots import make_subplots
+import numpy as np
+import pandas as pd
+
 from common.file_organizer import FileOrganizer, script_base_dir
 import common.pltconfig.color_preset as colors
-from common.constants import cm_to_inch, factor, default_plot_dict
+from common.constants import cm_to_inch, factor, default_plot_dict, is_notebook
 from common.data_process import DataProcess
 
 
@@ -113,6 +119,8 @@ class DataPlot(DataProcess):
         self.unit = {"I":"A", "V":"V", "R":"Ohm", "T":"K", "B":"T","f":"Hz"}
         # params here are mainly used for internal methods
         self.params = DataPlot.PlotParam(no_params)
+        self.live_dfs: List[List[List[go.Scatter]]] = []
+        self.go_f: go.FigureWidget = None
         if if_folder_create:
             self.assign_folder()
 
@@ -327,14 +335,101 @@ class DataPlot(DataProcess):
         """
         pass
 
-    def live_plot(self, measure_name: str, *, ax: matplotlib.axes.Axes = None, **kwargs) -> None:
+    def live_plot_init(self, n_rows: int, n_cols: int, lines_per_fig:int = 2, pixel_height:float = 600, pixel_width:float = 1200, *, titles: Tuple[Tuple[str]] = None, axes_labels: Tuple[Tuple[str]] = None) -> go.FigureWidget | None:
         """
-        plot the live data
+        initialize the real-time plotter using plotly
 
         Args:
-        - measure_name: the name of the measurement
-        - ax: the axes to plot the figure
-        - kwargs: the parameters for the plot
+        - n_rows: the number of rows of the subplots
+        - n_cols: the number of columns of the subplots
+        - lines_per_fig: the number of lines per figure
+        - pixel_height: the height of the figure in pixels
+        - pixel_width: the width of the figure in pixels
+        - titles: the titles of the subplots
+        - axes_labels: the labels of the axes
         """
-        ##TODO##
-        pass
+        if titles is None:
+            titles = [["" for _ in range(n_cols)] for _ in range(n_rows)]
+        flat_titles = [item for sublist in titles for item in sublist]
+        if axes_labels is None:
+            axes_labels = [[["" for _ in range(2)] for _ in range(n_cols)] for _ in range(n_rows)]
+
+        # initial all the data arrays, not needed for just empty lists
+        #x_arr = [[[] for _ in range(n_cols)] for _ in range(n_rows)]
+        #y_arr = [[[[] for _ in range(lines_per_fig)] for _ in range(n_cols)] for _ in range(n_rows)]
+
+        fig = make_subplots(rows=n_rows, cols=n_cols,subplot_titles=flat_titles)
+        for i in range(n_rows):
+            for j in range(n_cols):
+                for k in range(lines_per_fig):
+                    fig.add_trace(go.Scatter(x=[], y=[], mode='lines+markers', name=''), row=i+1, col=j+1)
+                    #fig.add_trace(go.Scatter(x=x_arr[i][j], y=y_arr[i][j][1], mode='lines+markers', name=''), row=i+1, col=j+1)
+                fig.update_xaxes(title_text=axes_labels[i][j][0], row=i+1, col=j+1)
+                fig.update_yaxes(title_text=axes_labels[i][j][1], row=i+1, col=j+1)
+                #fig.update_yaxes(title_text=axes_labels[i][j][2], row=i+1, col=j+1
+
+        fig.update_layout(height=pixel_height, width=pixel_width)
+        if is_notebook():
+            self.go_f = go.FigureWidget(fig)
+            self.live_dfs = [[[self.go_f.data[i*n_cols*lines_per_fig+j*lines_per_fig+k] for k in range(lines_per_fig)] for j in range(n_cols)] for i in range(n_rows)]
+            return self.go_f
+        elif not is_notebook():
+            fig.show()
+        
+    def live_plot_update(self, row, col, lineno, x_data, y_data):
+        """
+        update the live data in jupyter, the row, col, lineno all can be tuples to update multiple subplots at the same time. The row_no of x_data and y_data should be the same length
+
+        Args:
+        - row: the row of the subplot (from 0)
+        - col: the column of the subplot (from 0)
+        - lineno: the line no. of the subplot (from 0)
+        - x_data: the array-like x data
+        - y_data: the array-like y data
+        """
+        def check_type(data_arr) -> bool:
+            """
+            check the type of the data array to be int or float
+            """
+            return not isinstance(data_arr, (list, tuple, np.ndarray, pd.Series, pd.DataFrame))
+
+        def lift_dimension(data_arr, dim_tolift) -> list:
+            """
+            lift the dimension of the data to 3D + 1D-array
+            """
+            def lift_subarr(sub_arr):
+                if isinstance(sub_arr, (list, tuple, np.ndarray, pd.Series, pd.DataFrame)):
+                    if len(sub_arr) == 1:
+                        pass
+                    else: 
+                        sub_arr = [sub_arr]
+                else:
+                    sub_arr = [sub_arr]
+                return sub_arr
+
+            if dim_tolift[0] == 1:
+                data_arr = lift_subarr(data_arr)
+            if dim_tolift[1] == 1:
+                data_arr = [lift_subarr(subarr) for subarr in data_arr]
+            if dim_tolift[2] == 1:
+                data_arr = [[lift_subarr(subarr) for subarr in subsubarr] for subsubarr in data_arr]
+            return data_arr
+
+        dim_tolift = [0,0,0]
+        with self.go_f.batch_update():
+            if check_type(row):
+                row = (row,)
+                dim_tolift[0] = 1
+            if check_type(col):
+                col = (col,)
+                dim_tolift[1] = 1
+            if check_type(lineno):
+                lineno = (lineno,)
+                dim_tolift[2] = 1
+            x_data = lift_dimension(x_data, dim_tolift)
+            y_data = lift_dimension(y_data, dim_tolift)
+            for i,n_row in enumerate(row):
+                for j,n_col in enumerate(col):
+                    for k,n_line in enumerate(lineno):
+                        self.live_dfs[n_row][n_col][n_line].x = x_data[i][j][k]
+                        self.live_dfs[n_row][n_col][n_line].y = y_data[i][j][k]
