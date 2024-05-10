@@ -11,7 +11,7 @@ from pymeasure.instruments.srs import SR830
 from pymeasure.instruments.oxfordinstruments import ITC503
 from pymeasure.instruments.keithley import Keithley2400
 from pymeasure.instruments.keithley import Keithley6221
-#from pymeasure.instruments.keithley import Keithley2182
+from pymeasure.instruments.keithley import Keithley2182
 import pyvisa
 import pandas as pd
 import matplotlib.pyplot as plt
@@ -92,9 +92,9 @@ class MeasureManager(DataPlot):
             return np.sqrt(x**2 + y**2 + z**2) <= limit_sphere
         self.instrs["mercury_ips"].set_new_field_limits(spherical_limit)
     
-    def ramp_magfield(self, field: Tuple[float], rate: Tuple[float] = (0.00333,)*3, wait: bool = True ) -> None:
+    def ramp_magfield(self, field: float | Tuple[float], rate: Tuple[float] = (0.00333,)*3, wait: bool = True ) -> None:
         """
-        ramp the magnetic field to the target value with the rate
+        ramp the magnetic field to the target value with the rate, current the field is only in Z direction limited by the actual instrument setting
 
         Args:
             field (Tuple[float]): the target field coor
@@ -104,24 +104,36 @@ class MeasureManager(DataPlot):
         mips = self.instrs["mercury_ips"]
         if max(rate)*60 > 0.2:
             raise ValueError("The rate is too high, the maximum rate is 0.2 T/min")
-        mips.GRPX.field_ramp_rate(rate[0])
-        mips.GRPY.field_ramp_rate(rate[1])
+        #mips.GRPX.field_ramp_rate(rate[0])
+        #mips.GRPY.field_ramp_rate(rate[1])
         mips.GRPZ.field_ramp_rate(rate[2])
-        mips.x_target(field[0])
-        mips.y_target(field[1])
-        mips.z_target(field[2])
+        # no x and y field for now
+        #mips.x_target(field[0])
+        #mips.y_target(field[1])
+        if isinstance(field, (tuple, list)):
+            mips.z_target(field[2])
+        if isinstance(field, float):
+            mips.z_target(field)
 
         mips.ramp(mode = "simul")
         if wait:
             # the is_ramping() method is not working properly, so we use the following method to wait for the ramping to finish
+            self.live_plot_init(1,1,1,800,600, titles=[["H ramping"]], axes_labels=[[[r"Time (s)",r"Field_norm (T)"]]])
+            time_arr = []
+            field_arr = []
             count = 0
+            step_count = 0
             while count < 120:
                 field_now = (mips.x_measured(),mips.y_measured(),mips.z_measured())
+                time_arr.append(step_count)
+                field_arr.append(np.linalg.norm(field_now))
+                self.live_plot_update(0,0,0,time_arr,field_arr)
                 if np.linalg.norm(field_now) - np.linalg.norm(field) < 0.01:
                     count += 1
                 else:
                     count = 0
                 time.sleep(1)
+                step_count += 1
             print("ramping finished")
 
     def load_mercury_ipc(self, address: str = "TCPIP0::10.101.30.192::7020::SOCKET") -> None:
@@ -145,18 +157,18 @@ class MeasureManager(DataPlot):
             instr.input_notch_config = "None"
             instr.reference_source = "External"
 
-#    def setup_2182(self, channel: Literal[0,1,2] = 1) -> None:
-#        """
-#        setup the Keithley 2182 instruments, overwrite the specific settings here, other settings will all be reserved
-#        currently initialized to measure voltage
-#        """
-#        source_2182 = self.instrs["2182"]
-#        source_2182.active_channel = channel
-#        source_2182.channel_function = "voltage"
-#        if channel == 1:
-#            source_2182.ch_1.setup_voltage()
-#        if channel == 2:
-#            source_2182.ch_2.setup_voltage()
+    def setup_2182(self, channel: Literal[0,1,2] = 1) -> None:
+        """
+        setup the Keithley 2182 instruments, overwrite the specific settings here, other settings will all be reserved
+        currently initialized to measure voltage
+        """
+        source_2182 = self.instrs["2182"]
+        source_2182.active_channel = channel
+        source_2182.channel_function = "voltage"
+        if channel == 1:
+            source_2182.ch_1.setup_voltage()
+        if channel == 2:
+            source_2182.ch_2.setup_voltage()
 
     def setup_6221(self) -> None:
         """
@@ -186,9 +198,6 @@ class MeasureManager(DataPlot):
             mode (Literal["0-max-0","0--max-max-0"]): the mode of the measurement
             test (bool): whether for testing use, if True, no data will be saved, and the parameters after will not be used
         """
-        if not test:
-            file_path = self.get_filepath("iv__2-terminal",v_max,v_step, source, drain, mode,temp, tmpfolder=tmpfolder)
-            file_path.parent.mkdir(parents=True, exist_ok=True)
         print(f"Max Voltage: {v_max} V")
         print(f"Voltage Step: {v_step} V")
         print(f"Max Curr: {curr_compliance} A")
@@ -200,6 +209,7 @@ class MeasureManager(DataPlot):
         instr_2400.enable_source()
         instr_2400.measure_current()
         tmp_df = pd.DataFrame(columns=["V","I"])
+        self.live_plot_init(1,1,1,800,600, titles=[["IV 2400"]], axes_labels=[[[r"Voltage (V)",r"Current (A)"]]])
 
         v_array = np.arange(0, v_max, v_step)
         if mode == "0-max-0":
@@ -210,13 +220,14 @@ class MeasureManager(DataPlot):
         i_array = np.zeros_like(v_array)
 
         for ii,v in enumerate(v_array):
-            instr_2400.ramp_to_voltage(v,steps=10,pause=0.02)
+            instr_2400.ramp_to_voltage(v,steps=10,pause=0.03)
             time.sleep(measure_delay)
             i_array[ii] = instr_2400.current
+            self.live_plot_update(0,0,0,tmp_df["V"][:ii+1],i_array[:ii+1])
         tmp_df["I"] = i_array
-        fig, ax = DataPlot.init_canvas(1,1,10,6)
-        ax.plot(tmp_df["V"],tmp_df["I"])
         if not test:
+            file_path = self.get_filepath("iv__2-terminal",v_max,v_step, source, drain, mode,temp, tmpfolder=tmpfolder)
+            file_path.parent.mkdir(parents=True, exist_ok=True)
             tmp_df.to_csv(file_path,sep="\t",index=False)
 
             #ax[0].plot(v_array[:ii+1],i_array[:ii+1])
@@ -271,8 +282,7 @@ class MeasureManager(DataPlot):
             time.sleep(0.5)
         print("voltage reached, start measurement")
 
-        fig, ax = DataPlot.init_canvas(1,2,15,10)
-        phi = [i.twinx() for i in ax]
+        self.live_plot_init(2,2,2,1000,600, titles=[["XY-T","phi"],["XY-T","phi"]], axes_labels=[[[r"T (K)",r"V (V)"],["T (K)","phi"]],[[r"T (K)",r"V (V)"],["T (K)","phi"]]], line_labels=[[["X","Y"],["",""]],[["X","Y"],["",""]]])
         meter1.reference_source = "Internal"
         meter1.frequency = frequency
         tmp_df = pd.DataFrame(columns=["pot_low","pot_high","X1","Y1","R1","phi1","X2","Y2","R2","phi2"])
@@ -291,15 +301,12 @@ class MeasureManager(DataPlot):
                     temp_str = "pot_high"
                 else:
                     temp_str = "pot_low"
-                ax[0].plot(tmp_df[temp_str],tmp_df["X1"],label="X1")
-                ax[0].plot(tmp_df[temp_str],tmp_df["Y1"],label="Y1")
-                phi[0].plot(tmp_df[temp_str],tmp_df["phi1"],label="phi1")
-                ax[0].legend()
-                ax[1].plot(tmp_df[temp_str],tmp_df["X2"],label="X2")
-                ax[1].plot(tmp_df[temp_str],tmp_df["Y2"],label="Y2")
-                phi[1].plot(tmp_df[temp_str],tmp_df["phi2"],label="phi2")
-                ax[1].legend()
-                plt.draw()
+                self.live_plot_update(0,0,0,tmp_df[temp_str],tmp_df["X1"])
+                self.live_plot_update(0,0,1,tmp_df[temp_str],tmp_df["Y1"])
+                self.live_plot_update(0,1,0,tmp_df[temp_str],tmp_df["phi1"])
+                self.live_plot_update(1,0,0,tmp_df[temp_str],tmp_df["X2"])
+                self.live_plot_update(1,0,1,tmp_df[temp_str],tmp_df["Y2"])
+                self.live_plot_update(1,1,0,tmp_df[temp_str],tmp_df["phi2"])
                 if count % 10 == 0:
                     tmp_df.to_csv(file_path,sep="\t" ,index=False)
         except KeyboardInterrupt:
@@ -342,9 +349,10 @@ class MeasureManager(DataPlot):
         meter_2w.harmonic = 2
         meter_1w.harmonic = 1
 
-        fig, ax = DataPlot.init_canvas(1,2,15,10)
-        fig.tight_layout()
-        phi = [i.twinx() for i in ax]
+        self.live_plot_init(2,2,2,1000,600,
+                            titles=[["2w","phi"],["1w","phi"]],
+                            axes_labels=[[["I (A)","V2w (V)"],["I (A)","phi"]],[["I (A)","V1w (V)"],["I (A)","phi"]]],
+                            line_labels=[[["X","Y"],["",""]],[["X","Y"],["",""]]])
         if source == "sr830":
             meter_1w.reference_source_trigger = "POS EDGE"
             meter_2w.reference_source_trigger = "SINE"
@@ -390,13 +398,18 @@ class MeasureManager(DataPlot):
                     list_tot = [v/resist/np.sqrt(2)] + list_2w + list_1w + [temp]
                 print(f"curr: {list_tot[0]*1E3:.4f} mA\t 2w: {list_tot[1:5]}\t 1w: {list_tot[5:9]}\t T: {list_tot[-1]}")
                 tmp_df.loc[len(tmp_df)] = list_tot
+                self.live_plot_update([0,0,0,1,1,1],
+                                      [0,0,1,0,0,1],
+                                      [0,1,0,0,1,0],
+                                      [tmp_df["curr"]]*6,
+                                      np.array(tmp_df[["X_2w","Y_2w","phi_2w", "X_1w", "Y_1w", "phi_1w"]]).T)
                 if i % 10 == 0:
                     tmp_df.to_csv(file_path,sep="\t", index=False)
             self.dfs["nonlinear"] = tmp_df.copy()
             # rename the columns for compatibility with the plotting function
             self.rename_columns("nonlinear", {"Y_2w":"V2w","X_1w":"V1w"})
             self.set_unit({"I":"uA","V":"uV"})
-            self.df_plot_nonlinear(handlers=(ax[1],phi[1],ax[0],phi[0]))
+            #self.df_plot_nonlinear(handlers=(ax[1],phi[1],ax[0],phi[0]))
             if out_range:
                 print("out-range happened, rerun")
                 #self.measure_nonlinear_SR830(measurename_all, *var_tuple, tmpfolder=tmpfolder , source=source, tempsource=tempsource)

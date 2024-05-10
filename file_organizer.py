@@ -46,7 +46,7 @@ class FileOrganizer:
     with open(local_database_dir / "measure_types.json", "r", encoding="utf-8") as __measure_type_file:
         measure_types_json: dict = json.load(__measure_type_file)
 
-    def __init__(self, proj_name:str, copy_from:str = None)->None:
+    def __init__(self, proj_name:str, copy_from:str = None, special_mode = False)->None:
         """
         initialize the class with the project name and judge if the name is in the accepted project names. Only out_database_path is required, as the local_database_dir is attached with the base_dir
 
@@ -54,6 +54,7 @@ class FileOrganizer:
             proj_name: str
                 The name of the project, used as the name of the base directory
         """
+        ##TODO: add a special mode to allow the user to create a project without the need of the out_database_dir, store the data directly in the local_database_dir
         if FileOrganizer.out_database_dir is None:
             raise ValueError("The out_database_dir has not been set, please call the out_database_init method first.")
         # defined vars for two databases of the project

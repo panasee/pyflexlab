@@ -156,15 +156,6 @@ class DataPlot(DataProcess):
         """
         self.unit.update(unit_new)
 
-    def df_plot_Tt(self, *, ax: matplotlib.axes.Axes = None) -> None:
-        """
-        Plot the T-t curve from the RT measurement (resolved to minute)
-        """
-        self.params.tmp.update(label="T-t")
-        tt_df = self.dfs["RT"]["t1"] +" "+ self.dfs["RT"]["t2"]
-        day_time = DataProcess.time_to_datetime(tt_df)
-        ##TODO##
-
     def df_plot_RT(self, *, ax: matplotlib.axes.Axes = None, xylog = (False,False)) -> None:
         """
         plot the RT curve
@@ -315,7 +306,7 @@ class DataPlot(DataProcess):
     @staticmethod
     def init_canvas(n_row: int, n_col: int, figsize_x: float, figsize_y: float, sub_adj: Tuple[float] = (0.19,0.13,0.97,0.97,0.2,0.2), **kwargs) -> Tuple[matplotlib.figure.Figure, matplotlib.axes.Axes, DataPlot.PlotParam]:
         """
-        initialize the canvas for the plot, return the fig and ax variables
+        initialize the canvas for the plot, return the fig and ax variables and params(n_row, n_col, 2)
 
         Args:
         - n_row: the fig no. of rows
@@ -329,13 +320,8 @@ class DataPlot(DataProcess):
         fig.subplots_adjust(left=sub_adj[0], bottom=sub_adj[1], right=sub_adj[2], top=sub_adj[3], wspace=sub_adj[4], hspace=sub_adj[5])
         return fig, ax, DataPlot.PlotParam(n_row,n_col,2)
 
-    def mapping(self):
-        """
-        This function is used to map the data to the corresponding functions
-        """
-        pass
 
-    def live_plot_init(self, n_rows: int, n_cols: int, lines_per_fig:int = 2, pixel_height:float = 600, pixel_width:float = 1200, *, titles: Tuple[Tuple[str]] = None, axes_labels: Tuple[Tuple[str]] = None) -> go.FigureWidget | None:
+    def live_plot_init(self, n_rows: int, n_cols: int, lines_per_fig:int = 2, pixel_height:float = 600, pixel_width:float = 1200, *, titles: Tuple[Tuple[str]] = None, axes_labels: Tuple[Tuple[Tuple[str]]] = None, line_labels: Tuple[Tuple[Tuple[str]]] = None) -> go.FigureWidget | None:
         """
         initialize the real-time plotter using plotly
 
@@ -345,14 +331,17 @@ class DataPlot(DataProcess):
         - lines_per_fig: the number of lines per figure
         - pixel_height: the height of the figure in pixels
         - pixel_width: the width of the figure in pixels
-        - titles: the titles of the subplots
-        - axes_labels: the labels of the axes
+        - titles: the titles of the subplots, shape should be (n_rows, n_cols), note the type notation
+        - axes_labels: the labels of the axes, note the type notation, shape should be (n_rows, n_cols, 2[x and y axes labels])
+        - line_labels: the labels of the lines, note the type notation, shape should be (n_rows, n_cols, lines_per_fig)
         """
         if titles is None:
             titles = [["" for _ in range(n_cols)] for _ in range(n_rows)]
         flat_titles = [item for sublist in titles for item in sublist]
         if axes_labels is None:
             axes_labels = [[["" for _ in range(2)] for _ in range(n_cols)] for _ in range(n_rows)]
+        if line_labels is None:
+            line_labels = [[["" for _ in range(2)] for _ in range(n_cols)] for _ in range(n_rows)]
 
         # initial all the data arrays, not needed for just empty lists
         #x_arr = [[[] for _ in range(n_cols)] for _ in range(n_rows)]
@@ -362,7 +351,7 @@ class DataPlot(DataProcess):
         for i in range(n_rows):
             for j in range(n_cols):
                 for k in range(lines_per_fig):
-                    fig.add_trace(go.Scatter(x=[], y=[], mode='lines+markers', name=''), row=i+1, col=j+1)
+                    fig.add_trace(go.Scatter(x=[], y=[], mode='lines+markers', name=line_labels[i][j][k]), row=i+1, col=j+1)
                     #fig.add_trace(go.Scatter(x=x_arr[i][j], y=y_arr[i][j][1], mode='lines+markers', name=''), row=i+1, col=j+1)
                 fig.update_xaxes(title_text=axes_labels[i][j][0], row=i+1, col=j+1)
                 fig.update_yaxes(title_text=axes_labels[i][j][1], row=i+1, col=j+1)
@@ -378,7 +367,7 @@ class DataPlot(DataProcess):
         
     def live_plot_update(self, row, col, lineno, x_data, y_data):
         """
-        update the live data in jupyter, the row, col, lineno all can be tuples to update multiple subplots at the same time. The row_no of x_data and y_data should be the same length
+        update the live data in jupyter, the row, col, lineno all can be tuples to update multiple subplots at the same time. The row_no of x_data and y_data should be the same length. Note that this function is not appending datapoints, but replot the whole line, so provide the whole data array for each update.
 
         Args:
         - row: the row of the subplot (from 0)
@@ -401,7 +390,7 @@ class DataPlot(DataProcess):
                 if isinstance(sub_arr, (list, tuple, np.ndarray, pd.Series, pd.DataFrame)):
                     if len(sub_arr) == 1:
                         pass
-                    else: 
+                    else:
                         sub_arr = [sub_arr]
                 else:
                     sub_arr = [sub_arr]

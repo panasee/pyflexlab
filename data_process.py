@@ -165,10 +165,6 @@ class DataProcess(FileOrganizer):
 
         return pd.concat([sym_df, antisym_df], axis = 1)
 
-    def compare(self, measurename_main: str, columns: List[str], plot_dict: dict = default_plot_dict) -> None:
-        ##TODO##
-        pass
-
     @staticmethod
     def time_to_datetime(t : pd.Series, *, past_time: Literal["min", "hour", "no"]="min")-> List[datetime]:
         """
