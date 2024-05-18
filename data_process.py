@@ -39,10 +39,10 @@ class DataProcess(FileOrganizer):
         measurename_main, _ = FileOrganizer.measurename_decom(measurename_all)
         if not cached:
             self.dfs[measurename_main] = pd.read_csv(filepath, sep=r'\s+', skiprows=skiprows, header=header)
-            return self.dfs[measurename_main]
+            return self.dfs[measurename_main].copy()
         else:
             self.dfs["cache"] = pd.read_csv(filepath, sep=r'\s+', skiprows=skiprows, header=header)
-            return self.dfs["cache"]
+            return self.dfs["cache"].copy()
 
     def rename_columns(self, measurename_main: str, columns_name: dict) -> None:
         """
@@ -95,7 +95,7 @@ class DataProcess(FileOrganizer):
             if inplace:
                 self.dfs["nonlinear"]["V2w"] = (self.dfs["nonlinear"]["V2w"] + self.dfs["cache"]["V2w"])/2
         # here the self.dfs has already been updated, the return is just for possible other usage
-        return self.dfs["nonlinear"]
+        return self.dfs["nonlinear"].copy()
 
     @staticmethod
     def merge_with_tolerance(df1: pd.DataFrame, df2: pd.DataFrame, on: any, tolerance: float, suffixes: Tuple[str] = ("_1", "_2")) -> pd.DataFrame:
@@ -128,7 +128,7 @@ class DataProcess(FileOrganizer):
             else:
                 j += 1
 
-        return pd.DataFrame(result)
+        return pd.DataFrame(result).copy()
     
     def symmetrize(self, measurename_all: str | pd.DataFrame, index_col: any, obj_col: List[any], neutral_point: float = 0) -> Tuple[pd.DataFrame, pd.DataFrame]:
         """

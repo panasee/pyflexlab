@@ -260,7 +260,7 @@ class MeasureManager(DataPlot):
         measure_delay = 0.5 # [s]
         frequency = 51.637 # [Hz]
         volt = curr * resist # [V]
-        conversion_T = 5 # [K], the temperature for changing between pot_low and pot_high
+        conversion_T = 1.8 # [K], the temperature for changing between pot_low and pot_high
 
         self.setup_SR830()
         itc503 = self.instrs["itc503"]
@@ -297,7 +297,7 @@ class MeasureManager(DataPlot):
                 list_tot = temp + list1 + list2
                 tmp_df.loc[len(tmp_df)] = list_tot
 
-                if var_tuple[-3] > conversion_T or var_tuple[-2] > conversion_T:
+                if temp[0] > conversion_T or temp[1] > conversion_T:
                     temp_str = "pot_high"
                 else:
                     temp_str = "pot_low"
@@ -387,7 +387,7 @@ class MeasureManager(DataPlot):
                 list_1w = meter_1w.snap("X","Y","R","THETA")
                 if tempsource == "itc503":
                     temp = self.instrs[tempsource].temperatures["pot_low"]
-                    if temp >= 6.9:
+                    if temp >= 1.8:
                         temp = self.instrs[tempsource].temperatures["pot_high"]
                 if tempsource == "mercury_itc":
                     ##TODO##
@@ -465,6 +465,30 @@ class MeasureManager(DataPlot):
             return None, None
 
 
+class ITC_mercury():
+    def __init__(self, address="TCPIP0::", clear_buffer=True):
+        self.mercury = ITC503(address, clear_buffer=clear_buffer)
+        self.mercury.control_mode = "RU"
+    
+    def check_flow(self):
+        print(self.mercury.gasflow_control_status)
+
+    def set_flow(self, flow: float):
+        """
+        set the gasflow, note the input value is percentage, from 0 to 99.9 (%)
+        """
+        if not 0.0 <= flow <= 99.9:
+            raise ValueError("Flow must be between 0.0 and 99.9 (%)")
+        self.mercury.gasflow = flow
+
+    def set_pid(self, P, I, D):
+        self.mercury.auto_pid = False
+        self.mercury.proportional_band = P
+        self.mercury.integral_action_time = I
+        self.mercury.derivative_action_time = D
+    
+    def set_auto_pid(self):
+        self.mercury.auto_pid = True
 
 class ITCs():
     """ Represents the ITC503 Temperature Controllers and provides a high-level interface for interacting with the instruments. 
