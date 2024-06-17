@@ -113,7 +113,7 @@ class MeasureManager(DataPlot):
         #mips.y_target(field[1])
         if isinstance(field, (tuple, list)):
             mips.z_target(field[2])
-        if isinstance(field, float):
+        if isinstance(field, (float, int)):
             mips.z_target(field)
 
         mips.ramp(mode = "simul")
@@ -240,6 +240,114 @@ class MeasureManager(DataPlot):
             #plt.draw()
         instr_2400.shutdown()
             
+    @print_help_if_needed
+    def measure_VB_SR830(self, measurename_all, *var_tuple, source: Literal["sr830","6221"], resistor: float = None):
+        """
+        measure voltage signal of constant current under different temperature (continuously changing).
+
+        Args:
+            measurename_all (str): the full name of the measurement
+            var_tuple (Tuple): the variables of the measurement, use "-h" to see the available options
+            source (Literal["sr830","6221"]): the source of the measurement
+            resistor (float): the resistance of the resistor, used only for sr830 source to calculate the voltage
+        """
+        file_path = self.get_filepath(measurename_all,*var_tuple)
+        file_path.parent.mkdir(parents=True, exist_ok=True)
+        self.add_measurement(measurename_all)
+        curr = MeasureManager.split_no_str(var_tuple[3])
+        curr = factor(curr[1], "to_SI") * curr[0] # [A]
+        print(f"Filename is: {file_path.name}")
+        print(f"Curr: {curr} A")
+        print(f"Mag: {var_tuple[0]} -> {var_tuple[1]} K")
+        print(f"steps: {var_tuple[2]-1}")
+        print(f"2w meter: {self.instrs['sr830'][0].adapter}")
+        print(f"1w meter: {self.instrs['sr830'][1].adapter}")
+        B_arr = np.linspace(var_tuple[0], var_tuple[1], var_tuple[2])
+        freq = var_tuple[4]
+        tmp_df = pd.DataFrame(columns=["B","X_2w","Y_2w","R_2w","phi_2w","X_1w","Y_1w","R_1w","phi_1w","T"])
+        out_range = False
+
+        self.setup_SR830()
+        meter_2w = self.instrs['sr830'][0]
+        meter_1w = self.instrs['sr830'][1]
+        meter_2w.harmonic = 2
+        meter_1w.harmonic = 1
+
+        self.live_plot_init(2,2,2,1000,600,
+                            titles=[["2w","phi"],["1w","phi"]],
+                            axes_labels=[[["B (T)","V2w (V)"],["B (T)","phi"]],[["B (T)","V1w (V)"],["B (T)","phi"]]],
+                            line_labels=[[["X","Y"],["",""]],[["X","Y"],["",""]]])
+        if source == "sr830":
+            meter_1w.reference_source_trigger = "POS EDGE"
+            meter_2w.reference_source_trigger = "SINE"
+            meter_2w.reference_source = "Internal"
+            meter_2w.frequency = freq
+            if resistor is None:
+                raise ValueError("resistor is needed for sr830 source")
+        elif source == "6221":
+            # 6221 use half peak-to-peak voltage as amplitude
+            curr_p2p = curr * np.sqrt(2)
+            source_6221 = self.instrs["6221"]
+            self.setup_6221()
+            source_6221.source_compliance = curr_p2p*1000 # compliance voltage
+            source_6221.source_range = curr_p2p/0.6
+            print(f"Keithley 6221 source range is set to {curr_p2p/0.6} A")
+            source_6221.waveform_frequency = freq
+            meter_1w.reference_source_trigger = "POS EDGE"
+            meter_2w.reference_source_trigger = "POS EDGE"
+        try:
+            if source == "sr830":
+                for i in np.arange(0, curr*resistor, 0.02):
+                    meter_2w.sine_voltage = i
+                    time.sleep(0.5)
+                meter_2w.sine_voltage = curr*resistor
+            elif source == "6221":
+                source_6221.waveform_abort()
+                source_6221.waveform_amplitude = curr_p2p
+                source_6221.waveform_arm()
+                source_6221.waveform_start()
+            for i, b_i in enumerate(B_arr):
+                self.ramp_magfield(b_i, wait=True)
+                if meter_1w.is_out_of_range():
+                    out_range = True
+                if meter_2w.is_out_of_range():
+                    out_range = True
+                list_2w = meter_2w.snap("X","Y","R","THETA")
+                list_1w = meter_1w.snap("X","Y","R","THETA")
+                temp = self.instrs["itc"].temperature
+                if source == "sr830":
+                    list_tot = [b_i] + list_2w + list_1w + [temp]
+                if source == "6221":
+                    list_tot = [b_i] + list_2w + list_1w + [temp]
+                print(f"T: {list_tot[0]:.2f} K\t 2w: {list_tot[1:5]}\t 1w: {list_tot[5:9]}")
+                tmp_df.loc[len(tmp_df)] = list_tot
+                self.live_plot_update([0,0,0,1,1,1],
+                                      [0,0,1,0,0,1],
+                                      [0,1,0,0,1,0],
+                                      [tmp_df["B"]]*6,
+                                      np.array(tmp_df[["X_2w","Y_2w","phi_2w", "X_1w", "Y_1w", "phi_1w"]]).T)
+                if i % 3 == 0:
+                    tmp_df.to_csv(file_path,sep="\t", index=False)
+            self.dfs["VB"] = tmp_df.copy()
+            # rename the columns for compatibility with the plotting function
+            self.rename_columns("VB", {"Y_2w":"V2w","X_1w":"V1w"})
+            self.set_unit({"I":"uA","V":"uV"})
+            #self.df_plot_nonlinear(handlers=(ax[1],phi[1],ax[0],phi[0]))
+            if out_range:
+                print("out-range happened, rerun")
+                #self.measure_nonlinear_SR830(measurename_all, *var_tuple, tmpfolder=tmpfolder , source=source, tempsource=tempsource)
+            #ax[0].plot(tmp_df["curr"],tmp_df["Y_2w"],color="r",label="2w")
+            #phi[0].plot(tmp_df["curr"],tmp_df["phi_2w"],color="c",alpha=0.5,label="2w")
+            #ax[1].plot(tmp_df["curr"],tmp_df["R_1w"],color="b",label="1w")
+            #phi[1].plot(tmp_df["curr"],tmp_df["phi_1w"],color="m",alpha=0.5,label="1w")
+        except KeyboardInterrupt:
+            print("Measurement interrupted")
+        finally:
+            tmp_df.to_csv(file_path, sep="\t", index=False)
+            if source == "sr830":
+                meter_2w.sine_voltage = 0
+            if source == "6221":
+                source_6221.shutdown()
 
     @print_help_if_needed
     def measure_VT_SR830(self, measurename_all, *var_tuple, source: Literal["sr830","6221"], resistor: float = None):
@@ -510,14 +618,8 @@ class MeasureManager(DataPlot):
             # rename the columns for compatibility with the plotting function
             self.rename_columns("nonlinear", {"Y_2w":"V2w","X_1w":"V1w"})
             self.set_unit({"I":"uA","V":"uV"})
-            #self.df_plot_nonlinear(handlers=(ax[1],phi[1],ax[0],phi[0]))
             if out_range:
                 print("out-range happened, rerun")
-                #self.measure_nonlinear_SR830(measurename_all, *var_tuple, tmpfolder=tmpfolder , source=source, tempsource=tempsource)
-            #ax[0].plot(tmp_df["curr"],tmp_df["Y_2w"],color="r",label="2w")
-            #phi[0].plot(tmp_df["curr"],tmp_df["phi_2w"],color="c",alpha=0.5,label="2w")
-            #ax[1].plot(tmp_df["curr"],tmp_df["R_1w"],color="b",label="1w")
-            #phi[1].plot(tmp_df["curr"],tmp_df["phi_1w"],color="m",alpha=0.5,label="1w")
         except KeyboardInterrupt:
             print("Measurement interrupted")
         finally:
