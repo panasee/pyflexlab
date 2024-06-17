@@ -24,7 +24,7 @@ from qcodes.instrument_drivers.oxford import OxfordMercuryiPS
 from common.file_organizer import print_help_if_needed
 from common.data_plot import DataPlot
 from common.constants import factor
-from common.mercury_itc_driver import MercuryITC
+#from common.mercury_itc_driver import MercuryITC
 
 class MeasureManager(DataPlot):
     """This class is a subclass of FileOrganizer and is responsible for managing the measure-related folders and data"""
@@ -69,12 +69,13 @@ class MeasureManager(DataPlot):
 
     def load_ITC503(self, gpib_up: str, gpib_down: str) -> None:
         """
-        load ITC503 instruments according to the addresses, store them in self.instrs["itc503"] in corresponding order
+        load ITC503 instruments according to the addresses, store them in self.instrs["itc503"] in corresponding order. Also store the ITC503 instruments in self.instrs["itc"] for convenience to call
 
         Args:
             addresses (List[str]): the addresses of the ITC503 instruments (take care of the order)
         """
         self.instrs["itc503"] = ITCs(gpib_up, gpib_down)
+        self.instrs["itc"] = self.instrs["itc503"]
 
     def load_mercury_ips(self, address: str = "TCPIP0::10.101.30.192::7020::SOCKET", if_print: bool = False, limit_sphere: float = 14) -> None:
         """
@@ -140,8 +141,10 @@ class MeasureManager(DataPlot):
         """
         load Mercury iPS instrument according to the address, store it in self.instrs["mercury_ips"]
         """
-        self.instrs["mercury_itc"] = MercuryITC(address)
-        print(self.instrs["mercury_itc"].modules)
+        #self.instrs["mercury_itc"] = MercuryITC(address)
+        self.instrs["mercury_itc"] = ITC_mercury(address)
+        self.instrs["itc"] = self.instrs["mercury_itc"]
+        #print(self.instrs["mercury_itc"].modules)
      
     def setup_SR830(self) -> None:
         """
@@ -248,7 +251,7 @@ class MeasureManager(DataPlot):
         Args:
             measurename_all (str): the full name of the measurement
             var_tuple (Tuple): the variables of the measurement, use "-h" to see the available options
-            resist (float): the resistance for the source, used only to calculate corresponding voltage
+            resist (float): the resistance of the resistor, used only to calculate corresponding voltage
         """
         file_path = self.get_filepath(measurename_all,*var_tuple)
         self.add_measurement(measurename_all)
@@ -260,10 +263,9 @@ class MeasureManager(DataPlot):
         measure_delay = 0.5 # [s]
         frequency = 51.637 # [Hz]
         volt = curr * resist # [V]
-        conversion_T = 1.8 # [K], the temperature for changing between pot_low and pot_high
 
         self.setup_SR830()
-        itc503 = self.instrs["itc503"]
+        itc = self.instrs["itc"]
         meter1 = self.instrs["sr830"][0]
         meter2 = self.instrs["sr830"][1]
         print("====================")
@@ -285,7 +287,7 @@ class MeasureManager(DataPlot):
         self.live_plot_init(2,2,2,1000,600, titles=[["XY-T","phi"],["XY-T","phi"]], axes_labels=[[[r"T (K)",r"V (V)"],["T (K)","phi"]],[[r"T (K)",r"V (V)"],["T (K)","phi"]]], line_labels=[[["X","Y"],["",""]],[["X","Y"],["",""]]])
         meter1.reference_source = "Internal"
         meter1.frequency = frequency
-        tmp_df = pd.DataFrame(columns=["pot_low","pot_high","X1","Y1","R1","phi1","X2","Y2","R2","phi2"])
+        tmp_df = pd.DataFrame(columns=["T","X1","Y1","R1","phi1","X2","Y2","R2","phi2"])
         try:
             count = 0
             while True:
@@ -293,20 +295,16 @@ class MeasureManager(DataPlot):
                 time.sleep(measure_delay)
                 list1 = meter1.snap("X","Y","R","THETA")
                 list2 = meter2.snap("X","Y","R","THETA")
-                temp = [itc503.temperatures["pot_low"], itc503.temperatures["pot_high"]]
+                temp = [itc.temperature]
                 list_tot = temp + list1 + list2
                 tmp_df.loc[len(tmp_df)] = list_tot
 
-                if temp[0] > conversion_T or temp[1] > conversion_T:
-                    temp_str = "pot_high"
-                else:
-                    temp_str = "pot_low"
-                self.live_plot_update(0,0,0,tmp_df[temp_str],tmp_df["X1"])
-                self.live_plot_update(0,0,1,tmp_df[temp_str],tmp_df["Y1"])
-                self.live_plot_update(0,1,0,tmp_df[temp_str],tmp_df["phi1"])
-                self.live_plot_update(1,0,0,tmp_df[temp_str],tmp_df["X2"])
-                self.live_plot_update(1,0,1,tmp_df[temp_str],tmp_df["Y2"])
-                self.live_plot_update(1,1,0,tmp_df[temp_str],tmp_df["phi2"])
+                self.live_plot_update(0,0,0,tmp_df["T"],tmp_df["X1"])
+                self.live_plot_update(0,0,1,tmp_df["T"],tmp_df["Y1"])
+                self.live_plot_update(0,1,0,tmp_df["T"],tmp_df["phi1"])
+                self.live_plot_update(1,0,0,tmp_df["T"],tmp_df["X2"])
+                self.live_plot_update(1,0,1,tmp_df["T"],tmp_df["Y2"])
+                self.live_plot_update(1,1,0,tmp_df["T"],tmp_df["phi2"])
                 if count % 10 == 0:
                     tmp_df.to_csv(file_path,sep="\t" ,index=False)
         except KeyboardInterrupt:
@@ -317,7 +315,7 @@ class MeasureManager(DataPlot):
                 
 
     @print_help_if_needed
-    def measure_nonlinear_SR830(self,measurename_all, *var_tuple, tmpfolder:str = None, source : Literal["sr830", "6221"], tempsource: Literal["itc503","mercury_itc"], delay:int = 15) -> None:
+    def measure_nonlinear_SR830(self,measurename_all, *var_tuple, tmpfolder:str = None, source : Literal["sr830", "6221"], delay:int = 15) -> None:
         """
         conduct the 1-pair nonlinear measurement using 2 SR830 meters and store the data in the corresponding file. Using first meter to measure 2w signal and also as the source if appoint SR830 as source. (meters need to be loaded before calling this function). When using Keithley 6221 current source, the max voltage is the compliance voltage and the resistance does not have specific meaning, just used for calculating the current.
 
@@ -385,13 +383,7 @@ class MeasureManager(DataPlot):
                     out_range = True
                 list_2w = meter_2w.snap("X","Y","R","THETA")
                 list_1w = meter_1w.snap("X","Y","R","THETA")
-                if tempsource == "itc503":
-                    temp = self.instrs[tempsource].temperatures["pot_low"]
-                    if temp >= 1.8:
-                        temp = self.instrs[tempsource].temperatures["pot_high"]
-                if tempsource == "mercury_itc":
-                    ##TODO##
-                    pass
+                temp = self.instrs["itc"].temperature
                 if source == "sr830":
                     list_tot = [v/resist] + list_2w + list_1w + [temp]
                 if source == "6221":
@@ -465,7 +457,19 @@ class MeasureManager(DataPlot):
             return None, None
 
 
-class ITC_mercury():
+class ITC():
+    # parent class to incorporate both two ITCs
+    @property
+    def temperature(self):
+        "return the precise temperature of the sample"
+
+    def wait_for_temperature(self, temp, itc_name=None):
+        "wait for the temperature to stablize"
+
+    def ramp_to_temperature(self, temp, itc_name=None, P=None, I=None, D=None):
+        "ramp temperature to the target value (not necessary sample temperature)"
+
+class ITC_mercury(ITC):
     def __init__(self, address="TCPIP0::", clear_buffer=True):
         self.mercury = ITC503(address, clear_buffer=clear_buffer)
         self.mercury.control_mode = "RU"
@@ -490,7 +494,11 @@ class ITC_mercury():
     def set_auto_pid(self):
         self.mercury.auto_pid = True
 
-class ITCs():
+    @property
+    def temperature(self):
+        return self.mercury.temperature_1
+
+class ITCs(ITC):
     """ Represents the ITC503 Temperature Controllers and provides a high-level interface for interacting with the instruments. 
     
     There are two ITC503 incorporated in the setup, named up and down. The up one measures the temperature of the heat switch(up R1), PT2(up R2), leaving R3 no specific meaning. The down one measures the temperature of the sorb(down R1), POT LOW(down R2), POT HIGH(down R3).
@@ -538,7 +546,7 @@ class ITCs():
         elif itc_name == "down":
             self.itc_down.pointer = target 
 
-    def wait_for_temperature(self, itc_name, tempe):
+    def wait_for_temperature(self, tempe, itc_name: Literal["up","down"]):
         if itc_name == "up":
             self.itc_up.temperature_setpoint = tempe
             self.itc_up.wait_for_temperature(tempe)
@@ -546,7 +554,7 @@ class ITCs():
             self.itc_down.temperature_setpoint = tempe
             self.itc_down.wait_for_temperature(tempe)
 
-    def ramp_to_temperature(self, itc_name: Literal["up","down"], temp, P=None, I=None, D=None):
+    def ramp_to_temperature(self, temp, itc_name: Literal["up","down"], P=None, I=None, D=None):
         """
         used to ramp the temperature of the ITCs, this method will not occupy the ITC if wait is False(default)
         """
@@ -722,3 +730,11 @@ class ITCs():
     def temperatures(self):
         """ Returns the temperatures of the whole device as a dict. """
         return {"sw":self.itc_up.temperature_1,"pt2":self.itc_up.temperature_2,"sorb":self.itc_down.temperature_1,"pot_low":self.itc_down.temperature_2,"pot_high":self.itc_down.temperature_3}
+    
+    @property
+    def temperature(self):
+        """ Returns the precise temperature of the sample """
+        if self.temperatures["pot_high"] < 1.9:
+            return self.temperatures["pot_low"]
+        elif self.temperatures["pot_high"] >= 1.9:
+            return self.temperatures["pot_high"]
