@@ -48,11 +48,11 @@ class MeasureManager(DataPlot):
             self.instrs["sr830"].append(SR830(addr))
         self.setup_SR830()
 
-#    def load_2182(self, address: str) -> None:
-#        """
-#        load Keithley 2182 instrument according to the address, store it in self.instrs["2182"]
-#        """
-#        self.instrs["2182"] = Keithley2182(address)
+    def load_2182(self, address: str) -> None:
+        """
+        load Keithley 2182 instrument according to the address, store it in self.instrs["2182"]
+        """
+        self.instrs["2182"] = Keithley2182(address)
 
     def load_2400(self, address: str) -> None:
         """
@@ -417,7 +417,6 @@ class MeasureManager(DataPlot):
                 source_6221.waveform_start()
             for i, temp in enumerate(T_arr):
                 self.instrs["itc"].ramp_to_temperature(temp)
-                self.instrs["itc"].wait_for_temperature(temp, 100)
                 if meter_1w.is_out_of_range():
                     out_range = True
                 if meter_2w.is_out_of_range():
@@ -445,11 +444,6 @@ class MeasureManager(DataPlot):
             #self.df_plot_nonlinear(handlers=(ax[1],phi[1],ax[0],phi[0]))
             if out_range:
                 print("out-range happened, rerun")
-                #self.measure_nonlinear_SR830(measurename_all, *var_tuple, tmpfolder=tmpfolder , source=source, tempsource=tempsource)
-            #ax[0].plot(tmp_df["curr"],tmp_df["Y_2w"],color="r",label="2w")
-            #phi[0].plot(tmp_df["curr"],tmp_df["phi_2w"],color="c",alpha=0.5,label="2w")
-            #ax[1].plot(tmp_df["curr"],tmp_df["R_1w"],color="b",label="1w")
-            #phi[1].plot(tmp_df["curr"],tmp_df["phi_1w"],color="m",alpha=0.5,label="1w")
         except KeyboardInterrupt:
             print("Measurement interrupted")
         finally:
@@ -667,6 +661,29 @@ class MeasureManager(DataPlot):
         else:
             return None, None
 
+    @staticmethod
+    def print_progress_bar(iteration, total, prefix = '', suffix = '', decimals = 1, length = 50, fill = '#', print_end = "\r") -> None:
+        """
+        Call in a loop to create terminal progress bar
+
+        Args:
+            iteration (int): current iteration
+            total (int): total iterations
+            prefix (str): prefix string
+            suffix (str): suffix string
+            decimals (int): positive number of decimals in percent complete
+            length (int): character length of bar
+            fill (str): bar fill character
+            print_end (str): end character (e.g. "\r", "\r\n")
+        """
+        percent = ("{0:." + str(decimals) + "f}").format(100 * (iteration / float(total)))
+        filled_length = int(length * iteration // total)
+        barr = fill * filled_length + '-' * (length - filled_length)
+        print(f'\r{prefix} [{barr}] {percent}% {suffix}', end = print_end, flush=True)
+        # Print New Line on Complete
+        if iteration == total:
+            print()
+
 
 class ITC():
     # parent class to incorporate both two ITCs
@@ -674,11 +691,50 @@ class ITC():
     def temperature(self):
         "return the precise temperature of the sample"
 
-    def wait_for_temperature(self, temp, time_len, itc_name=None):
-        "wait for the temperature to stablize for a certain time length"
+    def set_temperature(self, temp):
+        """
+        set the target temperature for sample, as for other parts' temperature, use the methods for each ITC
+        """
 
-    def ramp_to_temperature(self, temp, itc_name=None, P=None, I=None, D=None):
+    def set_pid(self, pid_dict):
+        """
+        set the PID parameters
+        
+        Args:
+            PID_dict (Dict): a dictionary as {"P": float, "I": float, "D": float}
+        """
+
+    def wait_for_temperature(self, temp, *, delta = 0.01, check_interval = 1, stability_counter = 120, thermalize_counter = 120):
+        """
+        wait for the temperature to stablize for a certain time length
+
+        Args:
+            temp (float): the target temperature
+            delta (float): the temperature difference to consider the temperature stablized
+            check_interval (int,[s]): the interval to check the temperature
+            stability_counter (int): the number of times the temperature is within the delta range to consider the temperature stablized
+            thermalize_counter (int): the number of times to thermalize the sample
+        """
+        i = 0
+        while i < stability_counter:
+            if temp - delta < self.temperature < temp + delta:
+                i += 1
+            else:
+                i -= 5
+            MeasureManager.print_progress_bar(i, stability_counter, prefix="Stablizing", suffix=f"Temperature: {self.temperature:.2f} K")
+            time.sleep(check_interval)
+        print("Temperature stablized")
+        for i in range(thermalize_counter):
+            MeasureManager.print_progress_bar(i, stability_counter, prefix="Thermalizing", suffix=f"Temperature: {self.temperature:.2f} K")
+            time.sleep(check_interval)
+        print("Thermalizing finished")
+
+    def ramp_to_temperature(self, temp, *, delta = 0.01, check_interval = 1, stability_counter = 120, thermalize_counter = 120 ,pid=None):
         "ramp temperature to the target value (not necessary sample temperature)"
+        self.set_temperature(temp)
+        if pid is not None:
+            self.set_pid(pid)
+        self.wait_for_temperature(temp, delta = delta, check_interval = check_interval, stability_counter = stability_counter, thermalize_counter = thermalize_counter)
 
 class ITC_mercury(ITC):
     def __init__(self, address="TCPIP0::", clear_buffer=True):
@@ -696,11 +752,11 @@ class ITC_mercury(ITC):
             raise ValueError("Flow must be between 0.0 and 99.9 (%)")
         self.mercury.gasflow = flow
 
-    def set_pid(self, P, I, D):
+    def set_pid(self, pid):
         self.mercury.auto_pid = False
-        self.mercury.proportional_band = P
-        self.mercury.integral_action_time = I
-        self.mercury.derivative_action_time = D
+        self.mercury.proportional_band = pid["P"]
+        self.mercury.integral_action_time = pid["I"]
+        self.mercury.derivative_action_time = pid["D"]
     
     def set_auto_pid(self):
         self.mercury.auto_pid = True
@@ -708,6 +764,10 @@ class ITC_mercury(ITC):
     @property
     def temperature(self):
         return self.mercury.temperature_1
+
+    def set_temperature(self, temp):
+        pass
+        ##TODO##
 
 class ITCs(ITC):
     """ Represents the ITC503 Temperature Controllers and provides a high-level interface for interacting with the instruments. 
@@ -725,18 +785,18 @@ class ITCs(ITC):
 
         Parameters:
         itc_name (str): The name of the ITC503, "up" or "down" or "all"
-        target (str):  ‘temperature setpoint’, ‘temperature 1’, ‘temperature 2’, ‘temperature 3’, ‘temperature error’, ‘heater’, ‘heater voltage’, ‘gasflow’, ‘proportional band’, ‘integral action time’, ‘derivative action time’, ‘channel 1 freq/4’, ‘channel 2 freq/4’, ‘channel 3 freq/4’.
+        target (str):  'temperature setpoint', 'temperature 1', 'temperature 2', 'temperature 3', 'temperature error', 'heater', 'heater voltage', 'gasflow', 'proportional band', 'integral action time', 'derivative action time', 'channel 1 freq/4', 'channel 2 freq/4', 'channel 3 freq/4'.
 
         Returns:
         None
         """
         if itc_name == "all":
             self.itc_up.front_panel_display = target
-            self.itc_down.front_panel_display = target 
+            self.itc_down.front_panel_display = target
         elif itc_name == "up":
-            self.itc_up.front_panel_display = target 
+            self.itc_up.front_panel_display = target
         elif itc_name == "down":
-            self.itc_down.front_panel_display = target 
+            self.itc_down.front_panel_display = target
 
     def chg_pointer(self, itc_name, target:tuple):
         """
@@ -751,23 +811,25 @@ class ITCs(ITC):
         """
         if itc_name == "all":
             self.itc_up.pointer = target
-            self.itc_down.pointer = target 
+            self.itc_down.pointer = target
         elif itc_name == "up":
-            self.itc_up.pointer = target 
+            self.itc_up.pointer = target
         elif itc_name == "down":
-            self.itc_down.pointer = target 
-
-    def wait_for_temperature(self, tempe, itc_name: Literal["up","down"]):
-        if itc_name == "up":
-            self.itc_up.temperature_setpoint = tempe
-            self.itc_up.wait_for_temperature(tempe)
-        if itc_name == "down":
-            self.itc_down.temperature_setpoint = tempe
-            self.itc_down.wait_for_temperature(tempe)
-
-    def ramp_to_temperature(self, temp, itc_name: Literal["up","down"], P=None, I=None, D=None):
+            self.itc_down.pointer = target
+    
+    def set_temperature(self, temp):
         """
-        used to ramp the temperature of the ITCs, this method will not occupy the ITC if wait is False(default)
+        set the target temperature for sample, as for other parts' temperature, use the methods for each ITC
+
+        Args:
+            temp (float): the target temperature
+            itc_name (Literal["up","down","all"]): the ITC503 to set the temperature
+        """
+        self.itc_down.temperature_setpoint = temp
+
+    def ramp_to_temperature_selective(self, temp, itc_name: Literal["up","down"], P=None, I=None, D=None):
+        """
+        used to ramp the temperature of the ITCs, this method will wait for the temperature to stablize and thermalize for a certain time length
         """
         self.control_mode = ("RU",itc_name)
         if itc_name == "up":
@@ -784,28 +846,6 @@ class ITCs(ITC):
             itc_here.auto_pid = True
         itc_here.heater_gas_mode = "AM"
         print(f"temperature setted to {temp}")
-
-    def chg_sensor(self, target:str):
-        """
-        used to change the sensor of the ITCs for heater control
-
-        Parameters:
-        target (str): "sw", "pt2", "sorb", "pot_low", "pot_high"
-
-        Returns:
-        None
-        """
-        #if target == "sw":
-        #    self.itc_up.write("H1")
-        #if target == "pt2":
-        #    self.itc_up.write("H2")
-        #if target == "sorb":
-        #    self.itc_down.write("H1")
-        #if target == "pot_low":
-        #    self.itc_down.write("H2")
-        #if target == "pot_high":
-        #    self.itc_down.write("H3")
-        print("this function is not implemented yet.")
 
     @property
     def version(self):
@@ -874,18 +914,18 @@ class ITCs(ITC):
         """ Returns the derivative action time of the ITC503. """
         return [self.itc_up.derivative_action_time,self.itc_down.derivative_action_time]
 
-    def set_pid(self, P:float, I:float, D:float, mode:Literal["all","up","down"]="all"):
+    def set_pid(self, pid: dict, mode:Literal["all","up","down"]="down"):
         """ Sets the PID of the ITC503. A three-element list is required. The second elecment is "all" or "up" or "down" to specify which ITC503 to set. 
         The P,I,D here are the proportional band (K), integral action time (min), and derivative action time(min), respectively.
         """
         self.control_mode = ("RU",mode)
         if mode == "all":
-            self.itc_up.proportional_band = P
-            self.itc_down.proportional_band = P
-            self.itc_up.integral_action_time = I
-            self.itc_down.integral_action_time = I
-            self.itc_up.derivative_action_time = D
-            self.itc_down.derivative_action_time = D
+            self.itc_up.proportional_band = pid["P"]
+            self.itc_down.proportional_band = pid["P"]
+            self.itc_up.integral_action_time = pid["I"]
+            self.itc_down.integral_action_time = pid["I"]
+            self.itc_up.derivative_action_time = pid["D"]
+            self.itc_down.derivative_action_time = pid["D"]
         if mode == "up":
             self.itc_up.proportional_band = P
             self.itc_up.integral_action_time = I
@@ -897,7 +937,7 @@ class ITCs(ITC):
         
         if self.itc_up.proportional_band == 0:
             return ""
-        return f"{mode} PID(power percentage): 100*(E/{P}+E/{P}*t/60{I}-dE*60{D}/{P}), [K,min,min]"
+        return f"{mode} PID(power percentage): 100*(E/{pid['P']}+E/{pid['P']}*t/60{pid['I']}-dE*60{pid['D']}/{pid['P']}), [K,min,min]"
 
     
     @property
