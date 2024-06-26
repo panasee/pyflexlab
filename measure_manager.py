@@ -5,6 +5,7 @@ initialzed right before the measurement, as there may be a long time between loa
 possibilities of parameter changing"""
 from typing import List, Tuple, Literal
 import time
+from abc import ABC, abstractmethod
 import numpy as np
 from pymeasure.instruments.srs import SR830
 from pymeasure.instruments.oxfordinstruments import ITC503
@@ -22,7 +23,7 @@ from qcodes.instrument_drivers.oxford import OxfordMercuryiPS
 from common.file_organizer import print_help_if_needed
 from common.data_plot import DataPlot
 from common.constants import factor
-from common.mercuryiTC import MercuryiTC
+from common.mercuryITC import MercuryITC
 
 
 class MeasureManager(DataPlot):
@@ -143,12 +144,12 @@ class MeasureManager(DataPlot):
                 step_count += 1
             print("ramping finished")
 
-    def load_mercury_ipc(self, address: str = "TCPIP0::10.101.30.192::7020::SOCKET") -> None:
+    def load_mercury_ipc(self, address: str = "TCPIP0::10.101.28.24::7020::SOCKET") -> None:
         """
         load Mercury iPS instrument according to the address, store it in self.instrs["mercury_ips"]
         """
         #self.instrs["mercury_itc"] = MercuryITC(address)
-        self.instrs["mercury_itc"] = ITC_mercury(address)
+        self.instrs["mercury_itc"] = ITCMercury(address)
         self.instrs["itc"] = self.instrs["mercury_itc"]
         #print(self.instrs["mercury_itc"].modules)
 
@@ -168,7 +169,7 @@ class MeasureManager(DataPlot):
 
     def setup_2182(self, channel: Literal[0, 1, 2] = 1) -> None:
         """
-        setup the Keithley 2182 instruments, overwrite the specific settings here, other settings will all be reserved
+        set up the Keithley 2182 instruments, overwrite the specific settings here, other settings will all be reserved
         currently initialized to measure voltage
         """
         source_2182 = self.instrs["2182"]
@@ -695,23 +696,30 @@ class MeasureManager(DataPlot):
             print()
 
 
-class ITC():
+class ITC(ABC):
     # parent class to incorporate both two ITCs
     @property
+    @abstractmethod
     def temperature(self):
         """return the precise temperature of the sample"""
+        pass
 
+    @abstractmethod
     def set_temperature(self, temp):
         """
         set the target temperature for sample, as for other parts' temperature, use the methods for each ITC
         """
+        pass
 
     @property
+    @abstractmethod
     def pid(self):
         """
         return the PID parameters
         """
+        pass
 
+    @abstractmethod
     def set_pid(self, pid_dict):
         """
         set the PID parameters
@@ -719,6 +727,7 @@ class ITC():
         Args:
             pid_dict (Dict): a dictionary as {"P": float, "I": float, "D": float}
         """
+        pass
 
     def wait_for_temperature(self, temp, *, delta=0.01, check_interval=1, stability_counter=120,
                              thermalize_counter=120):
@@ -759,38 +768,35 @@ class ITC():
 
 
 class ITCMercury(ITC):
-    def __init__(self, address="TCPIP0::", clear_buffer=True):
-        self.mercury = MercuryiTC("mercury_itc", "TCPIP0::10.21.28.24::7020::SOCKET")
+    def __init__(self, address="TCPIP0::10.101.28.24::7020::SOCKET"):
+        self.mercury = MercuryITC("mercury_itc", address)
 
-    def check_flow(self):
-        print(self.mercury.gasflow_control_status)
+    def flow(self):
+        print(f"{self.mercury.gas_flow()}%")
 
     def set_flow(self, flow: float):
         """
-        set the gasflow, note the input value is percentage, from 0 to 99.9 (%)
+        set the gas flow, note the input value is percentage, from 0 to 99.9 (%)
         """
-        if not 0.0 <= flow <= 99.9:
-            raise ValueError("Flow must be between 0.0 and 99.9 (%)")
-        self.mercury.gasflow = flow
-
-    def set_pid(self, pid):
-        self.mercury.temp_PID_auto("OFF")
-        self.mercury.temp_loop_P(pid["P"])
-        self.mercury.temp_loop_I(pid["I"])
-        self.mercury.temp_loop_D(pid["D"])
-
-    @property
-    def temperature(self):
-        return self.mercury.probe_temp()
-
-    @property
-    def vti_temperature(self):
-        return self.mercury.vti_temp()
+        if not 0.0 < flow < 100.0:
+            raise ValueError("Flow must be between 0.0 and 100.0 (%)")
+        self.mercury.gas_flow(flow)
 
     @property
     def pid(self):
         return {"P": self.mercury.temp_loop_P(), "I": self.mercury.temp_loop_I(),
                 "D": self.mercury.temp_loop_D()}
+
+    def set_pid(self, pid: dict):
+        """
+        set the pid of probe temp loop
+        """
+        self.mercury.temp_PID_auto("OFF")
+        self.mercury.temp_PID = (pid["P"], pid["I"], pid["D"])
+
+    @property
+    def temperature(self):
+        return self.mercury.probe_temp()
 
     def set_temperature(self, temp, vti_temp=None):
         """set the target temperature for sample"""
@@ -798,30 +804,31 @@ class ITCMercury(ITC):
         if vti_temp is not None:
             self.mercury.vti_temp_setpoint(vti_temp)
         else:
-            self.mercury.vti_temp_setpoint(self.mercury._calculate_vti_temp(temp))
+            self.mercury.vti_temp_setpoint(self.mercury.calculate_vti_temp(temp))
+
+    @property
+    def vti_temperature(self):
+        return self.mercury.vti_temp()
 
     def set_vti_temperature(self, temp):
         self.mercury.vti_temp_setpoint(temp)
 
     def ramp_to_temperature(self, temp, *, delta=0.01, check_interval=1, stability_counter=120, thermalize_counter=120,
                             pid=None, ramp_rate=None):
-        """ramp temperature to the target value (not necessary sample temperature)
-        Args:
-            temp (float): the target temperature
-            delta (float): the temperature difference to consider the temperature stablized
-            check_interval (int,[s]): the interval to check the temperature
-            stability_counter (int): the number of times the temperature is within the delta range to consider the temperature stablized
-            thermalize_counter (int): the number of times to thermalize the sample
-            pid (Dict): a dictionary as {"P": float, "I": float, "D": float}
-            ramp_rate (float,[K/min]): the rate to ramp the temperature
+        """ramp temperature to the target value (not necessary sample temperature) Args: temp (float): the target
+        temperature delta (float): the temperature difference to consider the temperature stablized check_interval (
+        int,[s]): the interval to check the temperature stability_counter (int): the number of times the temperature
+        is within the delta range to consider the temperature stablized thermalize_counter (int): the number of times
+        to thermalize the sample pid (Dict): a dictionary as {"P": float, "I": float, "D": float} ramp_rate (float,
+        [K/min]): the rate to ramp the temperature
         """
         self.set_temperature(temp)
         if pid is not None:
             self.set_pid(pid)
         if ramp_rate is not None:
-            self.mercury.heater_rate(ramp_rate)
-            self.mercury.vti_heater_rate(ramp_rate)
-            self.mercury.heater_ramp_mode("ON")
+            self.mercury.probe_ramp_rate(ramp_rate)
+            # self.mercury.vti_heater_rate(ramp_rate)
+            self.mercury.probe_temp_ramp_mode("ON")
         self.wait_for_temperature(temp, delta=delta, check_interval=check_interval, stability_counter=stability_counter,
                                   thermalize_counter=thermalize_counter)
 
@@ -840,9 +847,10 @@ class ITCs(ITC):
         """
         This function is used to change the front display of the ITC503
 
-        Parameters:
-        itc_name (str): The name of the ITC503, "up" or "down" or "all"
-        target (str):  'temperature setpoint', 'temperature 1', 'temperature 2', 'temperature 3', 'temperature error', 'heater', 'heater voltage', 'gasflow', 'proportional band', 'integral action time', 'derivative action time', 'channel 1 freq/4', 'channel 2 freq/4', 'channel 3 freq/4'.
+        Parameters: itc_name (str): The name of the ITC503, "up" or "down" or "all" target (str):  'temperature
+        setpoint', 'temperature 1', 'temperature 2', 'temperature 3', 'temperature error', 'heater',
+        'heater voltage', 'gasflow', 'proportional band', 'integral action time', 'derivative action time',
+        'channel 1 freq/4', 'channel 2 freq/4', 'channel 3 freq/4'.
 
         Returns:
         None
@@ -859,9 +867,10 @@ class ITCs(ITC):
         """
         used to change the pointer of the ITCs
 
-        Parameters:
-        itc_name (str): The name of the ITC503, "up" or "down" or "all"
-        target (tuple): A tuple property to set pointers into tables for loading and examining values in the table, of format (x, y). The significance and valid values for the pointer depends on what property is to be read or set. The value for x and y can be in the range 0 to 128. 
+        Parameters: itc_name (str): The name of the ITC503, "up" or "down" or "all" target (tuple): A tuple property
+        to set pointers into tables for loading and examining values in the table, of format (x, y). The significance
+        and valid values for the pointer depends on what property is to be read or set. The value for x and y can be
+        in the range 0 to 128.
 
         Returns:
         None
@@ -916,7 +925,8 @@ class ITCs(ITC):
 
     @control_mode.setter
     def control_mode(self, mode: Tuple[Literal["LU", "RU", "LL", "RL"], Literal["all", "up", "down"]]):
-        """ Sets the control mode of the ITC503. A two-element list is required. The second elecment is "all" or "up" or "down" to specify which ITC503 to set. """
+        """ Sets the control mode of the ITC503. A two-element list is required. The second elecment is "all" or "up"
+        or "down" to specify which ITC503 to set."""
         if mode[1] == "all":
             self.itc_up.control_mode = mode[0]
             self.itc_down.control_mode = mode[0]
@@ -932,7 +942,8 @@ class ITCs(ITC):
 
     @heater_gas_mode.setter
     def heater_gas_mode(self, mode: Tuple[Literal["MANUAL", "AM", "MA", "AUTO"], Literal["all", "up", "down"]]):
-        """ Sets the heater gas mode of the ITC503. A two-element list is required. The second elecment is "all" or "up" or "down" to specify which ITC503 to set. """
+        """ Sets the heater gas mode of the ITC503. A two-element list is required. The second elecment is "all" or
+        "up" or "down" to specify which ITC503 to set."""
         if mode[1] == "all":
             self.itc_up.heater_gas_mode = mode[0]
             self.itc_down.heater_gas_mode = mode[0]
@@ -984,13 +995,13 @@ class ITCs(ITC):
             self.itc_up.derivative_action_time = pid["D"]
             self.itc_down.derivative_action_time = pid["D"]
         if mode == "up":
-            self.itc_up.proportional_band = P
-            self.itc_up.integral_action_time = I
-            self.itc_up.derivative_action_time = D
+            self.itc_up.proportional_band = pid["P"]
+            self.itc_up.integral_action_time = pid["I"]
+            self.itc_up.derivative_action_time = pid["D"]
         if mode == "down":
-            self.itc_down.proportional_band = P
-            self.itc_down.integral_action_time = I
-            self.itc_down.derivative_action_time = D
+            self.itc_down.proportional_band = pid["P"]
+            self.itc_down.integral_action_time = pid["I"]
+            self.itc_down.derivative_action_time = pid["D"]
 
         if self.itc_up.proportional_band == 0:
             return ""
@@ -1003,7 +1014,8 @@ class ITCs(ITC):
 
     @auto_pid.setter
     def auto_pid(self, mode):
-        """ Sets the auto pid of the ITC503. A two-element list is required. The second elecment is "all" or "up" or "down" to specify which ITC503 to set. """
+        """ Sets the auto pid of the ITC503. A two-element list is required. The second elecment is "all" or "up" or
+        "down" to specify which ITC503 to set."""
         if mode[1] == "all":
             self.itc_up.auto_pid = mode[0]
             self.itc_down.auto_pid = mode[0]
@@ -1024,7 +1036,8 @@ class ITCs(ITC):
 
     @temperature_setpoint.setter
     def temperature_setpoint(self, temperature):
-        """ Sets the temperature setpoint of the ITC503. A two-element list is required. The second elecment is "all" or "up" or "down" to specify which ITC503 to set. """
+        """ Sets the temperature setpoint of the ITC503. A two-element list is required. The second elecment is "all"
+        or "up" or "down" to specify which ITC503 to set."""
         if temperature[1] == "all":
             self.itc_up.temperature_setpoint = temperature[0]
             self.itc_down.temperature_setpoint = temperature[0]
