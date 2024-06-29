@@ -1,6 +1,5 @@
 #!/usr/bin/env python
 
-from time import sleep
 import numpy as np
 from qcodes.instrument.visa import VisaInstrument
 from qcodes.utils import validators as vals
@@ -8,7 +7,7 @@ from qcodes.utils import validators as vals
 
 class MercuryITC(VisaInstrument):
     """
-    This is a qcodes driver for the Oxford MercuryiTC.
+    This is a qcodes driver for the Oxford MercuryITC.
 
     Todo::
     - Confirm the loop relation, the pressure and needle valve
@@ -54,6 +53,7 @@ class MercuryITC(VisaInstrument):
         self.probe_list = None
         # Assign all the module addresses to the class
         self.__dict__.update(locals())
+        self.pres_loop_addr = self.pressure_addr.replace("PRES","TEMP")
         # noinspection PyUnboundLocalVariable
         del self.self
 
@@ -69,8 +69,8 @@ class MercuryITC(VisaInstrument):
         # Assign probe heater, vti heater and needle_valve to the temperature control loop.      
 
         self.ask('SET:' + self.probe_temp_addr + ':LOOP:HTR:' + self.probe_heater_addr.split(':')[1])
-        self.ask('SET:' + self.pressure_addr + ':LOOP:HTR:' + self.needle_valve_addr.split(':')[1])
-        # self.ask('SET:' + self.probe_temp_str + ':LOOP:AUX:' + self.needle_valve_str.split(':')[1])
+        #self.ask('SET:' + self.pres_loop_addr + ':LOOP:AUX:' + self.needle_valve_addr.split(':')[1])
+        self.ask('SET:' + self.pressure_addr + ':LOOP:AUX:' + self.needle_valve_addr.split(':')[1])
         self.ask('SET:' + self.vti_temp_addr + ':LOOP:HTR:' + self.vti_heater_addr.split(':')[1])
 
         self.add_parameter('probe_temp',
@@ -117,22 +117,23 @@ class MercuryITC(VisaInstrument):
                            )
         self.add_parameter('pressure_setpoint',
                            label='pressure_setpoint',
-                           unit='mbar',
-                           get_cmd="READ:" + self.pressure_addr + ":LOOP:TSET?",
+                           unit='mB',
+                           docstring='pressure set point for the VTI needle valve',
+                           get_cmd="READ:" + self.pres_loop_addr + ":LOOP:TSET?",
                            get_parser=self._pressure_parser,
-                           set_cmd=lambda x: self.ask('SET:' + self.pressure_addr + f':LOOP:TSET:{x}'),
-                           vals=vals.Numbers(min_value=0, max_value=2000)
+                           set_cmd=lambda x: self.ask('SET:' + self.pres_loop_addr + f':LOOP:TSET:{x}'),
+                           vals=vals.Numbers(min_value=1, max_value=20)
                            )
 
         self.add_parameter('gas_flow',
                            label='Gas flow in percent',
                            get_cmd='READ:' + self.needle_valve_addr + ':SIG:PERC?',
-                           get_parser=self._float_parser_nounits,
+                           get_parser=self._str_parser,
                            set_cmd=lambda x: self.gas_flow_setpoint(x)
                            )
         self.add_parameter('gas_flow_setpoint',
                            label='Gas flow setpoint in percent',
-                           get_cmd='READ:' + self.needle_valve_addr + ':LOOP:FSET?',
+                           get_cmd='READ:' + self.pressure_addr + ':LOOP:FSET?',
                            get_parser=self._float_parser_nounits,
                            set_cmd=lambda x: self.ask('SET:' + self.needle_valve_addr + f':LOOP:FSET:' + str(x)),
                            vals=vals.Numbers(min_value=0, max_value=100)
@@ -261,7 +262,7 @@ class MercuryITC(VisaInstrument):
 
         self.connect_message()
 
-        # set default ramp rates
+        # set default ramp rates (K/min)
         self.probe_ramp_rate(5.0)
         self.vti_ramp_rate(5.0)
 
@@ -318,22 +319,22 @@ class MercuryITC(VisaInstrument):
         return float(value.split(':')[-1][:-1])  # Return the number after the : as a float
 
     # methods
-    def restore_default(self):
+    def restore_default_pid(self):
         self.temp_PID = (5.0, 1.0, 0.0)
-        self.vti_temp_PID = (5.0, 1.0, 0.0)
-        self.pres_PID = (5.0, 1.0, 0.0)
+        self.vti_temp_PID = (10.0, 1.0, 0.0)
+        self.pres_PID = (0.5, 0.5, 0.0)
 
     def calculate_vti_temp(self, probe_temp):
         """
         Function to calculate the optimum VTI temperature set point as a function of the probe temperature setpoint
         """
-        self.vti_list = np.array([1.4, 1.55, 5.9, 9.8, 19.5, 48.0, 97.0, 195.0, 295.0])
+        self.vti_list = np.array([1.3, 1.55, 5.9, 9.8, 19.5, 48.0, 97.0, 195.0, 295.0])
         self.probe_list = np.array([1.5, 1.7, 6, 10, 20, 50, 100, 200, 300])
         vti_temp_target = np.interp(probe_temp, self.probe_list, self.vti_list)
         return vti_temp_target
 
     def rapid_cooldown_to_base(self):
-        self.vti_temp_setpoint(1.5)
+        self.vti_temp_setpoint(1.3)
         self.temp_setpoint(1.5)
         self.vti_temp_ramp_mode('OFF')
         self.probe_temp_ramp_mode('OFF')

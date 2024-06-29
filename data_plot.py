@@ -1,5 +1,6 @@
 #!/usr/bin/env python
 """This module is responsible for processing and plotting the data"""
+# Todo: rewrite the plotting methods, mainly used for automatically saving the plots to the folder in coorperation with MeasureManager
 
 from __future__ import annotations
 import importlib
@@ -365,79 +366,61 @@ class DataPlot(DataProcess):
                 for k in range(lines_per_fig):
                     fig.add_trace(go.Scatter(x=[], y=[], mode='lines+markers', name=line_labels[i][j][k]), row=i + 1,
                                   col=j + 1)
-                    #fig.add_trace(go.Scatter(x=x_arr[i][j], y=y_arr[i][j][1], mode='lines+markers', name=''), row=i+1, col=j+1)
+                    # fig.add_trace(go.Scatter(x=x_arr[i][j], y=y_arr[i][j][1], mode='lines+markers', name=''),
+                    # row=i+1, col=j+1)
                 fig.update_xaxes(title_text=axes_labels[i][j][0], row=i + 1, col=j + 1)
                 fig.update_yaxes(title_text=axes_labels[i][j][1], row=i + 1, col=j + 1)
                 #fig.update_yaxes(title_text=axes_labels[i][j][2], row=i+1, col=j+1
 
         fig.update_layout(height=pixel_height, width=pixel_width)
         if is_notebook():
+            from IPython.display import display
             self.go_f = go.FigureWidget(fig)
             self.live_dfs = [
                 [[self.go_f.data[i * n_cols * lines_per_fig + j * lines_per_fig + k] for k in range(lines_per_fig)] for
                  j in range(n_cols)] for i in range(n_rows)]
-            return self.go_f
+            display(self.go_f)
         elif not is_notebook():
             fig.show()
 
     def live_plot_update(self, row, col, lineno, x_data, y_data):
         """
         update the live data in jupyter, the row, col, lineno all can be tuples to update multiple subplots at the
-        same time. The row_no of x_data and y_data should be the same length. Note that this function is not
-        appending datapoints, but replot the whole line, so provide the whole data array for each update.
+        same time. Note that this function is not appending datapoints, but replot the whole line, so provide the
+        whole data array for each update. The row, col, lineno, x_data, y_data should be of same length (no. of lines
+        plotted).
+        Example: live_plot_update((0,1), (0,1), (0,1), [[x1, x2], [x3, x4]], [[y1, y2], [y3, y4]]) will
+        plot the (0,0,0) line with [x1, x2] and [y1, y2], and (1,1,1) line with [x3, x4] and [y3, y4]
 
         Args:
         - row: the row of the subplot (from 0)
         - col: the column of the subplot (from 0)
         - lineno: the line no. of the subplot (from 0)
-        - x_data: the array-like x data
-        - y_data: the array-like y data
+        - x_data: the array-like x data (not support single number, use [x] or (x,) instead)
+        - y_data: the array-like y data (not support single number, use [y] or (y,) instead)
         """
 
-        def check_type(data_arr) -> bool:
-            """
-            check the type of the data array to be int or float
-            """
-            return not isinstance(data_arr, (list, tuple, np.ndarray, pd.Series, pd.DataFrame))
+        def ensure_list(data) -> np.ndarray:
+            if isinstance(data, (list, tuple, np.ndarray, pd.Series, pd.DataFrame)):
+                return np.array(data)
+            else:
+                return np.array([data])
 
-        def lift_dimension(data_arr, dim_tolift) -> list:
-            """
-            lift the dimension of the data to 3D + 1D-array
-            """
+        def ensure_2d_array(data) -> np.ndarray:
+            data_arr = ensure_list(data)
+            if not isinstance(data_arr[0], np.ndarray):
+                return np.array([data_arr])
+            else:
+                return np.array(data_arr)
 
-            def lift_subarr(sub_arr):
-                if isinstance(sub_arr, (list, tuple, np.ndarray, pd.Series, pd.DataFrame)):
-                    if len(sub_arr) == 1:
-                        pass
-                    else:
-                        sub_arr = [sub_arr]
-                else:
-                    sub_arr = [sub_arr]
-                return sub_arr
+        row = ensure_list(row)
+        col = ensure_list(col)
+        lineno = ensure_list(lineno)
+        x_data = ensure_2d_array(x_data)
+        y_data = ensure_2d_array(y_data)
 
-            if dim_tolift[0] == 1:
-                data_arr = lift_subarr(data_arr)
-            if dim_tolift[1] == 1:
-                data_arr = [lift_subarr(subarr) for subarr in data_arr]
-            if dim_tolift[2] == 1:
-                data_arr = [[lift_subarr(subarr) for subarr in subsubarr] for subsubarr in data_arr]
-            return data_arr
-
-        dim_tolift = [0, 0, 0]
+        #dim_tolift = [0, 0, 0]
         with self.go_f.batch_update():
-            if check_type(row):
-                row = (row,)
-                dim_tolift[0] = 1
-            if check_type(col):
-                col = (col,)
-                dim_tolift[1] = 1
-            if check_type(lineno):
-                lineno = (lineno,)
-                dim_tolift[2] = 1
-            x_data = lift_dimension(x_data, dim_tolift)
-            y_data = lift_dimension(y_data, dim_tolift)
-            for i, n_row in enumerate(row):
-                for j, n_col in enumerate(col):
-                    for k, n_line in enumerate(lineno):
-                        self.live_dfs[n_row][n_col][n_line].x = x_data[i][j][k]
-                        self.live_dfs[n_row][n_col][n_line].y = y_data[i][j][k]
+            for no, (irow, icol, ilineno) in enumerate(zip(row, col, lineno)):
+                self.live_dfs[irow][icol][ilineno].x = x_data[no]
+                self.live_dfs[irow][icol][ilineno].y = y_data[no]

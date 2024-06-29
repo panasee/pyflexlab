@@ -5,6 +5,7 @@ initialzed right before the measurement, as there may be a long time between loa
 possibilities of parameter changing"""
 from typing import List, Tuple, Literal
 import time
+import datetime
 from abc import ABC, abstractmethod
 import numpy as np
 from pymeasure.instruments.srs import SR830
@@ -20,7 +21,7 @@ import re
 # import qcodes as qc
 from qcodes.instrument_drivers.oxford import OxfordMercuryiPS
 
-from common.file_organizer import print_help_if_needed
+from common.file_organizer import print_help_if_needed, FileOrganizer
 from common.data_plot import DataPlot
 from common.constants import factor
 from common.mercuryITC import MercuryITC
@@ -98,7 +99,7 @@ class MeasureManager(DataPlot):
         self.instrs["mercury_ips"].set_new_field_limits(spherical_limit)
 
     def ramp_magfield(self, field: float | Tuple[float], rate: Tuple[float] = (0.00333,) * 3,
-                      wait: bool = True) -> None:
+                      wait: bool = True, tolerance: float = 3e-3) -> None:
         """
         ramp the magnetic field to the target value with the rate, current the field is only in Z direction limited by the actual instrument setting
 
@@ -106,6 +107,7 @@ class MeasureManager(DataPlot):
             field (Tuple[float]): the target field coor
             rate (float): the rate of the field change (T/s)
             wait (bool): whether to wait for the ramping to finish
+            tolerance (float): the tolerance of the field (T)
         """
         mips = self.instrs["mercury_ips"]
         if max(rate) * 60 > 0.2:
@@ -127,16 +129,16 @@ class MeasureManager(DataPlot):
             # to finish
             self.live_plot_init(1, 1, 1, 800, 600, titles=[["H ramping"]],
                                 axes_labels=[[[r"Time (s)", r"Field_norm (T)"]]])
-            time_arr = []
-            field_arr = []
+            time_arr = [0]
+            field_arr = [np.linalg.norm((mips.x_measured(), mips.y_measured(), mips.z_measured()))]
             count = 0
-            step_count = 0
+            step_count = 1
             while count < 120:
                 field_now = (mips.x_measured(), mips.y_measured(), mips.z_measured())
                 time_arr.append(step_count)
                 field_arr.append(np.linalg.norm(field_now))
                 self.live_plot_update(0, 0, 0, time_arr, field_arr)
-                if np.linalg.norm(field_now) - np.linalg.norm(field) < 0.01:
+                if abs(np.linalg.norm(field_now) - np.linalg.norm(field)) < tolerance:
                     count += 1
                 else:
                     count = 0
@@ -144,7 +146,7 @@ class MeasureManager(DataPlot):
                 step_count += 1
             print("ramping finished")
 
-    def load_mercury_ipc(self, address: str = "TCPIP0::10.101.28.24::7020::SOCKET") -> None:
+    def load_mercury_itc(self, address: str = "TCPIP0::10.101.28.24::7020::SOCKET") -> None:
         """
         load Mercury iPS instrument according to the address, store it in self.instrs["mercury_ips"]
         """
@@ -155,7 +157,8 @@ class MeasureManager(DataPlot):
 
     def setup_SR830(self) -> None:
         """
-        setup the SR830 instruments using pre-stored setups here, this function will not fully reset the instruments, only overwrite the specific settings here, other settings will all be reserved
+        setup the SR830 instruments using pre-stored setups here, this function will not fully reset the instruments,
+        only overwrite the specific settings here, other settings will all be reserved
         """
         for instr in self.instrs["sr830"]:
             instr.filter_slope = 24
@@ -196,11 +199,12 @@ class MeasureManager(DataPlot):
         source_6221.waveform_duration_set_infinity()
         source_6221.output_low_grounded = True
 
-    def measure_iv_2400(self, v_max: float = 1E-4, v_step: float = 1E-5, curr_compliance: float = 1E-6,
-                        mode: Literal["0-max-0", "0--max-max-0"] = "0-max-0", *, test: bool = True, source: int = None,
-                        drain: int = None, temp: int = None, tmpfolder: str = None) -> None:
+    def measure_contact_2400(self, v_max: float = 1E-4, v_step: float = 1E-5, curr_compliance: float = 1E-6,
+                             mode: Literal["0-max-0", "0--max-max-0"] = "0-max-0", *, test: bool = True,
+                             source: int = None,
+                             drain: int = None, temp: int = None, tmpfolder: str = None) -> None:
         """
-        Measure the IV curve using Keithley 2400 to test the contacts. No data will be saved. (meter need to be loaded before calling this function)
+        Measure the IV curve using Keithley 2400 to test the contacts. No file will be saved if test is True
 
         Args:
             v_max (float): the maximum voltage to apply
@@ -242,11 +246,6 @@ class MeasureManager(DataPlot):
             file_path.parent.mkdir(parents=True, exist_ok=True)
             tmp_df.to_csv(file_path, sep="\t", index=False)
 
-            #ax[0].plot(v_array[:ii+1],i_array[:ii+1])
-            #ax[1].plot(v_array[:ii+1],v_array[:ii+1]/i_array[:ii+1],label="V/I")
-            #ax[1].plot(v_array[1:ii+1],np.diff(v_array[:ii+1])/np.diff(i_array[:ii+1]),label="dV/dI")
-            #ax[1].legend()
-            #plt.draw()
         instr_2400.shutdown()
 
     @print_help_if_needed
@@ -320,7 +319,7 @@ class MeasureManager(DataPlot):
                 self.ramp_magfield(b_i, wait=True)
                 if meter_1w.is_out_of_range():
                     out_range = True
-                if meter_2w.is_out_of_range():
+                elif meter_2w.is_out_of_range():
                     out_range = True
                 list_2w = meter_2w.snap("X", "Y", "R", "THETA")
                 list_1w = meter_1w.snap("X", "Y", "R", "THETA")
@@ -355,16 +354,28 @@ class MeasureManager(DataPlot):
                 source_6221.shutdown()
 
     @print_help_if_needed
-    def measure_VT_SR830(self, measurename_all, *var_tuple, source: Literal["sr830", "6221"], resistor: float = None):
+    def measure_VT_SR830(self, measurename_all, *var_tuple, source: Literal["sr830", "6221"], resistor: float = None,
+                         stability_counter: int = 120, thermalize_counter: int = 120, ramp_rate: float = 5) -> None:
         """
         measure voltage signal of constant current under different temperature (continuously changing).
+        NOTE: set npts to 2 to do fast ramping.
+        The normal ramping record data at every temperature point after it's been stablized and thermalized, while the fast ramping record according to time on the way
 
         Args:
             measurename_all (str): the full name of the measurement
             var_tuple (Tuple): the variables of the measurement, use "-h" to see the available options
             source (Literal["sr830","6221"]): the source of the measurement
             resistor (float): the resistance of the resistor, used only for sr830 source to calculate the voltage
+            stability_counter (int, [s]): the counter for the stability of the temperature
+            thermalize_counter (int, [s]): the counter for the thermalization of the temperature
+            ramp_rate (float, [K/min]): the rate of the temperature ramping
         """
+        sub_type = FileOrganizer.measurename_decom(measurename_all)[-1]
+        fast = False
+        if var_tuple[2] < 2:
+            raise ValueError("npts should be no less than 2")
+        elif var_tuple[2] == 2:
+            fast = True
         file_path = self.get_filepath(measurename_all, *var_tuple)
         file_path.parent.mkdir(parents=True, exist_ok=True)
         self.add_measurement(measurename_all)
@@ -374,8 +385,18 @@ class MeasureManager(DataPlot):
         print(f"Curr: {curr} A")
         print(f"Temperature: {var_tuple[0]} -> {var_tuple[1]} K")
         print(f"steps: {var_tuple[2] - 1}")
-        print(f"2w meter: {self.instrs['sr830'][0].adapter}")
-        print(f"1w meter: {self.instrs['sr830'][1].adapter}")
+        print(f"fast mode: {fast}")
+        # for two types of measurements, the V1 meter is the same as the 2w meter,
+        # and the V2 meter is the same as the 1w meter
+        # so the variable name will not be changed for 2pair measurement
+        if sub_type.split("-")[-1] == "1pair":
+            print(f"2w meter: {self.instrs['sr830'][0].adapter}")
+            print(f"1w meter: {self.instrs['sr830'][1].adapter}")
+        elif sub_type.split("-")[-1] == "2pair":
+            print("===========================================")
+            print(f"V1 meter: {self.instrs['sr830'][0].adapter}\t ORDER: {self.instrs['sr830'][0].harmonic}")
+            print(f"V2 meter: {self.instrs['sr830'][1].adapter}\t ORDER: {self.instrs['sr830'][1].harmonic}")
+            print("===========================================")
         T_arr = np.linspace(var_tuple[0], var_tuple[1], var_tuple[2])
         freq = var_tuple[4]
         tmp_df = pd.DataFrame(columns=["T", "X_2w", "Y_2w", "R_2w", "phi_2w", "X_1w", "Y_1w", "R_1w", "phi_1w", "curr"])
@@ -384,14 +405,26 @@ class MeasureManager(DataPlot):
         self.setup_SR830()
         meter_2w = self.instrs['sr830'][0]
         meter_1w = self.instrs['sr830'][1]
-        meter_2w.harmonic = 2
-        meter_1w.harmonic = 1
-
-        self.live_plot_init(2, 2, 2, 1000, 600,
-                            titles=[["2w", "phi"], ["1w", "phi"]],
-                            axes_labels=[[["T (K)", "V2w (V)"], ["T (K)", "phi"]],
-                                         [["T (K)", "V1w (V)"], ["T (K)", "phi"]]],
-                            line_labels=[[["X", "Y"], ["", ""]], [["X", "Y"], ["", ""]]])
+        if sub_type.split("-")[-1] == "1pair":
+            meter_2w.harmonic = 2
+            meter_1w.harmonic = 1
+            self.live_plot_init(3, 2, 2, 1000, 600,
+                                titles=[["2w", "phi"], ["1w", "phi"], ["T", ""]],
+                                axes_labels=[[["T (K)", "V2w (V)"], ["T (K)", "phi"]],
+                                             [["T (K)", "V1w (V)"], ["T (K)", "phi"]],
+                                             [["t(min)", "T (K)"], ["", ""]]],
+                                line_labels=[[["X", "Y"], ["", ""]],
+                                             [["X", "Y"], ["", ""]],
+                                             [["", ""], ["", ""]]])
+        elif sub_type.split("-")[-1] == "2pair":
+            self.live_plot_init(3, 2, 2, 1000, 600,
+                                titles=[["V1", "phi"], ["V1", "phi"], ["T", ""]],
+                                axes_labels=[[["T (K)", "V1 (V)"], ["T (K)", "phi"]],
+                                             [["T (K)", "V2 (V)"], ["T (K)", "phi"]],
+                                             [["t(min)", "T (K)"], ["", ""]]],
+                                line_labels=[[["X", "Y"], ["", ""]],
+                                             [["X", "Y"], ["", ""]],
+                                             [["", ""], ["", ""]]])
         if source == "sr830":
             meter_1w.reference_source_trigger = "POS EDGE"
             meter_2w.reference_source_trigger = "SINE"
@@ -404,7 +437,7 @@ class MeasureManager(DataPlot):
             curr_p2p = curr * np.sqrt(2)
             source_6221 = self.instrs["6221"]
             self.setup_6221()
-            source_6221.source_compliance = curr_p2p * 1000  # compliance voltage
+            source_6221.source_compliance = curr_p2p * 10000  # compliance voltage
             source_6221.source_range = curr_p2p / 0.6
             print(f"Keithley 6221 source range is set to {curr_p2p / 0.6} A")
             source_6221.waveform_frequency = freq
@@ -414,35 +447,86 @@ class MeasureManager(DataPlot):
             if source == "sr830":
                 for i in np.arange(0, curr * resistor, 0.02):
                     meter_2w.sine_voltage = i
-                    time.sleep(0.5)
+                    time.sleep(0.39)
                 meter_2w.sine_voltage = curr * resistor
             elif source == "6221":
                 source_6221.waveform_abort()
                 source_6221.waveform_amplitude = curr_p2p
                 source_6221.waveform_arm()
                 source_6221.waveform_start()
-            for i, temp in enumerate(T_arr):
-                self.instrs["itc"].ramp_to_temperature(temp)
-                if meter_1w.is_out_of_range():
-                    out_range = True
-                if meter_2w.is_out_of_range():
-                    out_range = True
-                list_2w = meter_2w.snap("X", "Y", "R", "THETA")
-                list_1w = meter_1w.snap("X", "Y", "R", "THETA")
-                temp = self.instrs["itc"].temperature
-                if source == "sr830":
-                    list_tot = [temp] + list_2w + list_1w + [curr]
-                if source == "6221":
-                    list_tot = [temp] + list_2w + list_1w + [curr]
-                print(f"T: {list_tot[0]:.2f} K\t 2w: {list_tot[1:5]}\t 1w: {list_tot[5:9]}")
-                tmp_df.loc[len(tmp_df)] = list_tot
-                self.live_plot_update([0, 0, 0, 1, 1, 1],
-                                      [0, 0, 1, 0, 0, 1],
-                                      [0, 1, 0, 0, 1, 0],
-                                      [tmp_df["T"]] * 6,
-                                      np.array(tmp_df[["X_2w", "Y_2w", "phi_2w", "X_1w", "Y_1w", "phi_1w"]]).T)
-                if i % 3 == 0:
-                    tmp_df.to_csv(file_path, sep="\t", index=False)
+
+            time_arr = []
+            if not fast:
+                for i, temp_i in enumerate(T_arr):
+                    self.instrs["itc"].ramp_to_temperature(temp_i, ramp_rate=ramp_rate,
+                                                           stability_counter=stability_counter,
+                                                           thermalize_counter=thermalize_counter)
+                    if meter_1w.is_out_of_range():
+                        out_range = True
+                    elif meter_2w.is_out_of_range():
+                        out_range = True
+                    list_2w = meter_2w.snap("X", "Y", "R", "THETA")
+                    list_1w = meter_1w.snap("X", "Y", "R", "THETA")
+                    temp = self.instrs["itc"].temperature
+                    if source == "sr830":
+                        list_tot = [temp] + list_2w + list_1w + [curr]
+                    if source == "6221":
+                        list_tot = [temp] + list_2w + list_1w + [curr]
+                    if sub_type.split("-")[-1] == "1pair":
+                        print(f"T: {list_tot[0]:.2f} K\t 2w: {list_tot[1:5]}\t 1w: {list_tot[5:9]}")
+                    elif sub_type.split("-")[-1] == "2pair":
+                        print(f"T: {list_tot[0]:.2f} K\t V1: {list_tot[1:5]}\t V2: {list_tot[5:9]}")
+                    tmp_df.loc[len(tmp_df)] = list_tot
+                    time_arr.append(datetime.datetime.now())
+                    self.live_plot_update([0, 0, 0, 1, 1, 1, 2],
+                                          [0, 0, 1, 0, 0, 1, 0],
+                                          [0, 1, 0, 0, 1, 0, 0],
+                                          [tmp_df["T"]] * 6 + [time_arr],
+                                          np.array(tmp_df[["X_2w", "Y_2w", "phi_2w", "X_1w", "Y_1w", "phi_1w", "T"]]).T)
+                    if i % 3 == 0:
+                        tmp_df.to_csv(file_path, sep="\t", index=False)
+            if fast:
+                i = 0
+                counter = 0
+                self.instrs["itc"].ramp_to_temperature(var_tuple[0], ramp_rate=ramp_rate, wait = True,
+                                                       stability_counter=stability_counter,
+                                                       thermalize_counter=thermalize_counter)
+                self.instrs["itc"].ramp_to_temperature(var_tuple[1], ramp_rate=ramp_rate, wait = False,
+                                                           stability_counter=stability_counter,
+                                                           thermalize_counter=thermalize_counter)
+                # assume 1000s to end the RT curve
+                while counter < 1000:
+                    i += 1
+                    if meter_1w.is_out_of_range():
+                        out_range = True
+                    elif meter_2w.is_out_of_range():
+                        out_range = True
+                    list_2w = meter_2w.snap("X", "Y", "R", "THETA")
+                    list_1w = meter_1w.snap("X", "Y", "R", "THETA")
+                    temp = self.instrs["itc"].temperature
+                    if source == "sr830":
+                        list_tot = [temp] + list_2w + list_1w + [curr]
+                    if source == "6221":
+                        list_tot = [temp] + list_2w + list_1w + [curr]
+                    if sub_type.split("-")[-1] == "1pair":
+                        print(f"T: {list_tot[0]:.2f} K\t 2w: {list_tot[1:5]}\t 1w: {list_tot[5:9]}")
+                    elif sub_type.split("-")[-1] == "2pair":
+                        print(f"T: {list_tot[0]:.2f} K\t V1: {list_tot[1:5]}\t V2: {list_tot[5:9]}")
+                    tmp_df.loc[len(tmp_df)] = list_tot
+                    time_arr.append(datetime.datetime.now())
+                    self.live_plot_update([0, 0, 0, 1, 1, 1, 2],
+                                          [0, 0, 1, 0, 0, 1, 0],
+                                          [0, 1, 0, 0, 1, 0, 0],
+                                          [tmp_df["T"]] * 6 + [time_arr],
+                                          np.array(tmp_df[["X_2w", "Y_2w", "phi_2w", "X_1w", "Y_1w", "phi_1w", "T"]]).T)
+                    if i % 7 == 0:
+                        tmp_df.to_csv(file_path, sep="\t", index=False)
+                    time.sleep(1)
+
+                    if abs(temp - var_tuple[1]) < ITC.dynamic_delta(var_tuple[1], 0.01):
+                        counter += 1
+                    else:
+                        counter = 0
             self.dfs["VT"] = tmp_df.copy()
             # rename the columns for compatibility with the plotting function
             self.rename_columns("VT", {"Y_2w": "V2w", "X_1w": "V1w"})
@@ -459,78 +543,78 @@ class MeasureManager(DataPlot):
             if source == "6221":
                 source_6221.shutdown()
 
-    @print_help_if_needed
-    def measure_RT_SR830_ITC503(self, measurename_all, *var_tuple, resist: float) -> None:
-        """
-        Measure the Resist-Temperature relation using SR830 as both meter and source and store the data in the corresponding file(meters need to be loaded before calling this function, and the first is the source)
+    #@print_help_if_needed
+    #def measure_RT_SR830_ITC503(self, measurename_all, *var_tuple, resist: float) -> None:
+    #    """
+    #    Measure the Resist-Temperature relation using SR830 as both meter and source and store the data in the corresponding file(meters need to be loaded before calling this function, and the first is the source)
 
-        Args:
-            measurename_all (str): the full name of the measurement
-            var_tuple (Tuple): the variables of the measurement, use "-h" to see the available options
-            resist (float): the resistance of the resistor, used only to calculate corresponding voltage
-        """
-        file_path = self.get_filepath(measurename_all, *var_tuple)
-        self.add_measurement(measurename_all)
-        curr = MeasureManager.split_no_str(var_tuple[0])
-        curr = factor(curr[1], "to_SI") * curr[0]  # [A]
-        print(f"Filename is: {file_path.name}")
-        print(f"Curr: {curr} A")
-        print(f"estimated T range: {var_tuple[7]}-{var_tuple[8]} K")
-        measure_delay = 0.5  # [s]
-        frequency = 51.637  # [Hz]
-        volt = curr * resist  # [V]
+    #    Args:
+    #        measurename_all (str): the full name of the measurement
+    #        var_tuple (Tuple): the variables of the measurement, use "-h" to see the available options
+    #        resist (float): the resistance of the resistor, used only to calculate corresponding voltage
+    #    """
+    #    file_path = self.get_filepath(measurename_all, *var_tuple)
+    #    self.add_measurement(measurename_all)
+    #    curr = MeasureManager.split_no_str(var_tuple[0])
+    #    curr = factor(curr[1], "to_SI") * curr[0]  # [A]
+    #    print(f"Filename is: {file_path.name}")
+    #    print(f"Curr: {curr} A")
+    #    print(f"estimated T range: {var_tuple[7]}-{var_tuple[8]} K")
+    #    measure_delay = 0.5  # [s]
+    #    frequency = 51.637  # [Hz]
+    #    volt = curr * resist  # [V]
 
-        self.setup_SR830()
-        itc = self.instrs["itc"]
-        meter1 = self.instrs["sr830"][0]
-        meter2 = self.instrs["sr830"][1]
-        print("====================")
-        print(f"The first meter is {meter1.adapter}")
-        print(f"Measuring {meter1.harmonic}-order signal")
-        print("====================")
-        print(f"The second meter is {meter2.adapter}")
-        print(f"Measuring {meter2.harmonic}-order signal")
-        print("====================")
+    #    self.setup_SR830()
+    #    itc = self.instrs["itc"]
+    #    meter1 = self.instrs["sr830"][0]
+    #    meter2 = self.instrs["sr830"][1]
+    #    print("====================")
+    #    print(f"The first meter is {meter1.adapter}")
+    #    print(f"Measuring {meter1.harmonic}-order signal")
+    #    print("====================")
+    #    print(f"The second meter is {meter2.adapter}")
+    #    print(f"Measuring {meter2.harmonic}-order signal")
+    #    print("====================")
 
-        # increase voltage 0.02V/s to the needed value
-        print(f"increasing voltage to targeted value {volt} V")
-        amp = np.arange(0, volt, 0.01)
-        for v in amp:
-            meter1.sine_voltage = v
-            time.sleep(0.5)
-        print("voltage reached, start measurement")
+    #    # increase voltage 0.02V/s to the needed value
+    #    print(f"increasing voltage to targeted value {volt} V")
+    #    amp = np.arange(0, volt, 0.01)
+    #    for v in amp:
+    #        meter1.sine_voltage = v
+    #        time.sleep(0.5)
+    #    print("voltage reached, start measurement")
 
-        self.live_plot_init(2, 2, 2, 1000, 600, titles=[["XY-T", "phi"], ["XY-T", "phi"]],
-                            axes_labels=[[[r"T (K)", r"V (V)"], ["T (K)", "phi"]],
-                                         [[r"T (K)", r"V (V)"], ["T (K)", "phi"]]],
-                            line_labels=[[["X", "Y"], ["", ""]], [["X", "Y"], ["", ""]]])
-        meter1.reference_source = "Internal"
-        meter1.frequency = frequency
-        tmp_df = pd.DataFrame(columns=["T", "X1", "Y1", "R1", "phi1", "X2", "Y2", "R2", "phi2"])
-        try:
-            count = 0
-            while True:
-                count += 1
-                time.sleep(measure_delay)
-                list1 = meter1.snap("X", "Y", "R", "THETA")
-                list2 = meter2.snap("X", "Y", "R", "THETA")
-                temp = [itc.temperature]
-                list_tot = temp + list1 + list2
-                tmp_df.loc[len(tmp_df)] = list_tot
+    #    self.live_plot_init(2, 2, 2, 1000, 600, titles=[["XY-T", "phi"], ["XY-T", "phi"]],
+    #                        axes_labels=[[[r"T (K)", r"V (V)"], ["T (K)", "phi"]],
+    #                                     [[r"T (K)", r"V (V)"], ["T (K)", "phi"]]],
+    #                        line_labels=[[["X", "Y"], ["", ""]], [["X", "Y"], ["", ""]]])
+    #    meter1.reference_source = "Internal"
+    #    meter1.frequency = frequency
+    #    tmp_df = pd.DataFrame(columns=["T", "X1", "Y1", "R1", "phi1", "X2", "Y2", "R2", "phi2"])
+    #    try:
+    #        count = 0
+    #        while True:
+    #            count += 1
+    #            time.sleep(measure_delay)
+    #            list1 = meter1.snap("X", "Y", "R", "THETA")
+    #            list2 = meter2.snap("X", "Y", "R", "THETA")
+    #            temp = [itc.temperature]
+    #            list_tot = temp + list1 + list2
+    #            tmp_df.loc[len(tmp_df)] = list_tot
 
-                self.live_plot_update(0, 0, 0, tmp_df["T"], tmp_df["X1"])
-                self.live_plot_update(0, 0, 1, tmp_df["T"], tmp_df["Y1"])
-                self.live_plot_update(0, 1, 0, tmp_df["T"], tmp_df["phi1"])
-                self.live_plot_update(1, 0, 0, tmp_df["T"], tmp_df["X2"])
-                self.live_plot_update(1, 0, 1, tmp_df["T"], tmp_df["Y2"])
-                self.live_plot_update(1, 1, 0, tmp_df["T"], tmp_df["phi2"])
-                if count % 10 == 0:
-                    tmp_df.to_csv(file_path, sep="\t", index=False)
-        except KeyboardInterrupt:
-            print("Measurement interrupted")
-        finally:
-            tmp_df.to_csv(file_path, sep="\t", index=False)
-            meter1.sine_voltage = 0
+    #            self.live_plot_update(0, 0, 0, tmp_df["T"], tmp_df["X1"])
+    #            self.live_plot_update(0, 0, 1, tmp_df["T"], tmp_df["Y1"])
+    #            self.live_plot_update(0, 1, 0, tmp_df["T"], tmp_df["phi1"])
+    #            self.live_plot_update(1, 0, 0, tmp_df["T"], tmp_df["X2"])
+    #            self.live_plot_update(1, 0, 1, tmp_df["T"], tmp_df["Y2"])
+    #            self.live_plot_update(1, 1, 0, tmp_df["T"], tmp_df["phi2"])
+    #            if count % 10 == 0:
+    #                tmp_df.to_csv(file_path, sep="\t", index=False)
+    #    except KeyboardInterrupt:
+    #        print("Measurement interrupted")
+    #    finally:
+    #        tmp_df.to_csv(file_path, sep="\t", index=False)
+    #        meter1.sine_voltage = 0
 
     @print_help_if_needed
     def measure_nonlinear_SR830(self, measurename_all, *var_tuple, tmpfolder: str = None,
@@ -696,7 +780,7 @@ class MeasureManager(DataPlot):
             print()
 
 
-class ITC(ABC):
+class ITC(ABC, DataPlot):
     # parent class to incorporate both two ITCs
     @property
     @abstractmethod
@@ -729,7 +813,18 @@ class ITC(ABC):
         """
         pass
 
-    def wait_for_temperature(self, temp, *, delta=0.01, check_interval=1, stability_counter=120,
+    @abstractmethod
+    def correction_ramping(self, temp: float, trend: Literal["up", "down", "up-huge", "down-huge"]):
+        """
+        Correct the sensor choosing or pressure when ramping through the temperature threshold
+
+        Args:
+            temp (float): the current temperature
+            trend (Literal["up","down"]): the trend of the temperature
+        """
+        pass
+
+    def wait_for_temperature(self, temp, *, if_plot=False, delta=0.01, check_interval=1, stability_counter=120,
                              thermalize_counter=120):
         """
         wait for the temperature to stablize for a certain time length
@@ -740,13 +835,33 @@ class ITC(ABC):
             check_interval (int,[s]): the interval to check the temperature
             stability_counter (int): the number of times the temperature is within the delta range to consider the temperature stablized
             thermalize_counter (int): the number of times to thermalize the sample
+            if_plot (bool): whether to plot the temperature change
         """
+        if self.temperature < temp - 100:
+            trend = "up-huge"
+        elif self.temperature > temp + 100:
+            trend = "down-huge"
+        elif self.temperature < temp:
+            trend = "up"
+        else:
+            trend = "down"
+
+        if if_plot:
+            self.live_plot_init(1, 1, 1, 800, 600, titles=[["T ramping"]],
+                                axes_labels=[[[r"Time (s)", r"T (K)"]]])
+            t_arr = [0]
+            T_arr = [self.temperature]
         i = 0
         while i < stability_counter:
-            if temp - delta < self.temperature < temp + delta:
+            self.correction_ramping(self.temperature, trend)
+            if abs(self.temperature - temp) < ITC.dynamic_delta(temp, delta):
                 i += 1
-            else:
+            elif i >= 5:
                 i -= 5
+            if if_plot:
+                t_arr.append(t_arr[-1] + check_interval)
+                T_arr.append(self.temperature)
+                self.live_plot_update(0, 0, 0, t_arr, T_arr)
             MeasureManager.print_progress_bar(i, stability_counter, prefix="Stablizing",
                                               suffix=f"Temperature: {self.temperature:.2f} K")
             time.sleep(check_interval)
@@ -754,25 +869,45 @@ class ITC(ABC):
         for i in range(thermalize_counter):
             MeasureManager.print_progress_bar(i, stability_counter, prefix="Thermalizing",
                                               suffix=f"Temperature: {self.temperature:.2f} K")
+            if if_plot:
+                t_arr.append(t_arr[-1] + check_interval)
+                T_arr.append(self.temperature)
+                self.live_plot_update(0, 0, 0, t_arr, T_arr)
             time.sleep(check_interval)
         print("Thermalizing finished")
 
     def ramp_to_temperature(self, temp, *, delta=0.01, check_interval=1, stability_counter=120, thermalize_counter=120,
-                            pid=None):
+                            pid=None, ramp_rate=None, wait = True):
         """ramp temperature to the target value (not necessary sample temperature)"""
         self.set_temperature(temp)
         if pid is not None:
             self.set_pid(pid)
-        self.wait_for_temperature(temp, delta=delta, check_interval=check_interval, stability_counter=stability_counter,
+        if wait:
+            self.wait_for_temperature(temp, delta=delta, check_interval=check_interval, stability_counter=stability_counter,
                                   thermalize_counter=thermalize_counter)
+
+    @staticmethod
+    def dynamic_delta(temp, delta_lowt) -> float:
+        """
+        calculate a dynamic delta to help high temperature to stabilize (reach 0.1K tolerance when 300K and {delta_lowt} when 10K)
+        """
+        return (0.1*temp-1+delta_lowt*(300-temp))/290
 
 
 class ITCMercury(ITC):
-    def __init__(self, address="TCPIP0::10.101.28.24::7020::SOCKET"):
+    def __init__(self, proj_name: str, address="TCPIP0::10.101.28.24::7020::SOCKET"):
         self.mercury = MercuryITC("mercury_itc", address)
 
+    @property
+    def pres(self):
+        return self.mercury.pressure()
+
+    def set_pres(self, pres: float):
+        self.mercury.pressure_setpoint(pres)
+
+    @property
     def flow(self):
-        print(f"{self.mercury.gas_flow()}%")
+        return self.mercury.gas_flow()
 
     def set_flow(self, flow: float):
         """
@@ -814,7 +949,7 @@ class ITCMercury(ITC):
         self.mercury.vti_temp_setpoint(temp)
 
     def ramp_to_temperature(self, temp, *, delta=0.01, check_interval=1, stability_counter=120, thermalize_counter=120,
-                            pid=None, ramp_rate=None):
+                            pid=None, ramp_rate=None, wait = True):
         """ramp temperature to the target value (not necessary sample temperature) Args: temp (float): the target
         temperature delta (float): the temperature difference to consider the temperature stablized check_interval (
         int,[s]): the interval to check the temperature stability_counter (int): the number of times the temperature
@@ -825,12 +960,34 @@ class ITCMercury(ITC):
         self.set_temperature(temp)
         if pid is not None:
             self.set_pid(pid)
+
         if ramp_rate is not None:
             self.mercury.probe_ramp_rate(ramp_rate)
             # self.mercury.vti_heater_rate(ramp_rate)
             self.mercury.probe_temp_ramp_mode("ON")
-        self.wait_for_temperature(temp, delta=delta, check_interval=check_interval, stability_counter=stability_counter,
+        else:
+            self.mercury.probe_temp_ramp_mode("OFF")
+        if wait:
+            self.wait_for_temperature(temp, delta=delta, check_interval=check_interval, stability_counter=stability_counter,
                                   thermalize_counter=thermalize_counter)
+
+    def correction_ramping(self, temp: float, trend: Literal["up", "down", "up-huge", "down-huge"]):
+        """
+        Correct the sensor choosing or pressure when ramping through the temperature threshold
+
+        Args:
+            temp (float): the current temperature
+            trend (Literal["up","down","up-huge","down-huge"]): the trend of the temperature
+        """
+        if trend == "up-huge":
+            self.set_pres(5)
+        elif trend == "down-huge":
+            if temp >= 3.5:
+                self.set_pres(15)
+            else:
+                self.set_pres(2)
+        else:
+            self.set_pres(2)
 
 
 class ITCs(ITC):

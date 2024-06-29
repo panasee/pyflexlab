@@ -19,23 +19,27 @@ script_base_dir: Path = Path(__file__).resolve().parents[1]
 today = datetime.date.today()
 os.chdir(script_base_dir)
 
+
 def print_help_if_needed(func: callable) -> callable:
     """decorator used to print the help message if the first argument is '-h'"""
-    def wrapper(self,measurename_all, *var_tuple, **kwargs):
+
+    def wrapper(self, measurename_all, *var_tuple, **kwargs):
         if var_tuple[0] == "-h":
-            measure_name,_ = FileOrganizer.measurename_decom(measurename_all)
+            measure_name, _ = FileOrganizer.measurename_decom(measurename_all)
             print(FileOrganizer.query_namestr(measure_name))
             return None
-        return func(self, measurename_all,*var_tuple, **kwargs)
+        return func(self, measurename_all, *var_tuple, **kwargs)
+
     return wrapper
+
 
 class FileOrganizer:
     """A class to manage file and directory operations."""
 
     # define static variables to store the file paths
     local_database_dir = script_base_dir / "data_files"
-    out_database_dir: Path = None # defined in out_database method(static)
-    trash_dir: Path = None # defined in out_database method(static)
+    out_database_dir: Path = None  # defined in out_database method(static)
+    trash_dir: Path = None  # defined in out_database method(static)
     # load the json files to dicts for storing important records information
     # take note that the dicts are static variables created with the definition of the class and shared by all instances of the class and keep changing
     measure_types_json: dict
@@ -46,7 +50,7 @@ class FileOrganizer:
     with open(local_database_dir / "measure_types.json", "r", encoding="utf-8") as __measure_type_file:
         measure_types_json: dict = json.load(__measure_type_file)
 
-    def __init__(self, proj_name:str, copy_from:str = None, special_mode = False)->None:
+    def __init__(self, proj_name: str, copy_from: str = None, special_mode=False) -> None:
         """
         initialize the class with the project name and judge if the name is in the accepted project names. Only out_database_path is required, as the local_database_dir is attached with the base_dir
 
@@ -65,8 +69,8 @@ class FileOrganizer:
         if proj_name not in FileOrganizer.proj_rec_json and copy_from is None:
             FileOrganizer.proj_rec_json[proj_name] = {
                 "created_date": today.strftime("%Y-%m-%d"),
-                "last_modified": today.strftime("%Y-%m-%d"), 
-                "measurements": [], 
+                "last_modified": today.strftime("%Y-%m-%d"),
+                "measurements": [],
                 "plan": {}}
             print(f"{proj_name} is not found in the project record file, a new item has been added.")
             # not dump the json file here, but in the sync method, to avoid the file being dumped multiple times
@@ -82,9 +86,11 @@ class FileOrganizer:
         # create project folder in the out database for storing main data
         self.out_database_dir_proj.mkdir(exist_ok=True)
         if not os.path.exists(self.out_database_dir_proj / "assist_post.ipynb"):
-            shutil.copy(FileOrganizer.local_database_dir / "assist.ipynb", self.out_database_dir_proj / "assist_post.ipynb")
+            shutil.copy(FileOrganizer.local_database_dir / "assist.ipynb",
+                        self.out_database_dir_proj / "assist_post.ipynb")
         if not os.path.exists(self.out_database_dir_proj / "assist_measure.ipynb"):
-            shutil.copy(FileOrganizer.local_database_dir / "assist.ipynb", self.out_database_dir_proj / "assist_measure.ipynb")
+            shutil.copy(FileOrganizer.local_database_dir / "assist.ipynb",
+                        self.out_database_dir_proj / "assist_measure.ipynb")
         # sync the project record file at the end of the function
         FileOrganizer._sync_json("proj_rec")
 
@@ -92,8 +98,8 @@ class FileOrganizer:
         """Make sure the files are closed when the class is deleted."""
         if not FileOrganizer.__measure_type_file.closed:
             FileOrganizer.__measure_type_file.close()
- 
-    def get_filepath(self, measure_name_all: str, *var_tuple, tmpfolder: str=None) -> Path:
+
+    def get_filepath(self, measure_name_all: str, *var_tuple, tmpfolder: str = None, plot: bool = False) -> Path:
         """
         Get the filepath of the measurement file.
 
@@ -102,19 +108,28 @@ class FileOrganizer:
                 The name of the measurement type
             var_tuple: Tuple[int, str, float]
                 a tuple containing all parameters for the measurement
+            tmpfolder: str
+                The name of the temperature/temporary folder, default is None
+            plot: bool
+                Whether the file is a plot file, default is False
         """
-        measure_name,measure_sub = FileOrganizer.measurename_decom(measure_name_all)
+        measure_name, measure_sub = FileOrganizer.measurename_decom(measure_name_all)
 
         try:
             if measure_sub is None:
                 filename = FileOrganizer.filename_format(FileOrganizer.measure_types_json[measure_name], *var_tuple)
             else:
-                filename = FileOrganizer.filename_format(FileOrganizer.measure_types_json[measure_name][measure_sub], *var_tuple)
+                filename = FileOrganizer.filename_format(FileOrganizer.measure_types_json[measure_name][measure_sub],
+                                                         *var_tuple)
 
             if tmpfolder is not None:
                 filepath = self.out_database_dir_proj / measure_name / tmpfolder / filename
+                if plot:
+                    filepath = self.out_database_dir_proj / "plot" / measure_name / tmpfolder / filename
             else:
                 filepath = self.out_database_dir_proj / measure_name / filename
+                if plot:
+                    filepath = self.out_database_dir_proj / "plot" / measure_name / filename
             return filepath
 
         except Exception:
@@ -170,7 +185,7 @@ class FileOrganizer:
         Set the out_database_dir variable to the given path, should be called before any instances of the class are created
         """
         FileOrganizer.out_database_dir = Path(out_database_path)
-        FileOrganizer.out_database_dir.mkdir(parents=True,exist_ok=True)
+        FileOrganizer.out_database_dir.mkdir(parents=True, exist_ok=True)
         FileOrganizer.trash_dir = FileOrganizer.out_database_dir / "trash"
         FileOrganizer.trash_dir.mkdir(exist_ok=True)
         with open(FileOrganizer.out_database_dir / "project_record.json", "r", encoding="utf-8") as __proj_rec_file:
@@ -186,7 +201,8 @@ class FileOrganizer:
                 The file to be synced with, should be either "measure_type" or "proj_rec"
         """
         if which_file == "measure_type":
-            with open(FileOrganizer.local_database_dir / "measure_types.json", "w", encoding="utf-8") as __measure_type_file:
+            with open(FileOrganizer.local_database_dir / "measure_types.json", "w",
+                      encoding="utf-8") as __measure_type_file:
                 json.dump(FileOrganizer.measure_types_json, __measure_type_file, indent=4)
         elif which_file == "proj_rec":
             with open(FileOrganizer.out_database_dir / "project_record.json", "w", encoding="utf-8") as __proj_rec_file:
@@ -264,7 +280,7 @@ class FileOrganizer:
             overwrite: bool
                 Whether to overwrite the existing measurement type, default is False
         """
-        measure_name,measure_sub = FileOrganizer.measurename_decom(measure_name_all)
+        measure_name, measure_sub = FileOrganizer.measurename_decom(measure_name_all)
 
         if measure_name in FileOrganizer.measure_types_json:
             if measure_sub in FileOrganizer.measure_types_json[measure_name] and not overwrite:
@@ -292,7 +308,7 @@ class FileOrganizer:
         return FileOrganizer.proj_rec_json
 
     @staticmethod
-    def del_proj(proj_name:str) -> None:
+    def del_proj(proj_name: str) -> None:
         """To delete a project from the project record file."""
         del FileOrganizer.proj_rec_json[proj_name]
         FileOrganizer._sync_json("proj_rec")
@@ -300,39 +316,41 @@ class FileOrganizer:
         shutil.move(FileOrganizer.out_database_dir / proj_name, FileOrganizer.trash_dir / proj_name)
         print(f"{proj_name} has been moved to the trash bin.")
 
-    def tree(self, level: int=-1, limit_to_directories: bool=True, length_limit: int=300):
+    def tree(self, level: int = -1, limit_to_directories: bool = True, length_limit: int = 300):
         """
         Given a directory Path object print a visual tree structure
         Cited from: https://stackoverflow.com/questions/9727673/list-directory-tree-structure-in-python
         """
         # prefix components:
-        space =  '    '
+        space = '    '
         branch = '│   '
         # pointers:
-        tee =    '├── '
-        last =   '└── '
+        tee = '├── '
+        last = '└── '
 
         dir_path = self.out_database_dir_proj
         files = 0
         directories = 0
-        def inner(dir_path: Path, prefix: str='', level=-1):
+
+        def inner(dir_path: Path, prefix: str = '', level=-1):
             nonlocal files, directories
             if not level:
-                return # 0, stop iterating
+                return  # 0, stop iterating
             if limit_to_directories:
                 contents = [d for d in dir_path.iterdir() if d.is_dir()]
-            else: 
+            else:
                 contents = list(dir_path.iterdir())
             pointers = [tee] * (len(contents) - 1) + [last]
             for pointer, path in zip(pointers, contents):
                 if path.is_dir():
                     yield prefix + pointer + path.name
                     directories += 1
-                    extension = branch if pointer == tee else space 
-                    yield from inner(path, prefix=prefix+extension, level=level-1)
+                    extension = branch if pointer == tee else space
+                    yield from inner(path, prefix=prefix + extension, level=level - 1)
                 elif not limit_to_directories:
                     yield prefix + pointer + path.name
                     files += 1
+
         print(dir_path.name)
         iterator = inner(dir_path, level=level)
         for line in islice(iterator, length_limit):
@@ -345,7 +363,8 @@ class FileOrganizer:
 if __name__ == "__main__":
     FileOrganizer.out_database_init(r"C:\Users\Downloads\testtmp")
     test = FileOrganizer("test")
-    FileOrganizer.add_measurement_type("RT","I-_iin_-_iout_-_currstr_-Vup-_v1high_-_v1low_-Vdown-_v2high_-v2low_-_temp1str_-temp2str__fileappen_")
+    FileOrganizer.add_measurement_type("RT",
+                                       "I-_iin_-_iout_-_currstr_-Vup-_v1high_-_v1low_-Vdown-_v2high_-v2low_-_temp1str_-temp2str__fileappen_")
     test.add_measurement("RT")
     test.tree()
     test.del_proj("test")
