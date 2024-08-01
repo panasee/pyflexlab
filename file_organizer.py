@@ -6,10 +6,11 @@ This file should be called when create new files or directories
 """
 
 import os
+import platform
 from pathlib import Path
 import json
 import datetime
-from typing import Union
+from typing import Literal
 from itertools import islice
 import shutil
 import re
@@ -41,11 +42,13 @@ class FileOrganizer:
     out_database_dir: Path = None  # defined in out_database method(static)
     trash_dir: Path = None  # defined in out_database method(static)
     # load the json files to dicts for storing important records information
-    # take note that the dicts are static variables created with the definition of the class and shared by all instances of the class and keep changing
+    # note that the dicts are static variables created with the definition of the class and shared by all instances of the class and keep changing
     measure_types_json: dict
     """the changes should ALWAYS be synced RIGHT AFTER EVERY CHANGES"""
     proj_rec_json: dict
     """the changes should ALWAYS be synced RIGHT AFTER EVERY CHANGES"""
+    third_party_json: dict
+    """used for specific reason, like wafers, positions, etc."""
 
     with open(local_database_dir / "measure_types.json", "r", encoding="utf-8") as __measure_type_file:
         measure_types_json: dict = json.load(__measure_type_file)
@@ -59,6 +62,11 @@ class FileOrganizer:
                 The name of the project, used as the name of the base directory
         """
         ##TODO: add a special mode to allow the user to create a project without the need of the out_database_dir, store the data directly in the local_database_dir
+        if platform.system().lower() == "windows":
+            self.curr_sys = "win"
+        elif platform.system().lower() == "linux":
+            self.curr_sys = "linux"
+
         if FileOrganizer.out_database_dir is None:
             raise ValueError("The out_database_dir has not been set, please call the out_database_init method first.")
         # defined vars for two databases of the project
@@ -98,6 +106,10 @@ class FileOrganizer:
         """Make sure the files are closed when the class is deleted."""
         if not FileOrganizer.__measure_type_file.closed:
             FileOrganizer.__measure_type_file.close()
+
+    def open_proj_folder(self) -> None:
+        """Open the project folder"""
+        FileOrganizer.open_folder(self.out_database_dir_proj)
 
     def get_filepath(self, measure_name_all: str, *var_tuple, tmpfolder: str = None, plot: bool = False) -> Path:
         """
@@ -180,6 +192,17 @@ class FileOrganizer:
             return None
 
     @staticmethod
+    def open_folder(path: str | Path) -> None:
+        """
+        Open the windows explorer to the given path
+        For non-win systems, print the path
+        """
+        if platform.system().lower() == "windows":
+            os.system(f"start explorer {path}")
+        else:
+            print(f"Use terminal: {path}")
+
+    @staticmethod
     def out_database_init(out_database_path: str | Path) -> None:
         """
         Set the out_database_dir variable to the given path, should be called before any instances of the class are created
@@ -188,6 +211,9 @@ class FileOrganizer:
         FileOrganizer.out_database_dir.mkdir(parents=True, exist_ok=True)
         FileOrganizer.trash_dir = FileOrganizer.out_database_dir / "trash"
         FileOrganizer.trash_dir.mkdir(exist_ok=True)
+        if not (FileOrganizer.out_database_dir / "project_record.json").exists():
+            with open(FileOrganizer.out_database_dir / "project_record.json", "w", encoding="utf-8") as __proj_rec_file:
+                json.dump({}, __proj_rec_file)
         with open(FileOrganizer.out_database_dir / "project_record.json", "r", encoding="utf-8") as __proj_rec_file:
             FileOrganizer.proj_rec_json = json.load(__proj_rec_file)
 
@@ -207,6 +233,17 @@ class FileOrganizer:
         elif which_file == "proj_rec":
             with open(FileOrganizer.out_database_dir / "project_record.json", "w", encoding="utf-8") as __proj_rec_file:
                 json.dump(FileOrganizer.proj_rec_json, __proj_rec_file, indent=4)
+        elif isinstance(which_file, str):
+            if FileOrganizer.third_party_location == "local":
+                with open(FileOrganizer.local_database_dir / f"{which_file}.json", "w",
+                          encoding="utf-8") as __third_party_file:
+                    json.dump(FileOrganizer.third_party_json, __third_party_file, indent=4)
+            elif FileOrganizer.third_party_location == "out":
+                with open(FileOrganizer.out_database_dir / f"{which_file}.json", "w",
+                          encoding="utf-8") as __third_party_file:
+                    json.dump(FileOrganizer.third_party_json, __third_party_file, indent=4)
+        else:
+            raise ValueError("The file name should be str.")
 
     def create_folder(self, folder_name: str) -> None:
         """
@@ -358,6 +395,28 @@ class FileOrganizer:
         if next(iterator, None):
             print(f'... length_limit, {length_limit}, reached, counted:')
         print(f'\n{directories} directories' + (f', {files} files' if files else ''))
+
+    @staticmethod
+    def load_third_party(third_party_name: str, location: Literal["local", "out"] = "out") -> Path:
+        """
+        Load the third party json file to the third_party_json variable
+        """
+        if location == "local":
+            file_path = FileOrganizer.local_database_dir / f"{third_party_name}.json"
+            FileOrganizer.third_party_location = "local"
+        elif location == "out":
+            file_path = FileOrganizer.out_database_dir / f"{third_party_name}.json"
+            FileOrganizer.third_party_location = "out"
+        else:
+            raise ValueError("The location should be either 'local' or 'out'.")
+        if not file_path.exists():
+            # create a new file with the name
+            with open(file_path, "w", encoding="utf-8") as __third_party_file:
+                json.dump({}, __third_party_file)
+        with open(file_path, "r", encoding="utf-8") as __third_party_file:
+            FileOrganizer.third_party_json = json.load(__third_party_file)
+
+        return file_path
 
 
 if __name__ == "__main__":

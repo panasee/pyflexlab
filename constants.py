@@ -13,7 +13,7 @@ unit_factor_fromSI= {"p":1E12, "n":1E9, "u":1E6, "m":1E3, "k":1E-3, "M":1E-6, "G
 unit_factor_toSI= {"p":1E-12, "n":1E-9, "u":1E-6, "m":1E-3, "k":1E3, "M":1E6, "G":1E9}
 
 #define plotting default settings
-default_plot_dict = {"color":colors.Genshin["Nilou"][0], "linewidth":1, "linestyle":"-", "marker":"o", "markersize":2, "markerfacecolor":"None", "markeredgecolor":"black", "markeredgewidth":0.3, "label":"", "alpha":0.77}
+default_plot_dict = {"color":colors.Genshin["Nilou"][0], "linewidth":1, "linestyle":"-", "marker":"o", "markersize":1.5, "markerfacecolor":"None", "markeredgecolor":"black", "markeredgewidth":0.3, "label":"", "alpha":0.77}
 
 def factor(unit:str, mode: str = "from_SI"):
     """

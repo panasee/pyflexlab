@@ -170,7 +170,7 @@ class DataPlot(DataProcess):
         """
         self.params.tmp.update(label="RT")
 
-        rt_df = self.dfs["RT"]
+        rt_df = self.dfs["VT"]
         if ax is None:
             fig, ax, param = DataPlot.init_canvas(1, 1, 10, 6)
         factor_r, unit_r_print = DataPlot.get_unit_factor_and_texname(self.unit["R"])
