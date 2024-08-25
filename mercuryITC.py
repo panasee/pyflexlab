@@ -33,7 +33,7 @@ class MercuryITC(VisaInstrument):
     vti_heater_addr: str
 
     def __init__(self, name="MercuryITC",
-                 address="TCPIP0::10.101.28.24::7020::SOCKET",
+                 address="TCPIP0::10.97.27.13::7020::SOCKET",
                  probe_temp_addr='DEV:DB8.T1:TEMP',
                  probe_heater_addr='DEV:DB3.H1:HTR',
                  pressure_addr='DEV:DB5.P1:PRES',
@@ -69,7 +69,6 @@ class MercuryITC(VisaInstrument):
         # Assign probe heater, vti heater and needle_valve to the temperature control loop.      
 
         self.ask('SET:' + self.probe_temp_addr + ':LOOP:HTR:' + self.probe_heater_addr.split(':')[1])
-        #self.ask('SET:' + self.pres_loop_addr + ':LOOP:AUX:' + self.needle_valve_addr.split(':')[1])
         self.ask('SET:' + self.pressure_addr + ':LOOP:AUX:' + self.needle_valve_addr.split(':')[1])
         self.ask('SET:' + self.vti_temp_addr + ':LOOP:HTR:' + self.vti_heater_addr.split(':')[1])
 
@@ -90,6 +89,21 @@ class MercuryITC(VisaInstrument):
                            get_parser=self._temp_parser,
                            set_cmd=lambda x: self.ask('SET:' + self.probe_temp_addr + f':LOOP:TSET:{x}')
                            )
+        self.add_parameter('probe_heater',
+                           label='Probe Heater Percentage',
+                           docstring='Percentage of the probe heater',
+                           get_cmd="READ:" + self.probe_heater_addr + ":SIG:PERC?",
+                           get_parser=self._perc_parser,
+                           set_cmd=lambda x: self.probe_heater_setpoint(x),
+                           vals=vals.Numbers(min_value=0, max_value=100)
+                           )
+        self.add_parameter('probe_heater_setpoint',
+                           label='Heater Percentage Setpoint',
+                           docstring='Percentage setpoint for the heater',
+                           get_cmd='READ:' + self.probe_temp_addr + ':LOOP:HSET?',
+                           get_parser=self._float_parser_nounits,
+                           set_cmd=lambda x: self.ask('SET:' + self.probe_temp_addr + f':LOOP:HSET:{x}')
+                           )
 
         self.add_parameter('vti_temp',
                            label='VTI Temperature',
@@ -106,6 +120,21 @@ class MercuryITC(VisaInstrument):
                            get_cmd='READ:' + self.vti_temp_addr + ':LOOP:TSET?',
                            get_parser=self._temp_parser,
                            set_cmd=lambda x: self.ask('SET:' + self.vti_temp_addr + f':LOOP:TSET:{x}')
+                           )
+        self.add_parameter('vti_heater',
+                           label='VTI Heater Percentage',
+                           docstring='Percentage of the vti heater',
+                           get_cmd="READ:" + self.vti_heater_addr + ":SIG:PERC?",
+                           get_parser=self._perc_parser,
+                           set_cmd=lambda x: self.probe_heater_setpoint(x),
+                           vals=vals.Numbers(min_value=0, max_value=100)
+                           )
+        self.add_parameter('vti_heater_setpoint',
+                           label='Heater Percentage Setpoint',
+                           docstring='Percentage setpoint for the heater',
+                           get_cmd='READ:' + self.vti_temp_addr + ':LOOP:HSET?',
+                           get_parser=self._float_parser_nounits,
+                           set_cmd=lambda x: self.ask('SET:' + self.vti_temp_addr + f':LOOP:HSET:{x}')
                            )
 
         self.add_parameter('pressure',
@@ -128,14 +157,14 @@ class MercuryITC(VisaInstrument):
         self.add_parameter('gas_flow',
                            label='Gas flow in percent',
                            get_cmd='READ:' + self.needle_valve_addr + ':SIG:PERC?',
-                           get_parser=self._str_parser,
+                           get_parser=self._perc_parser,
                            set_cmd=lambda x: self.gas_flow_setpoint(x)
                            )
         self.add_parameter('gas_flow_setpoint',
                            label='Gas flow setpoint in percent',
                            get_cmd='READ:' + self.pressure_addr + ':LOOP:FSET?',
                            get_parser=self._float_parser_nounits,
-                           set_cmd=lambda x: self.ask('SET:' + self.needle_valve_addr + f':LOOP:FSET:' + str(x)),
+                           set_cmd=lambda x: self.ask('SET:' + self.pressure_addr + f':LOOP:FSET:' + str(x)),
                            vals=vals.Numbers(min_value=0, max_value=100)
                            )
 
@@ -157,8 +186,8 @@ class MercuryITC(VisaInstrument):
                            get_parser=self._float_parser_nounits,
                            set_cmd=lambda x: self.ask('SET:' + self.probe_temp_addr + f':LOOP:D:{x}'),
                            )
-        self.add_parameter('temp_PID_auto',
-                           label='PID auto mode',
+        self.add_parameter('temp_PID_control',
+                           label='PID controlled mode',
                            get_cmd='READ:' + self.probe_temp_addr + ':LOOP:ENAB?',
                            get_parser=self._str_parser,
                            set_cmd=lambda x: self.ask('SET:' + self.probe_temp_addr + ':LOOP:ENAB:' + str(x))
@@ -202,8 +231,8 @@ class MercuryITC(VisaInstrument):
                            get_parser=self._float_parser_nounits,
                            set_cmd=lambda x: self.ask('SET:' + self.vti_temp_addr + f':LOOP:D:{x}'),
                            )
-        self.add_parameter('vti_temp_PID_auto',
-                           label='VTI PID auto mode',
+        self.add_parameter('vti_temp_PID_control',
+                           label='VTI PID controlled mode',
                            get_cmd='READ:' + self.vti_temp_addr + ':LOOP:ENAB?',
                            get_parser=self._str_parser,
                            set_cmd=lambda x: self.ask('SET:' + self.vti_temp_addr + ':LOOP:ENAB:' + str(x))
@@ -247,8 +276,8 @@ class MercuryITC(VisaInstrument):
                            get_parser=self._float_parser_nounits,
                            set_cmd=lambda x: self.ask('SET:' + self.pressure_addr + f':LOOP:D:{x}'),
                            )
-        self.add_parameter('pres_PID_auto',
-                           label='PID auto mode',
+        self.add_parameter('pres_PID_control',
+                           label='PID controlled mode',
                            get_cmd='READ:' + self.pressure_addr + ':LOOP:ENAB?',
                            get_parser=self._str_parser,
                            set_cmd=lambda x: self.ask('SET:' + self.pressure_addr + ':LOOP:ENAB:' + str(x))
@@ -316,6 +345,14 @@ class MercuryITC(VisaInstrument):
 
     @staticmethod
     def _temp_parser(value: str):
+        return float(value.split(':')[-1][:-1])  # Return the number after the : as a float
+
+    @staticmethod
+    def _powr_parser(value: str):
+        return float(value.split(':')[-1][:-1])  # Return the number after the : as a float
+
+    @staticmethod
+    def _perc_parser(value: str):
         return float(value.split(':')[-1][:-1])  # Return the number after the : as a float
 
     # methods

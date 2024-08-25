@@ -16,7 +16,6 @@ on_off_vals = create_on_off_val_mapping(on_val=1, off_val=0)
 
 
 class Keithley_6430(VisaInstrument):
-
     r"""
     This is the Qcodes driver for the Keithley 6430 SMU.
 
@@ -26,6 +25,7 @@ class Keithley_6430(VisaInstrument):
         terminator: Termination character in VISA communication
         reset: resets to default values
     """
+
     def __init__(self, name: str,
                  address: str,
                  terminator="\n",
@@ -330,7 +330,7 @@ class Keithley_6430(VisaInstrument):
     #    v, i, r = [float(n) for n in s.split(',')][:3]
     #    return v, i, r
 
-    def read(self) -> Tuple[float, float, float]:
+    def read(self):  # -> Tuple[float, float, float]:
         """
         Arm, trigger, and readout. Note that the values may not be valid if
         sense mode doesn't include them.
@@ -339,16 +339,16 @@ class Keithley_6430(VisaInstrument):
         """
         if not (self.output_enabled() or self.output_auto_off_enabled()):
             raise Exception(
-                    "Either source must be turned on manually or "
-                    "``output_auto_off_enabled`` has to be enabled before "
-                    "measuring a sense parameter."
-                    )
+                "Either source must be turned on manually or "
+                "``output_auto_off_enabled`` has to be enabled before "
+                "measuring a sense parameter."
+            )
         s = self.ask(':READ?')
         logging.debug(f'Read: {s}')
 
         return s
 
-    def _read_value(self, quantity: str) -> float:
+    def _read_value(self, quantity: str):  # -> float:
         """
         Read voltage, current or resistance through the sensing module.
         Issues a warning if reading a value that does not correspond to the
@@ -363,25 +363,8 @@ class Keithley_6430(VisaInstrument):
             warnings.warn(f"{self.short_name} tried reading {quantity}, but "
                           f"mode is set to {mode_now}. Value might be out of "
                           f"date.")
-        return self.read()
-
-    #def _read_value(self, quantity: str) -> float:
-    #    """
-    #    Read voltage, current or resistance through the sensing module.
-    #    Issues a warning if reading a value that does not correspond to the
-    #    sensing mode.
-    #    Args:
-    #        quantity: either "VOLT:DC", "CURR:DC" or "RES"
-    #    Returns:
-    #        Measured value of the requested quantity.
-    #    """
-    #    mode_now = self.sense_mode()
-    #    if quantity not in mode_now:
-    #        warnings.warn(f"{self.short_name} tried reading {quantity}, but "
-    #                      f"mode is set to {mode_now}. Value might be out of "
-    #                      f"date.")
-    #    mapping = {"VOLT:DC": 0, "CURR:DC": 1, "RES": 2}
-    #    return self.read()[mapping[quantity]]
+        mapping = {"VOLT:DC": 0, "CURR:DC": 1, "RES": 2}
+        return self.read().split(sep=",")[mapping[quantity]]
 
     def init(self) -> None:
         """

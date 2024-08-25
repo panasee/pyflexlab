@@ -135,7 +135,7 @@ class DataProcess(FileOrganizer):
         do symmetrization to the dataframe and return the symmetric and antisymmetric parts as new DataFrames, note that this function is dealing with only one line of data, meaning the positive and negative parts are to be combined first (no need to sort)
 
         Args:
-        - measurename_all: the full name of the measurement or a external dataframe
+        - measure_mods: the full name of the measurement or a external dataframe
         - index_col: the name of the index column for symmetrization
         - obj_col: a list of the name(s) of the objective column for symmetrization
         - neutral_point: the neutral point for symmetrization

@@ -5,7 +5,7 @@ from common.file_organizer import FileOrganizer
 
 class Flakes:
     def __init__(self):
-        self.dir_path = FileOrganizer.load_third_party("flakes", location="out").parent
+        self.dir_path = FileOrganizer.load_third_party("flakes", location="out").parent / "flakes"
         self.flakes_json = FileOrganizer.third_party_json
         self.coor_transition = {"sin": 0, "cos": 1, "x": 0, "y": 0}
 
@@ -23,6 +23,7 @@ class Flakes:
         if label not in self.flakes_json:
             print("flake not found")
         else:
+            FileOrganizer.open_folder(self.dir_path / label)
             return self.flakes_json[label]
 
     def sync_flakes(self):
@@ -41,6 +42,21 @@ class Flakes:
         flake_dir = self.dir_path / label
         flake_dir.mkdir(exist_ok=True)
         FileOrganizer.open_folder(flake_dir)
+
+    def del_flake(self, label):
+        """
+        delete a flake label
+        """
+        if label not in self.flakes_json:
+            print("flake not found")
+        else:
+            del self.flakes_json[label]
+            flake_dir = self.dir_path / label
+            # no folders within this folder, only files
+            for item in flake_dir.iterdir():
+                item.unlink()
+            flake_dir.rmdir()
+            self.sync_flakes()
 
     def extract_flakes(self, label, *, ref1_new: tuple, ref2_new: tuple):
         """

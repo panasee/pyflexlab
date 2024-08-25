@@ -61,7 +61,7 @@ class DataPlot(DataProcess):
 
         def _get_subarray(self, array, index: Tuple[int, ...]) -> List[dict]:
             """
-            get the subarray of the parameters for the plot assignated by the index
+            get the subarray of the parameters for the plot assigned by the index
             """
             if len(index) == 1:
                 return array[index[0]]
@@ -332,9 +332,9 @@ class DataPlot(DataProcess):
         return fig, ax, DataPlot.PlotParam(n_row, n_col, 2)
 
     def live_plot_init(self, n_rows: int, n_cols: int, lines_per_fig: int = 2, pixel_height: float = 600,
-                       pixel_width: float = 1200, *, titles: Tuple[Tuple[str]] = None,
-                       axes_labels: Tuple[Tuple[Tuple[str]]] = None,
-                       line_labels: Tuple[Tuple[Tuple[str]]] = None) -> go.FigureWidget | None:
+                       pixel_width: float = 1200, *, titles: Tuple[Tuple[str]] | list[list[str]] = None,
+                       axes_labels: Tuple[Tuple[Tuple[str]]] | list[list[list[str]]] = None,
+                       line_labels: Tuple[Tuple[Tuple[str]]] | list[list[list[str]]] = None) -> go.FigureWidget | None:
         """
         initialize the real-time plotter using plotly
 
@@ -383,7 +383,7 @@ class DataPlot(DataProcess):
         elif not is_notebook():
             fig.show()
 
-    def live_plot_update(self, row, col, lineno, x_data, y_data):
+    def live_plot_update(self, row, col, lineno, x_data, y_data, *, incremental = False):
         """
         update the live data in jupyter, the row, col, lineno all can be tuples to update multiple subplots at the
         same time. Note that this function is not appending datapoints, but replot the whole line, so provide the
@@ -398,6 +398,7 @@ class DataPlot(DataProcess):
         - lineno: the line no. of the subplot (from 0)
         - x_data: the array-like x data (not support single number, use [x] or (x,) instead)
         - y_data: the array-like y data (not support single number, use [y] or (y,) instead)
+        - incremental: whether to update the data incrementally
         """
 
         def ensure_list(data) -> np.ndarray:
@@ -421,6 +422,11 @@ class DataPlot(DataProcess):
 
         #dim_tolift = [0, 0, 0]
         with self.go_f.batch_update():
-            for no, (irow, icol, ilineno) in enumerate(zip(row, col, lineno)):
-                self.live_dfs[irow][icol][ilineno].x = x_data[no]
-                self.live_dfs[irow][icol][ilineno].y = y_data[no]
+            if not incremental:
+                for no, (irow, icol, ilineno) in enumerate(zip(row, col, lineno)):
+                    self.live_dfs[irow][icol][ilineno].x = x_data[no]
+                    self.live_dfs[irow][icol][ilineno].y = y_data[no]
+            else:
+                for no, (irow, icol, ilineno) in enumerate(zip(row, col, lineno)):
+                    self.live_dfs[irow][icol][ilineno].x = np.append(self.live_dfs[irow][icol][ilineno].x, x_data[no])
+                    self.live_dfs[irow][icol][ilineno].y = np.append(self.live_dfs[irow][icol][ilineno].y, y_data[no])

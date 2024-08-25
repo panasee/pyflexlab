@@ -3,78 +3,64 @@
 """This module is responsible for managing the measure-related folders and data Note each instrument better be
 initialzed right before the measurement, as there may be a long time between loading and measuremnt, leading to
 possibilities of parameter changing"""
-from typing import List, Tuple, Literal
+from __future__ import annotations
+
+import copy
+from typing import List, Tuple, Literal, Generator
 import time
 import datetime
-from abc import ABC, abstractmethod
+import gc
 import numpy as np
-from pymeasure.instruments.srs import SR830
-from pymeasure.instruments.oxfordinstruments import ITC503
-from pymeasure.instruments.keithley import Keithley6221
-from pymeasure.instruments.keithley import Keithley2182
 import pyvisa
 import pandas as pd
-import matplotlib.pyplot as plt
 from pathlib import Path
 import re
 # import qcodes as qc
-from qcodes.instrument_drivers.oxford import OxfordMercuryiPS
-from qcodes.instrument_drivers.Keithley import Keithley2400
-
+from common.MercuryiPS_VISA import OxfordMercuryiPS
 from common.file_organizer import print_help_if_needed, FileOrganizer
 from common.data_plot import DataPlot
-from common.constants import factor
-from common.mercuryITC import MercuryITC
-from common.Keithley_6430 import Keithley_6430
+from common.constants import convert_unit, print_progress_bar, gen_seq, constant_generator, \
+    combined_generator_list
+from common.equip_wrapper import ITC, ITCs, ITCMercury, WrapperSR830, Wrapper2400, Wrapper6430, Wrapper2182, \
+    Wrapper6221, Meter, SourceMeter
 
 
 class MeasureManager(DataPlot):
-    """This class is a subclass of FileOrganizer and is responsible for managing the measure-related folders and data"""
+    """This class is a subclass of FileOrganizer and is responsible for managing the measure-related folders and data
+    During the measurement, the data will be recorded in self.dfs["curr_measure"], which will be overwritten after
+    """
 
     def __init__(self, proj_name: str) -> None:
         """Note that the FileOrganizer.out_database_init method should be called to assign the correct path to the
         out_database attribute. This method should be called before the MeasureManager object is created."""
         super().__init__(proj_name)  # Call the constructor of the parent class
+        self.meter_wrapper_dict = {
+            "6430": Wrapper6430,
+            "2182": Wrapper2182,
+            "2400": Wrapper2400,
+            "6221": Wrapper6221,
+            "sr830": WrapperSR830
+        }
         self.instrs = {}
         # load params for plotting in measurement
         DataPlot.load_settings(False, False)
 
-    def load_SR830(self, *addresses: Tuple[str]) -> None:
+    def load_meter(self, meter_no: Literal["sr830", "6221", "2182", "2400", "6430"], *address: str) -> None:
         """
-        load SR830 instruments according the addresses, store them in self.instrs["sr830"] in corresponding order
+        load the instrument according to the address, store it in self.instrs[meter]
 
         Args:
-            addresses (List[str]): the addresses of the SR830 instruments (take care of the order)
+            meter_no (str): the name of the instrument
+            address (str): the address of the instrument
         """
-        self.instrs["sr830"] = []
-        for addr in addresses:
-            self.instrs["sr830"].append(SR830(addr))
-        self.setup_SR830()
+        if meter_no in self.instrs:
+            del self.instrs["meter_no"]
+            gc.collect()
 
-    def load_2182(self, address: str) -> None:
-        """
-        load Keithley 2182 instrument according to the address, store it in self.instrs["2182"]
-        """
-        self.instrs["2182"] = Keithley2182(address)
-
-    def load_2400(self, address: str) -> None:
-        """
-        load Keithley 2400 instrument according to the address, store it in self.instrs["2400"]
-        """
-        self.instrs["2400"] = Keithley2400("2400", address)
-
-    def load_6221(self, address: str) -> None:
-        """
-        load Keithley 6221 instrument according to the address, store it in self.instrs["6221"]
-        """
-        self.instrs["6221"] = Keithley6221(address)
-        self.setup_6221()
-
-    def load_6430(self, address: str) -> None:
-        """
-        load Keithley 6430 instrument according to the address, store it in self.instrs["6430"]
-        """
-        self.instrs["6430"] = Keithley_6430("SMU", address)
+        self.instrs[meter_no] = []
+        for addr in address:
+            self.instrs[meter_no].append(self.meter_wrapper_dict[meter_no](address))
+            self.instrs[meter_no][-1].setup()
 
     def load_ITC503(self, gpib_up: str, gpib_down: str) -> None:
         """
@@ -87,28 +73,29 @@ class MeasureManager(DataPlot):
         self.instrs["itc"] = self.instrs["itc503"]
 
     def load_mercury_ips(self, address: str = "TCPIP0::10.97.24.237::7020::SOCKET", if_print: bool = False,
-                         limit_sphere: float = 14) -> None:
+                         limit_sphere: float = 11) -> None:
         """
-        load Mercury iPS instrument according to the address, store it in self.instrs["mercury_ips"]
+        load Mercury iPS instrument according to the address, store it in self.instrs["ips"]
 
         Args:
             address (str): the address of the instrument
             if_print (bool): whether to print the snapshot of the instrument
             limit_sphere (float): the limit of the field
         """
-        self.instrs["mercury_ips"] = OxfordMercuryiPS("mips", address)
+        self.instrs["ips"] = OxfordMercuryiPS("mips", address)
         if if_print:
-            self.instrs["mercury_ips"].print_readable_snapshot(update=True)
+            self.instrs["ips"].print_readable_snapshot(update=True)
 
         def spherical_limit(x, y, z) -> bool:
             return np.sqrt(x ** 2 + y ** 2 + z ** 2) <= limit_sphere
 
-        self.instrs["mercury_ips"].set_new_field_limits(spherical_limit)
+        self.instrs["ips"].set_new_field_limits(spherical_limit)
 
-    def ramp_magfield(self, field: float | Tuple[float], rate: Tuple[float] = (0.00333,) * 3, wait: bool = True,
+    def ramp_magfield(self, field: float | Tuple[float], *, rate: Tuple[float] = (0.00333,) * 3, wait: bool = True,
                       tolerance: float = 3e-3, if_plot: bool = False) -> None:
         """
         ramp the magnetic field to the target value with the rate, current the field is only in Z direction limited by the actual instrument setting
+        (currently only B_z can be ramped)
 
         Args:
             field (Tuple[float]): the target field coor
@@ -116,7 +103,7 @@ class MeasureManager(DataPlot):
             wait (bool): whether to wait for the ramping to finish
             tolerance (float): the tolerance of the field (T)
         """
-        mips = self.instrs["mercury_ips"]
+        mips = self.instrs["ips"]
         if max(rate) * 60 > 0.2:
             raise ValueError("The rate is too high, the maximum rate is 0.2 T/min")
         #mips.GRPX.field_ramp_rate(rate[0])
@@ -141,7 +128,7 @@ class MeasureManager(DataPlot):
             field_arr = [np.linalg.norm((mips.x_measured(), mips.y_measured(), mips.z_measured()))]
             count = 0
             step_count = 1
-            stability_counter = 20  # [s]
+            stability_counter = 13  # [s]
             while count < stability_counter:
                 field_now = (mips.x_measured(), mips.y_measured(), mips.z_measured())
                 time_arr.append(step_count)
@@ -150,8 +137,8 @@ class MeasureManager(DataPlot):
                     count += 1
                 else:
                     count = 0
-                MeasureManager.print_progress_bar(count, stability_counter, prefix="Stablizing",
-                                                  suffix=f"B: {field_now} T")
+                print_progress_bar(count, stability_counter, prefix="Stablizing",
+                                   suffix=f"B: {field_now} T")
                 time.sleep(1)
                 if if_plot:
                     self.live_plot_update(0, 0, 0, time_arr, field_arr)
@@ -160,194 +147,429 @@ class MeasureManager(DataPlot):
 
     def load_mercury_itc(self, address: str = "TCPIP0::10.101.28.24::7020::SOCKET") -> None:
         """
-        load Mercury iPS instrument according to the address, store it in self.instrs["mercury_ips"]
+        load Mercury iPS instrument according to the address, store it in self.instrs["ips"]
         """
         #self.instrs["mercury_itc"] = MercuryITC(address)
         self.instrs["mercury_itc"] = ITCMercury(address)
         self.instrs["itc"] = self.instrs["mercury_itc"]
         #print(self.instrs["mercury_itc"].modules)
 
-    def setup_SR830(self) -> None:
+    def source_sweep_apply(self, source_type: Literal["volt", "curr", "V", "I"], ac_dc: Literal["ac", "dc"],
+                           meter: str | SourceMeter, *, max_value: float | str, step_value: float | str, compliance: float | str,
+                           freq: float | str = None, sweepmode: Literal["0-max-0", "0--max-max-0", None] = None,
+                           resistor: float = None) -> Generator[float, None, None]:
         """
-        setup the SR830 instruments using pre-stored setups here, this function will not fully reset the instruments,
-        only overwrite the specific settings here, other settings will all be reserved
-        """
-        for instr in self.instrs["sr830"]:
-            instr.filter_slope = 24
-            instr.time_constant = 0.3
-            instr.input_config = "A - B"
-            instr.input_coupling = "AC"
-            instr.input_grounding = "Float"
-            instr.sine_voltage = 0
-            instr.input_notch_config = "None"
-            instr.reference_source = "External"
-            instr.reserve = "High Reserve"
-            instr.filter_synchronous = False
+        source the current using the source meter
 
-    def setup_2182(self, channel: Literal[0, 1, 2] = 1) -> None:
+        Args:
+            source_type (Literal["volt","curr"]): the type of the source
+            ac_dc (Literal["ac","dc"]): the mode of the current
+            meter (Literal["6430","6221"]): the meter to be used, use "-0", "-1" to specify the meter if necessary
+            max_value (float): the maximum current to be sourced
+            step_value (float): the step of the current
+            compliance (float): the compliance voltage of the source meter
+            freq (float): the frequency of the ac current
+            sweepmode (Literal["0-max-0","0--max-max-0"]): the mode of the dc current sweep
+            resistor (float): the resistance of the resistor, used only for sr830 source
         """
-        set up the Keithley 2182 instruments, overwrite the specific settings here, other settings will all be reserved
-        currently initialized to measure voltage
-        """
-        source_2182 = self.instrs["2182"]
-        source_2182.reset()
-        source_2182.active_channel = channel
-        source_2182.channel_function = "voltage"
-        source_2182.voltage_nplc = 5
-        #source_2182.sample_continuously()
-        #source_2182.ch_1.voltage_offset_enabled = True
-        #source_2182.ch_1.acquire_voltage_reference()
-        source_2182.ch_1.setup_voltage()
+        # load the instrument needed
+        source_type = source_type.replace("V", "volt").replace("I", "curr")
+        if meter == "6221" and source_type == "volt":
+            raise ValueError("6221 cannot source voltage")
+        if len(meter.split("-")) == 1:
+            instr = self.instrs[meter][0]
+        elif len(meter_tuple := meter.split("-")) == 2:
+            instr = self.instrs[meter_tuple[0]][int(meter_tuple[1])]
+        elif isinstance(meter, SourceMeter):
+            instr = meter
+        else:
+            raise ValueError("meter name not recognized")
 
-    def setup_6221(self, mode: Literal["ac", "dc"] = "ac", *, offset=0) -> None:
-        """
-        set up the Keithley 6221 instruments, overwrite the specific settings here, other settings will all be reserved. Note that the waveform will not begin here
-        """
-        source_6221 = self.instrs["6221"]
-        source_6221.clear()
-        if mode == "ac":
-            source_6221.waveform_function = "sine"
-            source_6221.waveform_amplitude = 0
-            source_6221.waveform_offset = offset
-            source_6221.waveform_ranging = "best"
-            source_6221.waveform_use_phasemarker = True
-            source_6221.waveform_phasemarker_line = 3
-            source_6221.waveform_duration_set_infinity()
-            source_6221.waveform_phasemarker_phase = 0
-        source_6221.source_auto_range = False
-        source_6221.output_low_grounded = False
+        # convert values to SI and print info
+        max_value = convert_unit(max_value, "")[0]
+        step_value = convert_unit(step_value, "")[0]
+        compliance = convert_unit(compliance, "")[0]
+        if freq is not None:
+            freq = convert_unit(freq, "Hz")[0]
+        print(f"Source Meter: {instr.meter}")
+        print(f"Source Type: {source_type}")
+        print(f"AC/DC: {ac_dc}")
+        print(f"Max Value: {max_value} {'A' if source_type == 'curr' else 'V'}")
+        print(f"Step Value: {step_value} {'A' if source_type == 'curr' else 'V'}")
+        print(f"Compliance: {compliance} {'V' if source_type == 'curr' else 'A'}")
+        print(f"Freq: {freq} Hz")
+        print(f"Sweep Mode: {sweepmode}")
+        instr.setup()
 
-    def measure_contact_6430(self, v_max: float = 1E-4, v_step: float = 1E-5, curr_compliance: float = 1E-6,
-                             mode: Literal["0-max-0", "0--max-max-0"] = "0-max-0", *, test: bool = True,
+        # core functional part
+        if ac_dc == "dc":
+            if sweepmode == "0-max-0":
+                value_gen = self.sweep_values(0, max_value, step_value, mode="start-end-start")
+            elif sweepmode == "0--max-max-0":
+                value_gen = self.sweep_values(-max_value, max_value, step_value, mode="0-start-end-0")
+            else:
+                raise ValueError("sweepmode not recognized")
+            instr.uni_output(value_i := next(value_gen), compliance=compliance, type_str=source_type)
+            yield value_i
+        elif ac_dc == "ac":
+            if resistor is not None:
+                volt_gen = (i for i in list(np.arange(0, max_value * resistor, step_value)) + [max_value * resistor])
+                instr.uni_output(value_i := next(volt_gen), freq=freq, type_str="volt")
+            else:
+                if meter == "6221" or isinstance(meter, Wrapper6221):
+                    instr.setup("ac")
+                value_gen = (i for i in list(np.arange(0, max_value, step_value)) + [max_value])
+                instr.uni_output(value_i := next(value_gen), freq=freq, compliance=compliance, type_str=source_type)
+            yield value_i
+
+    def ext_sweep_apply(self, ext_type: Literal["temp", "mag", "B", "T"], *,
+                        min_value: float | str = None, max_value: float | str, step_value: float | str,
+                        sweepmode: Literal["0-max-0", "0--max-max-0", "min-max"] = "0-max-0") -> Generator[
+        float, None, None]:
+        """
+        sweep the external field (magnetic/temperature).
+        Note that this sweep is the "discrete" sweep, waiting at every point till stabilization
+
+        Args:
+            ext_type (Literal["temp","mag"]): the type of the external field
+            min_value (float | str): the minimum value of the field
+            max_value (float | str): the maximum value of the field
+            step_value (float | str): the step of the field
+            sweepmode (Literal["0-max-0","0--max-max-0","min-max"]): the mode of the field sweep
+        """
+        ext_type = ext_type.replace("T", "temp").replace("B", "mag")
+        if ext_type == "temp":
+            instr = self.instrs["itc"]
+        elif ext_type == "mag":
+            instr = self.instrs["ips"]
+        else:
+            raise ValueError("ext_type not recognized")
+        print(f"DISCRETE sweeping mode: {sweepmode}")
+        print(f"INSTR: {instr}")
+        max_value = convert_unit(max_value, "")[0]
+        step_value = convert_unit(step_value, "")[0]
+        if min_value is not None:
+            min_value = convert_unit(min_value, "")[0]
+
+        if sweepmode == "0-max-0":
+            value_gen = self.sweep_values(0, max_value, step_value, mode="start-end-start")
+        elif sweepmode == "0--max-max-0":
+            value_gen = self.sweep_values(-max_value, max_value, step_value, mode="0-start-end-0")
+        elif sweepmode == "min-max":
+            value_gen = self.sweep_values(min_value, max_value, step_value, mode="start-end")
+        else:
+            raise ValueError("sweepmode not recognized")
+
+        if ext_type == "temp":
+            instr.ramp_to_temperature(value_i := next(value_gen), wait=True)
+        else:  # ext_type == "mag"
+            self.ramp_magfield(value_i := next(value_gen), wait=True)
+        yield value_i
+
+    def sense_apply(self, sense_type: Literal["volt", "curr", "temp", "mag", "V", "I", "T", "B", "H"],
+                    meter: str | Meter = None, *, if_during_vary = False) \
+            -> Generator[float | tuple[float], None, None]:
+        """
+        sense the current using the source meter
+
+        Args:
+            sense_type (Literal["volt","curr", "temp","mag"]): the type of the sense
+            meter ("str") (applicable only for volt or curr): the meter to be used, use "-0", "-1" to specify the meter if necessary
+            if_during_vary (bool): whether the sense is bonded with a varying temp/field, this will limit the generator,
+                and the sense will be stopped when the temp/field is stable
+        Returns:
+            float | tuple[float]: the sensed value (tuple for sr830 ac sense)
+        """
+        sense_type = sense_type.replace("V", "volt").replace("I", "curr").replace("T", "temp").replace("B",
+                                        "mag").replace("H", "mag")
+        print(f"Sense Type: {sense_type}")
+        if sense_type in ["volt", "curr"] and meter is not None:
+            if len(meter.split("-")) == 1:
+                instr = self.instrs[meter][0]
+            elif len(meter_tuple := meter.split("-")) == 2:
+                instr = self.instrs[meter_tuple[0]][int(meter_tuple[1])]
+            elif isinstance(meter, Meter):
+                instr = meter
+            else:
+                raise ValueError("meter name not recognized")
+            print(f"Sense Meter/Instr: {instr.meter}")
+            instr.setup()
+            while True:
+                yield instr.sense(type_str=sense_type)
+        elif sense_type == "temp":
+            instr = self.instrs["itc"]
+            print(f"Sense Meter/Instr: {instr}")
+            if not if_during_vary:
+                while True:
+                    yield instr.temperature
+            else:
+                timer_i = 0
+                while timer_i < 20:
+                    if abs(instr.temperature - instr.temperature_set) < 0.1:
+                        timer_i += 1
+                    else:
+                        timer_i = 0
+                    yield instr.temperature
+        elif sense_type == "mag":
+            instr = self.instrs["ips"]
+            print(f"Sense Meter/Instr: {instr}")
+            if not if_during_vary:
+                while True:
+                    yield np.linalg.norm((instr.x_measured(), instr.y_measured(), instr.z_measured()))
+            else:
+                timer_i = 0
+                while timer_i < 20:
+                    # only z field is considered
+                    if abs(np.linalg.norm((instr.x_measured(), instr.y_measured(), instr.z_measured())) - np.linalg.norm(instr.z_target())) < 0.01:
+                        timer_i += 1
+                    else:
+                        timer_i = 0
+                    yield np.linalg.norm((instr.x_measured(), instr.y_measured(), instr.z_measured()))
+
+    def record_init(self, measure_mods: tuple[str], *var_tuple: float | str,
+                    manual_columns: list[str] = None, return_df: bool = False) \
+            -> tuple[Path, int] | tuple[Path, int, pd.DataFrame]:
+        """
+        initialize the record of the measurement
+
+        Args:
+            measure_mods (str): the full name of the measurement (put main source as the first source module term)
+            var_tuple (Tuple): the variables of the measurement, use "-h" to see the available options
+            manual_columns (List[str]): manually appoint the columns (default to None, automatically generate columns)
+            return_df (bool): if the final record dataframe will be returned (default not, and saved as a member)
+        Returns:
+            Path: the file path
+            int: the number of columns of the record
+        """
+        # main_mods, f_str = self.name_fstr_gen(*measure_mods)
+        file_path = self.get_filepath(measure_mods, *var_tuple)
+        file_path.parent.mkdir(parents=True, exist_ok=True)
+        self.add_measurement(*measure_mods)
+        print(f"Filename is: {file_path.name}")
+
+        mainname_str, _, mod_detail_lst = FileOrganizer.name_fstr_gen(*measure_mods, require_detail=True)
+        # IMPORTANT: judge ac_dc ONLY from the first module, and if ac, then lock-in sensor is assumed
+        ac_dc = mod_detail_lst[0]["ac_dc"]
+        # combine the namestr
+        pure_name_lst = list(mainname_str.replace("-", "").replace("_", ""))
+        if len(pure_name_lst) != len(mod_detail_lst):
+            raise ValueError("length of modules doesn't correspond to detail list, check name_fstr_gen method for that")
+
+        if manual_columns is not None:
+            columns_lst = manual_columns
+        else:
+            columns_lst = ["time"]
+            for name, detail in zip(list(pure_name_lst), mod_detail_lst):
+                if detail["source_sense"] == "source":
+                    columns_lst.append(f"{name}_source")
+                elif name == "V" and ac_dc == "ac":
+                    columns_lst += ["X", "Y", "R", "Theta"]
+                else:
+                    columns_lst.append(name)
+
+            # rename the duplicates with numbers (like ["V","V"] to ["V1","V2"])
+            def rename_duplicates(columns: list[str]) -> list[str]:
+                count_dict = {}
+                renamed_columns = []
+                for col in columns:
+                    if col in count_dict:
+                        count_dict[col] += 1
+                        renamed_columns.append(f"{col}{count_dict[col]}")
+                    else:
+                        count_dict[col] = 1
+                        renamed_columns.append(col)
+                return renamed_columns
+
+            columns_lst = rename_duplicates(columns_lst)
+
+        self.dfs["curr_measure"] = pd.DataFrame(columns=columns_lst)
+        self.dfs["curr_measure"].to_csv(file_path, sep="\t", index=False, float_format="%.12f")
+        if return_df:
+            return file_path, len(columns_lst), self.dfs["curr_measure"]
+        return file_path, len(columns_lst)
+
+    def record_update(self, file_path: Path, record_num: int, record_tuple: tuple[float],
+                      force_write: bool = False, with_time: bool = True) -> None:
+        """
+        update the record of the measurement and also control the size of dataframe
+        when the length of current_measure dataframe is larger than 7,
+        the dataframe will be written to the file INCREMENTALLY and reset to EMPTY
+
+        Args:
+            file_path (Path): the file path
+            record_num (int): the number of columns of the record
+            record_tuple (Tuple): the variables of the record
+            force_write (bool): whether to force write the record
+            with_time (bool): whether to record the time (first column)
+        """
+        if with_time:
+            # the time is updated here, no need to be provided
+            assert len(record_tuple) == record_num - 1, "The number of columns does not match"
+            self.dfs["curr_measure"].loc[len(self.dfs["curr_measure"])] = [datetime.datetime.now()] + list(record_tuple)
+        else:
+            assert len(record_tuple) == record_num, "The number of columns does not match"
+            self.dfs["curr_measure"].loc[len(self.dfs["curr_measure"])] = list(record_tuple)
+        length = len(self.dfs["curr_measure"])
+        if length >= 7 or force_write:
+            self.dfs["curr_measure"].to_csv(file_path, sep="\t", mode="a",
+                                            header=False, index=False, float_format="%.12f")
+            self.dfs["curr_measure"] = self.dfs["curr_measure"].iloc[0:0]
+
+    @print_help_if_needed
+    def get_measure_dict(self, measure_mods: tuple[str], *var_tuple: float | str, wrapper_lst: List[Meter | SourceMeter] = None,
+                compliance_lst: List[float | str], sr830_current_resistor: float = None) -> dict:
+        """
+        do the preset of measurements and return the generators, filepath and related info
+        NOTE: meter setup should be done before calling this method
+        NOTE: the generators are listed in parallel, if there are more than one sweep, do manual Cartesian product
+
+        sweep mode: for I,V: "0-max-0", "0--max-max-0"
+        sweep mode: for T,B: "0-max-0", "0--max-max-0", "min-max"
+
+        Args:
+            measure_mods (tuple[str]): the modules of measurement
+            var_tuple (Tuple): the variables of the measurement, use "-h" to see the available options
+            wrapper_lst (List[Meter]): the list of the wrappers to be used
+            compliance_lst (List[float]): the list of the compliance to be used (sources)
+            sr830_current_resistor (float): the resistance of the resistor, used only for sr830 curr source
+
+        Returns:
+            dict: the dictionary containing the list of generators, dataframe csv filepath and record number
+                keys: "gen_lst"(combined list generator), "swp_idx" (indexes for sweeping generator, not including vary),
+                "file_path"(csv file), "record_num"(num of record data columns, without time),
+                "tmp_vary", "mag_vary" (the function used to begin the varying of T/B, no parameters needed)
+        """
+        src_lst, sense_lst, oth_lst = self.extract_info_mods(measure_mods, *var_tuple)
+        assert len(src_lst) + len(sense_lst) == len(wrapper_lst), "The number of modules and meters should be the same"
+        assert len(src_lst) == len(compliance_lst), "The number of sources and compliance should be the same"
+        # init record dataframe
+        file_path, record_num = self.record_init(measure_mods, *var_tuple)
+        # init plotly canvas
+        rec_lst = [] # generators list
+
+        # =============assemble the record generators into one list==============
+        # note multiple sweeps result in multidimensional mapping
+        sweep_idx = []
+        vary_mod = [] # T, B
+        for idx, src_mod in enumerate(src_lst):
+            if src_mod["I"]["sweep_fix"] is not None:
+                mod_i = "I"
+            elif src_mod["V"]["sweep_fix"] is not None:
+                mod_i = "V"
+            else:
+                raise ValueError(f"No source is specified for source {idx}")
+
+            if src_mod[mod_i]["sweep_fix"] == "fixed":
+                wrapper_lst[idx].ramp_output("curr", src_mod[mod_i]["fix"], compliance=compliance_lst[idx])
+                rec_lst.append(constant_generator(src_mod[mod_i]["fix"]))
+            elif src_mod[mod_i]["sweep_fix"] == "sweep":
+                rec_lst.append(self.source_sweep_apply(mod_i, src_mod[mod_i]["ac_dc"], wrapper_lst[idx],
+                                                      max_value=src_mod[mod_i]["max"], step_value=src_mod[mod_i]["step"],
+                                                      compliance=compliance_lst[idx], freq=src_mod[mod_i]["freq"],
+                                                      sweepmode=src_mod[mod_i]["mode"], resistor=sr830_current_resistor))
+                sweep_idx.append(idx)
+        for idx, sense_mod in enumerate(sense_lst):
+            rec_lst.append(self.sense_apply(sense_mod["type"], wrapper_lst[idx+len(src_lst)]))
+        for idx, oth_mod in enumerate(oth_lst):
+            if oth_mod["sweep_fix"] == "fixed":
+                if oth_mod["name"] == "T":
+                    self.instrs["itc"].ramp_to_temperature(oth_mod["fix"], wait=True)
+                elif oth_mod["name"] == "B":
+                    self.ramp_magfield(oth_mod["fix"], wait=True)
+                rec_lst.append(self.sense_apply(oth_mod["name"]))
+            elif oth_mod["sweep_fix"] == "vary":
+                if oth_mod["name"] == "T":
+                    vary_mod.append("T")
+                    self.instrs["itc"].ramp_to_temperature(oth_mod["start"], wait=True)
+                    # define a function instead of directly calling the ramp_to_temperature method
+                    # to avoid possible interruption or delay
+                    def temp_vary():
+                        self.instrs["itc"].ramp_to_temperature(oth_mod["stop"], wait=False)
+                elif oth_mod["name"] == "B":
+                    vary_mod.append("B")
+                    self.ramp_magfield(oth_mod["start"], wait=True)
+                    def mag_vary():
+                        self.ramp_magfield(oth_mod["stop"], wait=False)
+                rec_lst.append(self.sense_apply(oth_mod["name"], if_during_vary=True))
+            elif oth_mod["sweep_fix"] == "sweep":
+                rec_lst.append(self.ext_sweep_apply(oth_mod["name"], min_value=oth_mod["min"], max_value=oth_mod["max"],
+                                                step_value=oth_mod["step"], sweepmode=oth_mod["mode"]))
+                sweep_idx.append(idx+len(src_lst)+len(sense_lst))
+        total_gen = combined_generator_list(rec_lst)
+        return {
+            "gen_lst": total_gen,
+            "swp_idx": sweep_idx,
+            "file_path": file_path,
+            "record_num": record_num,
+            "tmp_vary": None if "T" not in vary_mod else temp_vary,
+            "mag_vary": None if "B" not in vary_mod else mag_vary,
+        }
+
+
+    def measure_IV_2terminal(self, v_max: float = 1E-4, v_step: float = 1E-5, curr_compliance: float = 1E-6,
+                             mode: Literal["0-max-0", "0--max-max-0"] = "0-max-0", *,
+                             meter_name=Literal["2400", "6430"], test: bool = True,
                              source: int = None, drain: int = None, temp: int = None, tmpfolder: str = None) -> None:
         """
         Measure the IV curve using Keithley 6430 to test the contacts. No file will be saved if test is True
         """
-        print(f"Max Voltage: {v_max} V")
-        print(f"Voltage Step: {v_step} V")
-        print(f"Max Curr: {curr_compliance} A")
-        print(f"Meter: {self.instrs['6430']}")
         measure_delay = 0.3  # [s]
-        instr_6430 = self.instrs["6430"]
-        instr_6430.sense_mode("CURR:DC")
-        instr_6430.source_mode("VOLT")
+        instr = self.instrs[meter_name][0]
         if v_max > 200:
             raise ValueError("The maximum voltage is too high")
-        elif v_max < 0.21 * 0.7:
-            instr_6430.source_voltage_range(0.21)
-        elif v_max > 140:
-            instr_6430.source_voltage_range(200)
-        else:
-            instr_6430.source_voltage_range(v_max / 0.7)
-        instr_6430.source_current_compliance(curr_compliance)
-        instr_6430.output_enabled(True)
         #tmp_df = pd.DataFrame(columns=["V","V_sensed", "I", "R"])
         tmp_df = pd.DataFrame(columns=["V", "I"])
         self.live_plot_init(1, 1, 1, 600, 1400, titles=[["IV 6430"]], axes_labels=[[[r"Voltage (V)", r"Current (A)"]]])
 
-        v_array = np.arange(0, v_max, v_step)
         if mode == "0-max-0":
-            v_array = np.concatenate((v_array, v_array[::-1]))
+            v_array = list(MeasureManager.sweep_values(0, v_max, v_step, "start-end-start"))
         elif mode == "0--max-max-0":
-            v_array = np.concatenate((-v_array, -v_array[::-1], v_array, v_array[::-1]))
-        tmp_df["V"] = v_array
-        i_array = np.zeros_like(v_array)
-        v_sensed_array = np.zeros_like(v_array)
-        r_array = np.zeros_like(v_array)
-
-        for ii, v in enumerate(v_array):
-            instr_6430.source_voltage(v)
-            time.sleep(measure_delay)
-            #i_array[ii] = instr_6430.ask(":READ?")
-            i_array[ii] = instr_6430.sense_current()
-            #v_sensed_array[ii] = instr_6430.sense_voltage()
-            #r_array[ii] = instr_6430.sense_resistance()
-            self.live_plot_update(0, 0, 0, tmp_df["V"][:ii + 1], i_array[:ii + 1])
-
-        tmp_df["I"] = i_array
-        #tmp_df["V_sensed"] = v_sensed_array
-        #tmp_df["R"] = r_array
-        if not test:
-            file_path = self.get_filepath("IV__2-terminal", v_max, v_step, source, drain, mode, temp,
-                                          tmpfolder=tmpfolder)
-            file_path.parent.mkdir(parents=True, exist_ok=True)
-            tmp_df.to_csv(file_path, sep="\t", index=False, float_format="%.12f")
-
-        instr_6430.output_enabled(False)
-
-    def measure_contact_2400(self, v_max: float = 1E-4, v_step: float = 1E-5, curr_compliance: float = 1E-6,
-                             mode: Literal["0-max-0", "0--max-max-0"] = "0-max-0", *, test: bool = True,
-                             source: int = None,
-                             drain: int = None, temp: int = None, tmpfolder: str = None) -> None:
-        """
-        Measure the IV curve using Keithley 2400 to test the contacts. No file will be saved if test is True
-
-        Args:
-            v_max (float): the maximum voltage to apply
-            v_step (float): the step of the voltage
-            curr_compliance (float): the current compliance
-            mode (Literal["0-max-0","0--max-max-0"]): the mode of the measurement
-            test (bool): whether for testing use, if True, no data will be saved, and the parameters after will not be used
-        """
-        print(f"Max Voltage: {v_max} V")
-        print(f"Voltage Step: {v_step} V")
-        print(f"Max Curr: {curr_compliance} A")
-        print(f"Meter: {self.instrs['2400'].adapter}")
-        measure_delay = 0.3  # [s]
-        instr_2400 = self.instrs["2400"]
-        instr_2400.compliancei(curr_compliance)
-        #instr_2400.apply_voltage(compliance_current=curr_compliance)
-        #instr_2400.source_voltage = 0
-        #instr_2400.enable_source()
-        #instr_2400.measure_current()
-        tmp_df = pd.DataFrame(columns=["V", "I"])
-        self.live_plot_init(1, 1, 1, 600, 1600, titles=[["IV 2400"]], axes_labels=[[[r"Voltage (V)", r"Current (A)"]]])
-
-        v_array = np.arange(0, v_max, v_step)
-        if mode == "0-max-0":
-            v_array = np.concatenate((v_array, v_array[::-1]))
-        elif mode == "0--max-max-0":
-            v_array = np.concatenate((-v_array, -v_array[::-1], v_array, v_array[::-1]))
+            v_array = list(MeasureManager.sweep_values(-v_max, v_max, v_step, "0-start-end-0"))
+        else:
+            raise ValueError("Mode not recognized")
         tmp_df["V"] = v_array
         i_array = np.zeros_like(v_array)
 
-        for ii, v in enumerate(v_array):
-            instr_2400.ramp_to_voltage(v, steps=10, pause=0.03)
-            time.sleep(measure_delay)
-            i_array[ii] = instr_2400.current
-            self.live_plot_update(0, 0, 0, tmp_df["V"][:ii + 1], i_array[:ii + 1])
-        tmp_df["I"] = i_array
-        if not test:
-            file_path = self.get_filepath("IV__2-terminal", v_max, v_step, source, drain, mode, temp,
-                                          tmpfolder=tmpfolder)
-            file_path.parent.mkdir(parents=True, exist_ok=True)
-            tmp_df.to_csv(file_path, sep="\t", index=False, float_format="%.12f")
+        try:
+            for ii, v in enumerate(v_array):
+                instr.uni_output(v, compliance=curr_compliance, type_str="volt")
+                time.sleep(measure_delay)
+                i_array[ii] = instr.sense(type_str="curr")
+                self.live_plot_update(0, 0, 0, tmp_df["V"][:ii + 1], i_array[:ii + 1])
 
-        instr_2400.shutdown()
+            tmp_df["I"] = i_array
+        except KeyboardInterrupt:
+            print("Measurement interrupted")
+        finally:
+            instr.output_enabled(False)
+            if not test:
+                file_path = self.get_filepath("IV__2-terminal", v_max, v_step, source, drain, mode, temp,
+                                              tmpfolder=tmpfolder)
+                file_path.parent.mkdir(parents=True, exist_ok=True)
+                tmp_df.to_csv(file_path, sep="\t", index=False, float_format="%.12f")
 
     @print_help_if_needed
-    def measure_VB_SR830(self, measurename_all, *var_tuple, source: Literal["sr830", "6221"],
+    def measure_VB_SR830(self, measure_mods: tuple[str], *var_tuple: float | str, source: Literal["sr830", "6221"],
                          resistor: float = None) -> None:
         """
         measure voltage signal of constant current under different temperature (continuously changing).
 
         Args:
-            measurename_all (str): the full name of the measurement
+            measure_mods (str): the full name of the measurement
             var_tuple (Tuple): the variables of the measurement, use "-h" to see the available options
             source (Literal["sr830","6221"]): the source of the measurement
             resistor (float): the resistance of the resistor, used only for sr830 source to calculate the voltage
         """
-        file_path = self.get_filepath(measurename_all, *var_tuple)
+        file_path = self.get_filepath(measure_mods, *var_tuple)
         file_path.parent.mkdir(parents=True, exist_ok=True)
-        self.add_measurement(measurename_all)
-        sub_type = FileOrganizer.measurename_decom(measurename_all)[-1]
+        self.add_measurement(*measure_mods)
+        sub_type = FileOrganizer.measurename_decom(measure_mods)[-1]
         fast = False
         if var_tuple[2] < 2:
             raise ValueError("npts should be no less than 2")
         elif var_tuple[2] == 2:
             fast = True
-        curr = MeasureManager.split_no_str(var_tuple[3])
-        curr = factor(curr[1], "to_SI") * curr[0]  # [A]
+        curr = convert_unit(var_tuple[3], "A")[0]
         print(f"Filename is: {file_path.name}")
         print(f"Curr: {curr} A")
         print(f"Mag: {var_tuple[0]} -> {var_tuple[1]} T")
@@ -362,7 +584,6 @@ class MeasureManager(DataPlot):
         tmp_df = pd.DataFrame(columns=["B", "X_2w", "Y_2w", "R_2w", "phi_2w", "X_1w", "Y_1w", "R_1w", "phi_1w", "T"])
         out_range = False
 
-        self.setup_SR830()
         meter_2w = self.instrs['sr830'][0]
         meter_1w = self.instrs['sr830'][1]
         meter_2w.harmonic = 2
@@ -454,7 +675,7 @@ class MeasureManager(DataPlot):
                     list_2w = meter_2w.snap("X", "Y", "R", "THETA")
                     list_1w = meter_1w.snap("X", "Y", "R", "THETA")
                     temp = self.instrs["itc"].temperature
-                    B_now_z = self.instrs["mercury_ips"].z_measured()
+                    B_now_z = self.instrs["ips"].z_measured()
                     list_tot = [B_now_z] + list_2w + list_1w + [temp]
                     time_arr.append(datetime.datetime.now())
                     print(f"B: {list_tot[0]:.4f} T\t 2w: {list_tot[1:5]}\t 1w: {list_tot[5:9]}\t T: {list_tot[-1]}")
@@ -468,7 +689,7 @@ class MeasureManager(DataPlot):
                         tmp_df.to_csv(file_path, sep="\t", index=False, float_format="%.12f")
                     time.sleep(1)
 
-                    if abs(self.instrs["mercury_ips"].z_measured() - var_tuple[1]) < 0.003:
+                    if abs(self.instrs["ips"].z_measured() - var_tuple[1]) < 0.003:
                         counter += 1
                     else:
                         counter = 0
@@ -513,8 +734,7 @@ class MeasureManager(DataPlot):
         file_path = self.get_filepath(measurename_all, *var_tuple)
         file_path.parent.mkdir(parents=True, exist_ok=True)
         self.add_measurement(measurename_all)
-        curr = MeasureManager.split_no_str(var_tuple[3])
-        curr = factor(curr[1], "to_SI") * curr[0]  # [A]
+        curr = convert_unit(var_tuple[3], "A")[0]
         print(f"Filename is: {file_path.name}")
         print(f"Curr: {curr} A")
         print(f"Temperature: {var_tuple[0]} -> {var_tuple[1]} K")
@@ -672,19 +892,18 @@ class MeasureManager(DataPlot):
                 source_6221.shutdown()
 
     #@print_help_if_needed
-    #def measure_RT_SR830_ITC503(self, measurename_all, *var_tuple, resist: float) -> None:
+    #def measure_RT_SR830_ITC503(self, measure_mods, *var_tuple, resist: float) -> None:
     #    """
     #    Measure the Resist-Temperature relation using SR830 as both meter and source and store the data in the corresponding file(meters need to be loaded before calling this function, and the first is the source)
 
     #    Args:
-    #        measurename_all (str): the full name of the measurement
+    #        measure_mods (str): the full name of the measurement
     #        var_tuple (Tuple): the variables of the measurement, use "-h" to see the available options
     #        resist (float): the resistance of the resistor, used only to calculate corresponding voltage
     #    """
-    #    file_path = self.get_filepath(measurename_all, *var_tuple)
-    #    self.add_measurement(measurename_all)
-    #    curr = MeasureManager.split_no_str(var_tuple[0])
-    #    curr = factor(curr[1], "to_SI") * curr[0]  # [A]
+    #    file_path = self.get_filepath(measure_mods, *var_tuple)
+    #    self.add_measurement(measure_mods)
+    #    curr = convert_unit(var_tuple[0], "A")[0]
     #    print(f"Filename is: {file_path.name}")
     #    print(f"Curr: {curr} A")
     #    print(f"estimated T range: {var_tuple[7]}-{var_tuple[8]} K")
@@ -754,13 +973,16 @@ class MeasureManager(DataPlot):
             measurename_all (str): the full name of the measurement
             var_tuple (Tuple): the variables of the measurement, use "-h" to see the available options
             tmpfolder (str): the temporary folder to store the data
-            source (Literal["2182","6221"]): the source of the measurement
         """
+        if var_tuple[-2] == "0-max-0" or var_tuple[-2] == "0--max-max-0":
+            mode = var_tuple[-2]
+        else:
+            var_tuple = list(var_tuple)
+            var_tuple.insert(-1, mode)
         file_path = self.get_filepath(measurename_all, *var_tuple, tmpfolder=tmpfolder)
         file_path.parent.mkdir(parents=True, exist_ok=True)
         self.add_measurement(measurename_all)
-        curr = MeasureManager.split_no_str(var_tuple[0])
-        curr = factor(curr[1], "to_SI") * curr[0]  # [A]
+        curr = convert_unit(var_tuple[0], "A")[0]
         print(f"Filename is: {file_path.name}")
         print(f"Max Curr: {curr} A")
         print(f"steps: {var_tuple[1] - 1}")
@@ -932,23 +1154,28 @@ class MeasureManager(DataPlot):
             f.write(header)
 
     @staticmethod
-    def split_no_str(s: str) -> Tuple[float | None, str | None]:
+    def sweep_values(start_value: float, end_value: float, step: float,
+                     mode: Literal["start-end", "start-end-start", "0-start-end-0", "0-start-end-start-0"]) \
+            -> Generator[float, None, None]:
         """
-        split the string into the string part and the float part.
-
-        Args:
-            s (str): the string to split
-
-        Returns:
-            Tuple[float,str]: the string part and the integer part
+        generate sweeping sequence according to the mode
+        NOTE: the values at ends will be repeated
         """
-        match = re.match(r"([0-9.]+)([a-zA-Z]+)", s, re.I)
+        if mode == "start-end":
+            yield from gen_seq(start_value, end_value, step)
+        elif mode == "start-end-start":
+            yield from gen_seq(start_value, end_value, step)
+            yield from gen_seq(end_value, start_value, -step)
+        elif mode == "0-start-end-0":
+            yield from gen_seq(0, start_value, step)
+            yield from gen_seq(start_value, end_value, step)
+            yield from gen_seq(end_value, 0, -step)
 
-        if match:
-            items = match.groups()
-            return float(items[0]), items[1]
-        else:
-            return None, None
+        elif mode == "0-start-end-start-0":
+            yield from gen_seq(0, start_value, step)
+            yield from gen_seq(start_value, end_value, step)
+            yield from gen_seq(end_value, start_value, -step)
+            yield from gen_seq(start_value, 0, -step)
 
     def print_pairs(self, sub_type, v1_2w_meter: Literal[0, 1] = 0, v2_1w_meter: Literal[0, 1] = 1):
         if "1pair" in sub_type.split("-"):
@@ -963,467 +1190,114 @@ class MeasureManager(DataPlot):
             print("===========================================")
 
     @staticmethod
-    def print_progress_bar(iteration, total, prefix='', suffix='', decimals=1, length=50, fill='#',
-                           print_end="\r") -> None:
+    def extract_info_mods(measure_mods: tuple[str], *var_tuple: float | str) \
+            -> tuple[list[dict], list[dict], list[dict]]:
         """
-        Call in a loop to create terminal progress bar
-
-        Args:
-            iteration (int): current iteration
-            total (int): total iterations
-            prefix (str): prefix string
-            suffix (str): suffix string
-            decimals (int): positive number of decimals in percent complete
-            length (int): character length of bar
-            fill (str): bar fill character
-            print_end (str): end character (e.g. "\r", "\r\n")
+        Extract the information from the measure_mods and var_tuple
         """
-        percent = ("{0:." + str(decimals) + "f}").format(100 * (iteration / float(total)))
-        filled_length = int(length * iteration // total)
-        barr = fill * filled_length + '-' * (length - filled_length)
-        print(f'\r{prefix} [{barr}] {percent}% {suffix}', end=print_end, flush=True)
-        # Print New Line on Complete
-        if iteration == total:
-            print()
+        main_mods, f_str, mod_detail_lst \
+            = FileOrganizer.name_fstr_gen(*measure_mods, require_detail=True)
 
+        #================= 1. Load parameters from name str and var_tuple =================
+        # this step can be manually done by the user
+        def find_positions(lst: list[str], search_term: str) -> int:
+            """
+            Find positions of elements in the list that contain the search term as a substring.
 
-class ITC(ABC, DataPlot):
-    # parent class to incorporate both two ITCs
-    @property
-    @abstractmethod
-    def temperature(self):
-        """return the precise temperature of the sample"""
-        pass
+            Args:
+                lst (list[str]): The list to search.
+                search_term (str): The term to search for.
 
-    @abstractmethod
-    def set_temperature(self, temp):
-        """
-        set the target temperature for sample, as for other parts' temperature, use the methods for each ITC
-        """
-        pass
+            Returns:
+                list[int]: The list of positions where the search term is found.
+            """
+            return [i for i, element in enumerate(lst) if search_term in element][0]
 
-    @property
-    @abstractmethod
-    def pid(self):
-        """
-        return the PID parameters
-        """
-        pass
-
-    @abstractmethod
-    def set_pid(self, pid_dict):
-        """
-        set the PID parameters
-        
-        Args:
-            pid_dict (Dict): a dictionary as {"P": float, "I": float, "D": float}
-        """
-        pass
-
-    @abstractmethod
-    def correction_ramping(self, temp: float, trend: Literal["up", "down", "up-huge", "down-huge"]):
-        """
-        Correct the sensor choosing or pressure when ramping through the temperature threshold
-
-        Args:
-            temp (float): the current temperature
-            trend (Literal["up","down"]): the trend of the temperature
-        """
-        pass
-
-    def wait_for_temperature(self, temp, *, if_plot=False, delta=0.01, check_interval=1, stability_counter=120,
-                             thermalize_counter=120):
-        """
-        wait for the temperature to stablize for a certain time length
-
-        Args: temp (float): the target temperature delta (float): the temperature difference to consider the
-        temperature stablized check_interval (int,[s]): the interval to check the temperature stability_counter (
-        int): the number of times the temperature is within the delta range to consider the temperature stablized
-        thermalize_counter (int): the number of times to thermalize the sample if_plot (bool): whether to plot the
-        temperature change
-        """
-        if self.temperature < temp - 100:
-            trend = "up-huge"
-        elif self.temperature > temp + 100:
-            trend = "down-huge"
-        elif self.temperature < temp:
-            trend = "up"
-        else:
-            trend = "down"
-
-        if if_plot:
-            self.live_plot_init(1, 1, 1, 600, 1400, titles=[["T ramping"]],
-                                axes_labels=[[[r"Time (s)", r"T (K)"]]])
-            t_arr = [0]
-            T_arr = [self.temperature]
-        i = 0
-        while i < stability_counter:
-            self.correction_ramping(self.temperature, trend)
-            if abs(self.temperature - temp) < ITC.dynamic_delta(temp, delta):
-                i += 1
-            elif i >= 5:
-                i -= 5
-            if if_plot:
-                t_arr.append(t_arr[-1] + check_interval)
-                T_arr.append(self.temperature)
-                self.live_plot_update(0, 0, 0, t_arr, T_arr)
-            MeasureManager.print_progress_bar(i, stability_counter, prefix="Stablizing",
-                                              suffix=f"Temperature: {self.temperature:.2f} K")
-            time.sleep(check_interval)
-        print("Temperature stablized")
-        for i in range(thermalize_counter):
-            MeasureManager.print_progress_bar(i+1, thermalize_counter, prefix="Thermalizing",
-                                              suffix=f"Temperature: {self.temperature:.2f} K")
-            if if_plot:
-                t_arr.append(t_arr[-1] + check_interval)
-                T_arr.append(self.temperature)
-                self.live_plot_update(0, 0, 0, t_arr, T_arr)
-            time.sleep(check_interval)
-        print("Thermalizing finished")
-
-    def ramp_to_temperature(self, temp, *, delta=0.01, check_interval=1, stability_counter=120, thermalize_counter=120,
-                            pid=None, ramp_rate=None, wait=True, if_plot=False):
-        """ramp temperature to the target value (not necessary sample temperature)"""
-        self.set_temperature(temp)
-        if pid is not None:
-            self.set_pid(pid)
-        if wait:
-            self.wait_for_temperature(temp, delta=delta, check_interval=check_interval,
-                                      stability_counter=stability_counter,
-                                      thermalize_counter=thermalize_counter, if_plot=if_plot)
-
-    @staticmethod
-    def dynamic_delta(temp, delta_lowt) -> float:
-        """
-        calculate a dynamic delta to help high temperature to stabilize (reach 0.1K tolerance when 300K and {delta_lowt} when 10K)
-        """
-        # let the delta be delta_lowt at 1.5K and 0.2K at 300K
-        t_low = 1.5
-        delta_hight = 0.2
-        t_high = 300
-        return (delta_hight - delta_lowt) * (temp - t_low) / (t_high - t_low) + delta_lowt
-
-
-class ITCMercury(ITC):
-    def __init__(self, proj_name: str, address="TCPIP0::10.97.27.13::7020::SOCKET"):
-        self.mercury = MercuryITC("mercury_itc", address)
-
-    @property
-    def pres(self):
-        return self.mercury.pressure()
-
-    def set_pres(self, pres: float):
-        self.mercury.pressure_setpoint(pres)
-
-    @property
-    def flow(self):
-        return self.mercury.gas_flow()
-
-    def set_flow(self, flow: float):
-        """
-        set the gas flow, note the input value is percentage, from 0 to 99.9 (%)
-        """
-        if not 0.0 < flow < 100.0:
-            raise ValueError("Flow must be between 0.0 and 100.0 (%)")
-        self.mercury.gas_flow(flow)
-
-    @property
-    def pid(self):
-        return {"P": self.mercury.temp_loop_P(), "I": self.mercury.temp_loop_I(),
-                "D": self.mercury.temp_loop_D()}
-
-    def set_pid(self, pid: dict):
-        """
-        set the pid of probe temp loop
-        """
-        self.mercury.temp_PID_auto("OFF")
-        self.mercury.temp_PID = (pid["P"], pid["I"], pid["D"])
-
-    @property
-    def temperature(self):
-        return self.mercury.probe_temp()
-
-    def set_temperature(self, temp, vti_temp=None):
-        """set the target temperature for sample"""
-        self.mercury.temp_setpoint(temp)
-        if vti_temp is not None:
-            self.mercury.vti_temp_setpoint(vti_temp)
-        else:
-            self.mercury.vti_temp_setpoint(self.mercury.calculate_vti_temp(temp))
-
-    @property
-    def vti_temperature(self):
-        return self.mercury.vti_temp()
-
-    def set_vti_temperature(self, temp):
-        self.mercury.vti_temp_setpoint(temp)
-
-    def ramp_to_temperature(self, temp, *, delta=0.01, check_interval=1, stability_counter=120, thermalize_counter=120,
-                            pid=None, ramp_rate=None, wait=True, if_plot=False):
-        """ramp temperature to the target value (not necessary sample temperature) Args: temp (float): the target
-        temperature delta (float): the temperature difference to consider the temperature stablized check_interval (
-        int,[s]): the interval to check the temperature stability_counter (int): the number of times the temperature
-        is within the delta range to consider the temperature stablized thermalize_counter (int): the number of times
-        to thermalize the sample pid (Dict): a dictionary as {"P": float, "I": float, "D": float} ramp_rate (float,
-        [K/min]): the rate to ramp the temperature
-        """
-        self.set_temperature(temp)
-        if pid is not None:
-            self.set_pid(pid)
-
-        if ramp_rate is not None:
-            self.mercury.probe_ramp_rate(ramp_rate)
-            # self.mercury.vti_heater_rate(ramp_rate)
-            self.mercury.probe_temp_ramp_mode("ON")
-        else:
-            self.mercury.probe_temp_ramp_mode("OFF")
-        if wait:
-            self.wait_for_temperature(temp, delta=delta, check_interval=check_interval,
-                                      stability_counter=stability_counter,
-                                      thermalize_counter=thermalize_counter, if_plot=if_plot)
-
-    def correction_ramping(self, temp: float, trend: Literal["up", "down", "up-huge", "down-huge"]):
-        """
-        Correct the sensor choosing or pressure when ramping through the temperature threshold
-
-        Args:
-            temp (float): the current temperature
-            trend (Literal["up","down","up-huge","down-huge"]): the trend of the temperature
-        """
-        if trend == "up-huge":
-            self.set_pres(5)
-        elif trend == "down-huge":
-            if temp >= 5:
-                self.set_pres(15)
+        src_no, sense_no, oth_no = list(map(len, main_mods.split("-")))
+        mods_lst = list(main_mods.replace("-", "").replace("_", ""))
+        source_dict = {
+            "I": {
+                "sweep_fix": None,
+                "ac_dc": None,
+                "fix": None,
+                "max": None,
+                "step": None,
+                "mode": None,
+                "freq": None
+            },
+            "V": {
+                "sweep_fix": None,
+                "ac_dc": None,
+                "fix": None,
+                "max": None,
+                "step": None,
+                "mode": None,
+                "freq": None
+            },
+        }
+        sense_dict = {
+            "type": None,
+            "ac_dc": None
+        }
+        other_dict = {
+            "name": None,
+            "sweep_fix": None,
+            "fix": None,
+            "start": None,
+            "stop": None,
+            "step": None,
+            "mode": None
+        }
+        src_lst  =  [copy.deepcopy(source_dict) for _ in range(src_no)]
+        sense_lst = [copy.deepcopy(sense_dict) for _ in range(sense_no)]
+        other_lst = [copy.deepcopy(other_dict) for _ in range(oth_no)]
+        # the index to retrieve the variables from var_tuple
+        index_vars = 0
+        for idx, (mod, detail) in enumerate(zip(mods_lst, mod_detail_lst)):
+            if idx < src_no:
+                vars_lst = re.findall(r'{(\w+)}',
+                                      MeasureManager.measure_types_json[mod]["source"][detail["sweep_fix"]][
+                                          detail["ac_dc"]])
+                length = len(vars_lst)
+                src_lst[idx][mod]['ac_dc'] = detail["ac_dc"]
+                src_lst[idx][mod]['sweep_fix'] = detail["sweep_fix"]
+                if detail["ac_dc"] == "ac":
+                    src_lst[idx][mod]['freq'] = var_tuple[index_vars + find_positions(vars_lst, "freq")]
+                if detail["sweep_fix"] == "sweep":
+                    src_lst[idx][mod]["max"] = var_tuple[index_vars + find_positions(vars_lst, "max")]
+                    src_lst[idx][mod]["step"] = var_tuple[index_vars + find_positions(vars_lst, "step")]
+                    if detail["ac_dc"] == "dc":
+                        src_lst[idx][mod]["mode"] = var_tuple[index_vars + find_positions(vars_lst, "mode")]
+                elif detail["sweep_fix"] == "fixed":
+                    src_lst[idx][mod]["fix"] = var_tuple[index_vars + find_positions(vars_lst, "fix")]
+            elif idx < src_no + sense_no:
+                vars_lst = re.findall(r'{(\w+)}', MeasureManager.measure_types_json[mod]["sense"])
+                length = len(vars_lst)
+                sense_lst[idx - src_no]["type"] = mod
+                sense_lst[idx - src_no]["ac_dc"] = src_lst[0]["I"]["ac_dc"] if src_lst[0]["I"]["ac_dc"] is not None \
+                    else src_lst[0]["V"]["ac_dc"]
             else:
-                self.set_pres(3)
-        else:
-            self.set_pres(3)
+                vars_lst = re.findall(r'{(\w+)}', MeasureManager.measure_types_json[mod][detail["sweep_fix"]])
+                length = len(vars_lst)
+                other_lst[idx - src_no - sense_no]["name"] = mod
+                other_lst[idx - src_no - sense_no]["sweep_fix"] = detail["sweep_fix"]
+                if detail["sweep_fix"] == "sweep":
+                    other_lst[idx - src_no - sense_no]["start"] = var_tuple[
+                        index_vars + find_positions(vars_lst, "start")]
+                    other_lst[idx - src_no - sense_no]["stop"] = var_tuple[
+                        index_vars + find_positions(vars_lst, "stop")]
+                    other_lst[idx - src_no - sense_no]["step"] = var_tuple[
+                        index_vars + find_positions(vars_lst, "step")]
+                    other_lst[idx - src_no - sense_no]["mode"] = var_tuple[
+                        index_vars + find_positions(vars_lst, "mode")]
+                elif detail["sweep_fix"] == "fixed":
+                    other_lst[idx - src_no - sense_no]["fix"] = var_tuple[index_vars + find_positions(vars_lst, "fix")]
+                elif detail["sweep_fix"] == "vary":
+                    other_lst[idx - src_no - sense_no]["start"] = var_tuple[
+                        index_vars + find_positions(vars_lst, "start")]
+                    other_lst[idx - src_no - sense_no]["stop"] = var_tuple[
+                        index_vars + find_positions(vars_lst, "stop")]
 
+            index_vars += length
 
-class ITCs(ITC):
-    """ Represents the ITC503 Temperature Controllers and provides a high-level interface for interacting with the instruments. 
-    
-    There are two ITC503 incorporated in the setup, named up and down. The up one measures the temperature of the heat switch(up R1), PT2(up R2), leaving R3 no specific meaning. The down one measures the temperature of the sorb(down R1), POT LOW(down R2), POT HIGH(down R3).
-    """
-
-    def __init__(self, address_up="GPIB0::23::INSTR", address_down="GPIB0::24::INSTR", clear_buffer=True):
-        self.itc_up = ITC503(address_up, clear_buffer=clear_buffer)
-        self.itc_down = ITC503(address_down, clear_buffer=clear_buffer)
-
-    def chg_display(self, itc_name, target):
-        """
-        This function is used to change the front display of the ITC503
-
-        Parameters: itc_name (str): The name of the ITC503, "up" or "down" or "all" target (str):  'temperature
-        setpoint', 'temperature 1', 'temperature 2', 'temperature 3', 'temperature error', 'heater',
-        'heater voltage', 'gasflow', 'proportional band', 'integral action time', 'derivative action time',
-        'channel 1 freq/4', 'channel 2 freq/4', 'channel 3 freq/4'.
-
-        Returns:
-        None
-        """
-        if itc_name == "all":
-            self.itc_up.front_panel_display = target
-            self.itc_down.front_panel_display = target
-        elif itc_name == "up":
-            self.itc_up.front_panel_display = target
-        elif itc_name == "down":
-            self.itc_down.front_panel_display = target
-
-    def chg_pointer(self, itc_name, target: tuple):
-        """
-        used to change the pointer of the ITCs
-
-        Parameters: itc_name (str): The name of the ITC503, "up" or "down" or "all" target (tuple): A tuple property
-        to set pointers into tables for loading and examining values in the table, of format (x, y). The significance
-        and valid values for the pointer depends on what property is to be read or set. The value for x and y can be
-        in the range 0 to 128.
-
-        Returns:
-        None
-        """
-        if itc_name == "all":
-            self.itc_up.pointer = target
-            self.itc_down.pointer = target
-        elif itc_name == "up":
-            self.itc_up.pointer = target
-        elif itc_name == "down":
-            self.itc_down.pointer = target
-
-    def set_temperature(self, temp):
-        """
-        set the target temperature for sample, as for other parts' temperature, use the methods for each ITC
-
-        Args:
-            temp (float): the target temperature
-            itc_name (Literal["up","down","all"]): the ITC503 to set the temperature
-        """
-        self.itc_down.temperature_setpoint = temp
-
-    def ramp_to_temperature_selective(self, temp, itc_name: Literal["up", "down"], P=None, I=None, D=None):
-        """
-        used to ramp the temperature of the ITCs, this method will wait for the temperature to stablize and thermalize for a certain time length
-        """
-        self.control_mode = ("RU", itc_name)
-        if itc_name == "up":
-            itc_here = self.itc_up
-        if itc_name == "down":
-            itc_here = self.itc_down
-        itc_here.temperature_setpoint = temp
-        if P is not None and I is not None and D is not None:
-            itc_here.auto_pid = False
-            itc_here.proportional_band = P
-            itc_here.integral_action_time = I
-            itc_here.derivative_action_time = D
-        else:
-            itc_here.auto_pid = True
-        itc_here.heater_gas_mode = "AM"
-        print(f"temperature setted to {temp}")
-
-    @property
-    def version(self):
-        """ Returns the version of the ITC503. """
-        return [self.itc_up.version, self.itc_down.version]
-
-    @property
-    def control_mode(self):
-        """ Returns the control mode of the ITC503. """
-        return [self.itc_up.control_mode, self.itc_down.control_mode]
-
-    @control_mode.setter
-    def control_mode(self, mode: Tuple[Literal["LU", "RU", "LL", "RL"], Literal["all", "up", "down"]]):
-        """ Sets the control mode of the ITC503. A two-element list is required. The second elecment is "all" or "up"
-        or "down" to specify which ITC503 to set."""
-        if mode[1] == "all":
-            self.itc_up.control_mode = mode[0]
-            self.itc_down.control_mode = mode[0]
-        elif mode[1] == "up":
-            self.itc_up.control_mode = mode[0]
-        elif mode[1] == "down":
-            self.itc_down.control_mode = mode[0]
-
-    @property
-    def heater_gas_mode(self):
-        """ Returns the heater gas mode of the ITC503. """
-        return [self.itc_up.heater_gas_mode, self.itc_down.heater_gas_mode]
-
-    @heater_gas_mode.setter
-    def heater_gas_mode(self, mode: Tuple[Literal["MANUAL", "AM", "MA", "AUTO"], Literal["all", "up", "down"]]):
-        """ Sets the heater gas mode of the ITC503. A two-element list is required. The second elecment is "all" or
-        "up" or "down" to specify which ITC503 to set."""
-        if mode[1] == "all":
-            self.itc_up.heater_gas_mode = mode[0]
-            self.itc_down.heater_gas_mode = mode[0]
-        elif mode[1] == "up":
-            self.itc_up.heater_gas_mode = mode[0]
-        elif mode[1] == "down":
-            self.itc_down.heater_gas_mode = mode[0]
-
-    @property
-    def heater_power(self):
-        """ Returns the heater power of the ITC503. """
-        return [self.itc_up.heater, self.itc_down.heater]
-
-    @property
-    def heater_voltage(self):
-        """ Returns the heater voltage of the ITC503. """
-        return [self.itc_up.heater_voltage, self.itc_down.heater_voltage]
-
-    @property
-    def gas_flow(self):
-        """ Returns the gasflow of the ITC503. """
-        return [self.itc_up.gasflow, self.itc_down.gasflow]
-
-    @property
-    def proportional_band(self):
-        """ Returns the proportional band of the ITC503. """
-        return [self.itc_up.proportional_band, self.itc_down.proportional_band]
-
-    @property
-    def integral_action_time(self):
-        """ Returns the integral action time of the ITC503. """
-        return [self.itc_up.integral_action_time, self.itc_down.integral_action_time]
-
-    @property
-    def derivative_action_time(self):
-        """ Returns the derivative action time of the ITC503. """
-        return [self.itc_up.derivative_action_time, self.itc_down.derivative_action_time]
-
-    def set_pid(self, pid: dict, mode: Literal["all", "up", "down"] = "down"):
-        """ Sets the PID of the ITC503. A three-element list is required. The second elecment is "all" or "up" or "down" to specify which ITC503 to set. 
-        The P,I,D here are the proportional band (K), integral action time (min), and derivative action time(min), respectively.
-        """
-        self.control_mode = ("RU", mode)
-        if mode == "all":
-            self.itc_up.proportional_band = pid["P"]
-            self.itc_down.proportional_band = pid["P"]
-            self.itc_up.integral_action_time = pid["I"]
-            self.itc_down.integral_action_time = pid["I"]
-            self.itc_up.derivative_action_time = pid["D"]
-            self.itc_down.derivative_action_time = pid["D"]
-        if mode == "up":
-            self.itc_up.proportional_band = pid["P"]
-            self.itc_up.integral_action_time = pid["I"]
-            self.itc_up.derivative_action_time = pid["D"]
-        if mode == "down":
-            self.itc_down.proportional_band = pid["P"]
-            self.itc_down.integral_action_time = pid["I"]
-            self.itc_down.derivative_action_time = pid["D"]
-
-        if self.itc_up.proportional_band == 0:
-            return ""
-        return f"{mode} PID(power percentage): 100*(E/{pid['P']}+E/{pid['P']}*t/60{pid['I']}-dE*60{pid['D']}/{pid['P']}), [K,min,min]"
-
-    @property
-    def auto_pid(self):
-        """ Returns the auto pid of the ITC503. """
-        return [self.itc_up.auto_pid, self.itc_down.auto_pid]
-
-    @auto_pid.setter
-    def auto_pid(self, mode):
-        """ Sets the auto pid of the ITC503. A two-element list is required. The second elecment is "all" or "up" or
-        "down" to specify which ITC503 to set."""
-        if mode[1] == "all":
-            self.itc_up.auto_pid = mode[0]
-            self.itc_down.auto_pid = mode[0]
-        elif mode[1] == "up":
-            self.itc_up.auto_pid = mode[0]
-        elif mode[1] == "down":
-            self.itc_down.auto_pid = mode[0]
-
-    @property
-    def sweep_status(self):
-        """ Returns the sweep status of the ITC503. """
-        return [self.itc_up.sweep_status, self.itc_down.sweep_status]
-
-    @property
-    def temperature_setpoint(self):
-        """ Returns the temperature setpoint of the ITC503. """
-        return [self.itc_up.temperature_setpoint, self.itc_down.temperature_setpoint]
-
-    @temperature_setpoint.setter
-    def temperature_setpoint(self, temperature):
-        """ Sets the temperature setpoint of the ITC503. A two-element list is required. The second elecment is "all"
-        or "up" or "down" to specify which ITC503 to set."""
-        if temperature[1] == "all":
-            self.itc_up.temperature_setpoint = temperature[0]
-            self.itc_down.temperature_setpoint = temperature[0]
-        elif temperature[1] == "up":
-            self.itc_up.temperature_setpoint = temperature[0]
-        elif temperature[1] == "down":
-            self.itc_down.temperature_setpoint = temperature[0]
-
-    @property
-    def temperatures(self):
-        """ Returns the temperatures of the whole device as a dict. """
-        return {"sw": self.itc_up.temperature_1, "pt2": self.itc_up.temperature_2, "sorb": self.itc_down.temperature_1,
-                "pot_low": self.itc_down.temperature_2, "pot_high": self.itc_down.temperature_3}
-
-    @property
-    def temperature(self):
-        """ Returns the precise temperature of the sample """
-        if self.temperatures["pot_high"] < 1.9:
-            return self.temperatures["pot_low"]
-        elif self.temperatures["pot_high"] >= 1.9:
-            return self.temperatures["pot_high"]
+        return src_lst, sense_lst, other_lst
