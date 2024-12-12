@@ -1,11 +1,14 @@
 #!/usr/bin/env python
 """This module is responsible for processing and plotting the data"""
-from typing import Literal
+from itertools import groupby
+from os.path import commonpath
+from typing import Literal, Sequence, List, Optional
 import numpy as np
 import pandas as pd
+
 from pylab_dk.file_organizer import FileOrganizer, print_help_if_needed
-from pylab_dk.constants import cm_to_inch, factor, default_plot_dict
-from datetime import datetime
+from pylab_dk.constants import factor
+from datetime import datetime, timedelta
 
 
 class DataProcess(FileOrganizer):
@@ -21,81 +24,43 @@ class DataProcess(FileOrganizer):
         self.dfs = {}
 
     @print_help_if_needed
-    def load_dfs(self, measurename_all: str, *var_tuple, tmpfolder: str = None, cached: bool = False, header: Literal[None, "infer"] = "infer", skiprows: int = None) -> pd.DataFrame:
+    def load_dfs(self, measure_mods: tuple[str], *var_tuple: float | str, tmpfolder: str = None, cached: bool = False,
+                 header: Literal[None, "infer"] = "infer", skiprows: int = None) -> pd.DataFrame:
         """
-        Load a dataframe from a file, save the dataframe as a memeber variable and also return it
+        Load a dataframe from a file, save the dataframe as a member variable and also return it
 
         Args:
-        - measurename: the measurement name
+        - measure_mods: the measurement modules
+        - *var_tuple: the arguments for the modules
         - **kwargs: the arguments for the pd.read_csv function
-        - cached: whether to save the df into self.dfs["cache"] instead of self.dfs (note this will be easily overwritten by the next load_dfs call, so only with temperary usage)
+        - cached: whether to save the df into self.dfs["cache"] instead of self.dfs (overwritten by the next load_dfs call, only with temperary usage)
         """
-        filepath = self.get_filepath(measurename_all, *var_tuple, tmpfolder=tmpfolder)
-        measurename_main, _ = FileOrganizer.measurename_decom(measurename_all)
+        file_path = self.get_filepath(measure_mods, *var_tuple, tmpfolder=tmpfolder)
+        mainname_str, _ = FileOrganizer.name_fstr_gen(*measure_mods)
         if not cached:
-            self.dfs[measurename_main] = pd.read_csv(filepath, sep=r',', skiprows=skiprows, header=header)
-            return self.dfs[measurename_main].copy()
+            self.dfs[mainname_str] = pd.read_csv(file_path, sep=',', skiprows=skiprows, header=header,
+                                                 float_precision='round_trip')
+            return self.dfs[mainname_str].copy()
         else:
-            self.dfs["cache"] = pd.read_csv(filepath, sep=r',', skiprows=skiprows, header=header)
+            self.dfs["cache"] = pd.read_csv(file_path, sep=',', skiprows=skiprows, header=header,
+                                            float_precision='round_trip')
             return self.dfs["cache"].copy()
 
-    def rename_columns(self, measurename_main: str, columns_name: dict) -> None:
+    def rename_columns(self, measurename_main: str, rename_dict: dict) -> None:
         """
         Rename the columns of the dataframe
 
         Args:
-        - columns: the renaming rules, e.g. {"old_name": "new_name"}
+        - rename_dict: the renaming rules, e.g. {"old_name": "new_name"}
         """
-        self.dfs[measurename_main].rename(columns = columns_name, inplace=True)
+        self.dfs[measurename_main].rename(columns=rename_dict, inplace=True)
         if "cache" in self.dfs:
-            self.dfs["cache"].rename(columns = columns_name, inplace=True)
-
-    @print_help_if_needed
-    def nonlinear_load_symmetrize(self, measurename_sub:str = "1-pair", *var_tuple, tmpfolder: str = None, lin_antisym: bool = False, harmo_sym: bool = False, position_I: int = 4, inplace: bool = False) -> pd.DataFrame:
-        """
-        Process the nonlinear data, both modify the self.dfs inplace and return it as well for convenience. Could also do anti-symmetrization to 1w signal and symmetrization to 2w signal (choosable)
-        
-        Args:
-        - measurename_sub: the sub measurement name used to appoint the detailed configuration
-        - *vartuple: the arguments for the pd.read_csv function
-        - tmpfolder: the temporary folder
-        - lin_antisym: bool
-            do the anti-symmetrization to 1w signal
-        - harmo_sym: bool
-            do the symmetrization to 2w signal
-        - position_I: int
-            the position of the current in the var_tuple(start from 0), used in combination with sym/antisym labels
-        - inplace: bool
-            whether to modify the self.dfs V1w and V2w inplace or add two new columns
-        """
-        self.load_dfs(f"nonlinear__{measurename_sub}", *var_tuple, tmpfolder=tmpfolder)
-        if lin_antisym or harmo_sym:
-            var_reversed = list(var_tuple)
-            var_reversed[position_I], var_reversed[position_I+1] = var_reversed[position_I+1], var_reversed[position_I]
-            self.load_dfs(f"nonlinear__{measurename_sub}", *var_reversed, tmpfolder=tmpfolder, cached=True)
-
-        # rename_columns will rename the "cache" as well
-        if "V1w" not in self.dfs["nonlinear"].columns:
-            self.rename_columns("nonlinear", {"X_1w":"V1w"})
-        if "V2w" not in self.dfs["nonlinear"].columns:
-            self.rename_columns("nonlinear", {"Y_2w":"V2w"})
-        if lin_antisym:
-            if not inplace:
-                self.dfs["nonlinear"]["V1w_antisym"] = (self.dfs["nonlinear"]["V1w"] - self.dfs["cache"]["V1w"])/2
-            if inplace:
-                self.dfs["nonlinear"]["V1w"] = (self.dfs["nonlinear"]["V1w"] - self.dfs["cache"]["V1w"])/2
-        if harmo_sym:
-            if not inplace:
-                self.dfs["nonlinear"]["V2w_sym"] = (self.dfs["nonlinear"]["V2w"] + self.dfs["cache"]["V2w"])/2
-            if inplace:
-                self.dfs["nonlinear"]["V2w"] = (self.dfs["nonlinear"]["V2w"] + self.dfs["cache"]["V2w"])/2
-        # here the self.dfs has already been updated, the return is just for possible other usage
-        return self.dfs["nonlinear"].copy()
+            self.dfs["cache"].rename(columns=rename_dict, inplace=True)
 
     @staticmethod
     def merge_with_tolerance(df1: pd.DataFrame, df2: pd.DataFrame, on: any, tolerance: float, suffixes: tuple[str] = ("_1", "_2")) -> pd.DataFrame:
         """
-        Merge two dataframes with tolerance
+        Merge two dataframes with tolerance, unmatched rows will be dropped
 
         Args:
         - df1: the first dataframe
@@ -124,25 +89,30 @@ class DataProcess(FileOrganizer):
                 j += 1
 
         return pd.DataFrame(result).copy()
-    
-    def symmetrize(self, measurename_all: str | pd.DataFrame, index_col: any, obj_col: list[any], neutral_point: float = 0) -> tuple[pd.DataFrame, pd.DataFrame]:
+
+    @staticmethod
+    def symmetrize(ori_df: pd.DataFrame, index_col: str | float | int,
+                   obj_col: list[str | float | int], neutral_point: float = 0) -> tuple[pd.DataFrame, pd.DataFrame]:
         """
-        do symmetrization to the dataframe and return the symmetric and antisymmetric parts as new DataFrames, note that this function is dealing with only one line of data, meaning the positive and negative parts are to be combined first (no need to sort)
+        do symmetrization to the dataframe w.r.t. the index col and return the symmetric and antisymmetric DataFrames,
+        note that this function is dealing with only one dataframe, meaning the positive and negative parts
+        are to be combined first (no need to sort)
+        e.g. idx col is [-1,-2,-3,0,4,2,1], obj cols corresponding to -1 will add/minus the corresponding obj cols of 1
+            that of -3 will be added/minus that interpolated by 2 and 4, etc. (positive - negative)/2 for antisym
 
         Args:
-        - measure_mods: the full name of the measurement or a external dataframe
+        - ori_df: the original dataframe
         - index_col: the name of the index column for symmetrization
         - obj_col: a list of the name(s) of the objective column for symmetrization
         - neutral_point: the neutral point for symmetrization
+
+        Returns:
+        - pd.DataFrame[0]: the symmetric part (col names are suffixed with "_sym")
+        - pd.DataFrame[1]: the antisymmetric part (col names are suffixed with "_antisym")
         """
-        if isinstance(measurename_all, str):
-            measurename_main, _ = FileOrganizer.measurename_decom(measurename_all)
-            tmp_df = self.dfs[measurename_main]
-        elif isinstance(measurename_all, pd.DataFrame):
-            tmp_df = measurename_all
         # Separate the negative and positive parts for interpolation
-        df_negative = tmp_df[tmp_df[index_col] < neutral_point][[index_col]+obj_col].copy()
-        df_positive = tmp_df[tmp_df[index_col] > neutral_point][[index_col]+obj_col].copy()
+        df_negative = ori_df[ori_df[index_col] < neutral_point][[index_col]+obj_col].copy()
+        df_positive = ori_df[ori_df[index_col] > neutral_point][[index_col]+obj_col].copy()
         # For symmetrization, we need to flip the negative part and make positions positive
         df_negative[index_col] = -df_negative[index_col]
         # sort them
@@ -154,44 +124,101 @@ class DataProcess(FileOrganizer):
         neg_interpolated = np.array([np.interp(index_union, df_negative[index_col], df_negative[obj_col[i]]) for i in range(len(obj_col))])
         # Symmetrize and save to DataFrame
         sym = (pos_interpolated + neg_interpolated) / 2
-        sym_df = pd.DataFrame(np.transpose(np.append([index_union], sym, axis=0)), columns=[index_col] + [f"{obj_col[i]}sym" for i in range(len(obj_col))])
+        sym_df = pd.DataFrame(np.transpose(np.append([index_union], sym, axis=0)), columns=[index_col] + [f"{obj_col[i]}_sym" for i in range(len(obj_col))])
         antisym = (pos_interpolated - neg_interpolated) / 2
-        antisym_df = pd.DataFrame(np.transpose(np.append([index_union], antisym, axis=0)), columns=[index_col] + [f"{obj_col[i]}antisym" for i in range(len(obj_col))])
+        antisym_df = pd.DataFrame(np.transpose(np.append([index_union], antisym, axis=0)), columns=[index_col] + [f"{obj_col[i]}_antisym" for i in range(len(obj_col))])
 
-        return pd.concat([sym_df, antisym_df], axis = 1)
+        #return pd.concat([sym_df, antisym_df], axis = 1)
+        return sym_df, antisym_df
 
     @staticmethod
-    def time_to_datetime(t : pd.Series, *, past_time: Literal["min", "hour", "no"]="min")-> list[datetime]:
+    def difference(ori_df: pd.DataFrame | Sequence[pd.DataFrame],
+                   index_col: str | float | int | Sequence[str | float | int],
+                   target_col: str | float | int | Sequence[str | float | int],
+                   relative: bool = False) -> pd.DataFrame:
         """
-        Convert the time to datetime object, used to split time series without day information
+        Calculate the difference between the values in the column(should have the same name) of two dataframes
+        or in two columns of one dataframe, the final df will use the first col name given
+        NOTE the interpolation will cause severe error for extension outside the original range
+        the overlapped values will be AVERAGED
 
         Args:
-        t : pd.Series
-            The time series to be converted, format should be like "11:30 PM"
-        past_time : Literal["min", "hour", "no"]
-            Whether to return the time past from first time points instead of return datetime list 
-        Returns:
-        list[datetime.datetime]
-            The converted datetime object list, year and month are meaningless, just use the date from 1
+        - ori_df: the original dataframe(s)
+        - index_col: the name of the index column for symmetrization
+        - target_col: the name of the target column for difference calculation
+        - relative: whether to calculate the relative difference
         """
-        datetimes = [datetime.strptime(ts,"%I:%M %p").time() for ts in t]
-        day = 1
-        datetime_list = []
-        tmp = None
-        # Iterate over the datetime objects
-        for tm in datetimes:
-            # Get the date part of the datetime
-            if tmp is None:
-                pass
-            elif tmp > tm:
-                day += 1
-            tmp = tm
-            datetime_list.append(datetime.combine(datetime(1971,9,day),tm))
-        if past_time == "no":
-            return datetime_list
+        if isinstance(index_col, (tuple, list)) and isinstance(target_col, (tuple, list)):
+            assert len(index_col) == len(target_col) and len(index_col) == 2, "The length of two cols should be 2"
+            rename_dict = {target_col[1]: target_col[0], index_col[1]: index_col[0]}
+            if isinstance(ori_df, pd.DataFrame):
+                df_1 = ori_df[[index_col[0], target_col[0]]].copy()
+                df_2 = ori_df[[index_col[1], target_col[1]]].copy()
+                df_1.set_index(index_col[0], inplace=True)
+                df_2.set_index(index_col[1], inplace=True)
+            elif isinstance(ori_df, Sequence):
+                df_1 = ori_df[0][[index_col[0], target_col[0]]].copy()
+                df_2 = ori_df[1][[index_col[1], target_col[1]]].copy()
+                df_1.set_index(index_col[0], inplace=True)
+                df_2.set_index(index_col[1], inplace=True)
+            else:
+                raise ValueError("check the type of ori_df and two cols")
+            df_2.rename(columns=rename_dict, inplace=True)
+        elif not isinstance(index_col, (tuple, list)) and not isinstance(target_col, (tuple, list)):
+            assert isinstance(ori_df, Sequence), "check the type of ori_df and two cols"
+            df_1 = ori_df[0][[index_col, target_col]].copy()
+            df_2 = ori_df[1][[index_col, target_col]].copy()
+            df_1.set_index(index_col, inplace=True)
+            df_2.set_index(index_col, inplace=True)
         else:
-            if past_time == "min":
-                factor_time = 60
-            if past_time == "hour":
-                factor_time = 3600
-            return [(t - datetime_list[0]).total_seconds()/factor_time for t in datetime_list]
+            raise ValueError("two cols should be both list or both not list")
+
+        common_idx = sorted(set(df_1.index).union(set(df_2.index)))
+        df_1_reindexed = df_1.groupby(df_1.index).mean().reindex(common_idx).interpolate(method="linear").sort_index()
+        df_2_reindexed = df_2.groupby(df_2.index).mean().reindex(common_idx).interpolate(method="linear").sort_index()
+        diff = df_1_reindexed - df_2_reindexed
+        if relative:
+            diff = diff / df_2_reindexed
+        diff[index_col[0]] = diff.index
+        diff.reset_index(drop=True, inplace=True)
+        return diff
+
+    @staticmethod
+    def identify_direction(ori_df: pd.DataFrame, idx_col: str | float | int, min_count: int = 17):
+        """
+        Identify the direction of the sweeping column and add another direction column
+        (1 for increasing, -1 for decreasing)
+
+        Args:
+        - ori_df: the original dataframe
+        - idx_col: the name of the index column
+        - min_count: the min number of points for each direction (used to avoid fluctuation at ends)
+        """
+        df_in = ori_df.copy()
+        df_in["direction"] = np.sign(np.gradient(df_in[idx_col]))
+        directions = df_in['direction'].tolist()
+        # Perform run-length encoding
+        rle = [(direction, len(list(group))) for direction, group in groupby(directions)]
+        # Initialize filtered directions list
+        filtered_directions = []
+        for idx in range(len(rle)):
+            direction, length = rle[idx]
+            if length >= min_count and direction != 0:
+                # Accept the run as is
+                filtered_directions.extend([direction] * length)
+            else:
+                # Replace short runs with the previous direction
+                if filtered_directions:
+                    replaced_direction = filtered_directions[-1]
+                else:
+                    lookahead_idx = idx + 1
+                    while (lookahead_idx < len(rle) and
+                           (rle[lookahead_idx][1] < min_count or rle[lookahead_idx][0] == 0)):
+                        lookahead_idx += 1
+                    assert lookahead_idx < len(rle), "The direction for starting is not clear"
+                    replaced_direction = rle[lookahead_idx][0]
+                filtered_directions.extend([replaced_direction] * length)
+
+        # Assign the filtered directions back to the DataFrame
+        df_in['direction'] = filtered_directions
+        return df_in
