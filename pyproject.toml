@@ -4,14 +4,14 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "pylab_dk"
-version = "1.0a1"
+version = "1.0a2"
 description = "Integrated Tools for Electronic, Cryogenic and Magnetic Measurements"
 authors = [{name="Dongkai", email="dongkai001@e.ntu.edu.sg"}]
 readme = "README.md"
 license = {text = "MIT License"}
 requires-python = ">=3.11"
 classifiers = [
-  "Development Status :: 2 - Pre-Alpha",
+  "Development Status :: 3 - Alpha",
   "Programming Language :: Python",
   "intended Audience :: Science/Research"
 ]
@@ -22,6 +22,7 @@ dependencies = [
     "plotly>=5.24.1",
     "kaleido==0.1.0.post1",
     "pyvisa",
+    "pyvisa-py",
     "pymeasure>=0.14.0",
     "qcodes>=0.47.0",
     "jupyter"
@@ -32,3 +33,10 @@ gui = ["PyQt6"]
 
 [project.scripts]
 gui_coor_trans = "pylab_dk.auxiliary:Flakes.gui_coor_transition"
+gui_pan_color = "pylab_dk.data_plot:DataPlot.gui_pan_color"
+
+[tool.setuptools]
+include-package-data = true
+
+[tool.setuptools.package-data]
+pylab_dk = ["pltconfig/rand_color.json"]

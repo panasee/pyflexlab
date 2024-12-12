@@ -127,17 +127,23 @@ class FileOrganizer:
 
         # create project folder in the out database for storing main data
         self._out_database_dir_proj.mkdir(exist_ok=True)
-        if os.path.exists(FileOrganizer._local_database_dir / "assist.ipynb"):
+        if os.path.exists(FileOrganizer._local_database_dir / "assist_measure.ipynb")\
+                and os.path.exists(FileOrganizer._local_database_dir / "assist_post.ipynb"):
             if not os.path.exists(self._out_database_dir_proj / "assist_post.ipynb"):
-                shutil.copy(FileOrganizer._local_database_dir / "assist.ipynb",
+                shutil.copy(FileOrganizer._local_database_dir / "assist_post.ipynb",
                             self._out_database_dir_proj / "assist_post.ipynb")
             if not os.path.exists(self._out_database_dir_proj / "assist_measure.ipynb"):
-                shutil.copy(FileOrganizer._local_database_dir / "assist.ipynb",
+                shutil.copy(FileOrganizer._local_database_dir / "assist_measure.ipynb",
                             self._out_database_dir_proj / "assist_measure.ipynb")
         else:
-            print(f"assist.ipynb not found @ {FileOrganizer._local_database_dir}, nothing copied to proj")
+            print(f"assist_measure.ipynb or assist_post.ipynb not found @ {FileOrganizer._local_database_dir}, nothing copied to proj")
         # sync the project record file at the end of the function
         FileOrganizer._sync_json("proj_rec")
+
+    @property
+    def proj_path(self) -> Path:
+        """Get the project path"""
+        return self._out_database_dir_proj
 
     def open_proj_folder(self) -> None:
         """Open the project folder"""

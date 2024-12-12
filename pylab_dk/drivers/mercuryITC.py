@@ -399,7 +399,7 @@ class MercuryITC(VisaInstrument):
         """
         Function to calculate the optimum VTI temperature set point as a function of the probe temperature setpoint
         """
-        self.vti_list = np.array([1.3, 1.55, 5.9, 9.8, 19.5, 48.0, 97.0, 195.0, 295.0])
+        self.vti_list = np.array([1.3, 1.5, 2, 4, 15, 40, 90, 190, 290])
         self.probe_list = np.array([1.5, 1.7, 6, 10, 20, 50, 100, 200, 300])
         vti_temp_target = np.interp(probe_temp, self.probe_list, self.vti_list)
         return vti_temp_target

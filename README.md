@@ -31,7 +31,7 @@ pip install .
 ## Usage notes
 - **Measure Types:** A file named measure_types.json is used for automatically naming data files. 
 Refer to the JSON Structure of measure_types.json section for formatting details.
-- **Jupyter Notebook:** Use Jupyter Notebook as the platform for now. Place a template named assist.ipynb 
+- **Jupyter Notebook:** Use Jupyter Notebook as the platform for now. Place templates named assist_measure/post.ipynb 
 into the local database directory for quick setup. The template will be copied to every project directory.
 
 ### Json Structure of project_record.json
@@ -80,7 +80,6 @@ into the local database directory for quick setup. The template will be copied t
 # Roadmap
 - Short-term Goals:
   - fix rotator DLL API-calling bugs
-  - optimize memory occupation of plotly real-time plotting
 - Long-term Goals:
   - add interface by dash or PyQt6
 

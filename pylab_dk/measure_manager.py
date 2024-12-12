@@ -116,7 +116,7 @@ class MeasureManager(DataPlot):
     def source_sweep_apply(self, source_type: Literal["volt", "curr", "V", "I"], ac_dc: Literal["ac", "dc"],
                            meter: str | SourceMeter, *, max_value: float | str, step_value: float | str,
                            compliance: float | str, freq: float | str = None,
-                           sweepmode: Optional[Literal["0-max-0", "0--max-max-0", "manual"]] = None,
+                           sweepmode: Optional[Literal["0-max-0", "0--max-max-0", "0-max--max-max-0","manual"]] = None,
                            resistor: float = None, sweep_table: Optional[list[float | str, ...]] = None) \
             -> Generator[float, None, None]:
         """
@@ -130,7 +130,7 @@ class MeasureManager(DataPlot):
             step_value (float): the step of the current
             compliance (float): the compliance voltage of the source meter
             freq (float): the frequency of the ac current
-            sweepmode (Literal["0-max-0","0--max-max-0","manual"]): the mode of the dc current sweep, note that the
+            sweepmode (Literal["0-max-0","0--max-max-0","0-max--max-max-0","manual"]): the mode of the dc current sweep, note that the
                 "manual" mode is for both ac and dc source, requiring the sweep_table to be provided
             resistor (float): the resistance of the resistor, used only for sr830 source. Once it is provided, the
                 source value will be regarded automatically as current
@@ -169,6 +169,8 @@ class MeasureManager(DataPlot):
                 value_gen = self.sweep_values(0, max_value, step_value, mode="start-end-start")
             elif sweepmode == "0--max-max-0":
                 value_gen = self.sweep_values(-max_value, max_value, step_value, mode="0-start-end-0")
+            elif sweepmode == "0-max--max-max-0":
+                value_gen = self.sweep_values(max_value, -max_value, step_value, mode="0-start-end-start-0")
             elif sweepmode == "manual":
                 value_gen = (i for i in convert_unit(sweep_table, "")[0])
                 instr.ramp_output(source_type, sweep_table[0], interval=safe_step, compliance=compliance)
@@ -190,7 +192,7 @@ class MeasureManager(DataPlot):
                     yield value_i
             else:
                 if meter == "6221" or isinstance(meter, Wrapper6221):
-                    instr.setup("ac")
+                    instr.setup("source", "ac")
                 if sweepmode == "manual":
                     value_gen = (i for i in convert_unit(sweep_table, "")[0])
                     instr.ramp_output(source_type, sweep_table[0], interval=safe_step, compliance=compliance)
@@ -237,6 +239,8 @@ class MeasureManager(DataPlot):
             value_gen = self.sweep_values(0, max_value, step_value, mode="start-end-start")
         elif sweepmode == "0--max-max-0":
             value_gen = self.sweep_values(-max_value, max_value, step_value, mode="0-start-end-0")
+        elif sweepmode == "0-max--max-max-0":
+            value_gen = self.sweep_values(max_value, -max_value, step_value, mode="0-start-end-start-0")
         elif sweepmode == "min-max":
             value_gen = self.sweep_values(min_value, max_value, step_value, mode="start-end")
         elif sweepmode == "manual":
@@ -254,7 +258,7 @@ class MeasureManager(DataPlot):
             yield value_i
 
     def sense_apply(self, sense_type: Literal["volt", "curr", "temp", "mag", "V", "I", "T", "B", "H", "angle", "Theta"],
-                    meter: str | Meter = None, *, if_during_vary=False) \
+                    meter: str | Meter = None, *, if_during_vary=False, vary_criteria: int = 10) \
             -> Generator[float, None, None]:
         """
         sense the current using the source meter, initializations will be done for volt/curr meters
@@ -263,7 +267,8 @@ class MeasureManager(DataPlot):
             sense_type (Literal["volt","curr", "temp","mag"]): the type of the sense
             meter ("str") (applicable only for volt or curr): the meter to be used, use "-0", "-1" to specify the meter if necessary
             if_during_vary (bool): whether the sense is bonded with a varying temp/field, this will limit the generator,
-                and the sense will be stopped when the temp/field is stable
+                and the sense will be stopped when the temp/field is stable (not available for meters and rotator)
+            vary_criteria (int): the criteria (no of steps) to judge if the field/temperature is stable
         Returns:
             float | tuple[float]: the sensed value (tuple for sr830 ac sense)
         """
@@ -285,8 +290,8 @@ class MeasureManager(DataPlot):
                     yield instr.temperature
             else:
                 timer_i = 0
-                while timer_i < 20:
-                    if abs(instr.temperature - instr.temperature_set) < 0.1:
+                while timer_i < vary_criteria:
+                    if abs(instr.temperature - instr.temperature_set) < instr.dynamic_delta(instr.temperature_set):
                         timer_i += 1
                     else:
                         timer_i = 0
@@ -299,7 +304,7 @@ class MeasureManager(DataPlot):
                     yield instr.field
             else:
                 timer_i = 0
-                while timer_i < 20:
+                while timer_i < vary_criteria:
                     # only z field is considered
                     if abs(instr.field - instr.field_set) < 0.01:
                         timer_i += 1
@@ -309,8 +314,18 @@ class MeasureManager(DataPlot):
         elif sense_type == "angle":
             instr = self.instrs["rotator"]
             print(f"Sense Meter/Instr: {instr}")
-            while True:
-                yield instr.curr_angle()
+            if not if_during_vary:
+                while True:
+                    yield instr.curr_angle()
+            else:
+                timer_i = 0
+                while timer_i < vary_criteria:
+                    # only z field is considered
+                    if abs(instr.curr_angle() - instr.angle_set) < 0.03:
+                        timer_i += 1
+                    else:
+                        timer_i = 0
+                    yield instr.curr_angle()
 
     def record_init(self, measure_mods: tuple[str], *var_tuple: float | str,
                     manual_columns: list[str] = None, return_df: bool = False,
@@ -413,7 +428,8 @@ class MeasureManager(DataPlot):
                          wrapper_lst: list[Meter | SourceMeter] = None, compliance_lst: list[float | str],
                          sr830_current_resistor: float = None, if_combine_gen: bool = True,
                          sweep_tables: list[list[float | str, ...]] | tuple[tuple[float | str, ...]] = None,
-                         special_name: str = None, with_timer: bool = True) -> dict:
+                         special_name: str = None, with_timer: bool = True, no_start_vary: bool = False,
+                         ramp_intervals: list[float] | tuple[float] = None, vary_criteria: int = 10) -> dict:
         """
         do the preset of measurements and return the generators, filepath and related info
         1. meter setup should be done before calling this method, they will be bound to generators
@@ -439,6 +455,9 @@ class MeasureManager(DataPlot):
                                 the table will be fetched and used according to the order from left to right(0->1->2...)
             special_name (str): the special name used for subfolder to avoid mixing under the same measurement name
             with_timer (bool): whether to contain time generator
+            no_start_vary (bool): vary without starting from a fixed start
+            ramp_intervals (list[float]): the intervals for ramping the source, used with care, note the correspondence
+            vary_criteria (int): the criteria (no of steps) to judge if the field/temperature is stable
 
         Returns:
             dict: a dictionary containing the list of generators, dataframe csv filepath and record number
@@ -472,7 +491,12 @@ class MeasureManager(DataPlot):
                 raise ValueError(f"No source is specified for source {idx}")
 
             if src_mod[mod_i]["sweep_fix"] == "fixed":
-                wrapper_lst[idx].ramp_output("curr", src_mod[mod_i]["fix"], compliance=compliance_lst[idx])
+                if ramp_intervals is not None:
+                    interval = ramp_intervals.pop(0)
+                    wrapper_lst[idx].ramp_output(mod_i, src_mod[mod_i]["fix"],
+                                                 compliance=compliance_lst[idx], interval=interval)
+                else:
+                    wrapper_lst[idx].ramp_output(mod_i, src_mod[mod_i]["fix"], compliance=compliance_lst[idx])
                 rec_lst.append(constant_generator(src_mod[mod_i]["fix"]))
             elif src_mod[mod_i]["sweep_fix"] == "sweep":
                 if src_mod[mod_i]["mode"] == "manual":
@@ -503,16 +527,22 @@ class MeasureManager(DataPlot):
             elif oth_mod["sweep_fix"] == "vary":
                 if oth_mod["name"] == "T":
                     vary_mod.append("T")
-                    self.instrs["itc"].ramp_to_temperature(oth_mod["start"], wait=True)
+                    if not no_start_vary:
+                        self.instrs["itc"].ramp_to_temperature(oth_mod["start"], wait=True)
+
+                        def temp_vary(reverse: bool = False):
+                            target = oth_mod["start"] if reverse else oth_mod["stop"]
+                            ini = oth_mod["stop"] if reverse else oth_mod["start"]
+                            while abs(self.instrs["itc"].temperature - ini) > 0.1:
+                                self.instrs["itc"].ramp_to_temperature(ini, wait=True)
+                            self.instrs["itc"].ramp_to_temperature(target, wait=False)
 
                     # define a function instead of directly calling the ramp_to_temperature method
                     # to avoid possible interruption or delay
-                    def temp_vary(reverse: bool = False):
-                        target = oth_mod["start"] if reverse else oth_mod["stop"]
-                        ini = oth_mod["stop"] if reverse else oth_mod["start"]
-                        while abs(self.instrs["itc"].temperature - ini) > 0.1:
-                            self.instrs["itc"].ramp_to_temperature(ini, wait=True)
-                        self.instrs["itc"].ramp_to_temperature(target, wait=False)
+                    else:
+                        def temp_vary(reverse: bool = False):
+                            target = oth_mod["start"] if reverse else oth_mod["stop"]
+                            self.instrs["itc"].ramp_to_temperature(target, wait=False)
                 elif oth_mod["name"] == "B":
                     vary_mod.append("B")
                     self.instrs["ips"].ramp_to_field(oth_mod["start"], wait=True)
@@ -534,7 +564,7 @@ class MeasureManager(DataPlot):
                             self.instrs["rotator"].ramp_angle(ini, wait=True)
                         self.instrs["rotator"].ramp_angle(target, wait=False)
 
-                rec_lst.append(self.sense_apply(oth_mod["name"], if_during_vary=True))
+                rec_lst.append(self.sense_apply(oth_mod["name"], if_during_vary=True, vary_criteria=vary_criteria))
             elif oth_mod["sweep_fix"] == "sweep":
                 if oth_mod["mode"] == "manual":
                     sweep_table = sweep_tables.pop(0)  # pop from start
@@ -567,8 +597,8 @@ class MeasureManager(DataPlot):
         }
 
     def watch_sense(self, sense_mods: tuple[str], time_len: Optional[int] = None, time_step: int = 1,
-                    filename: str | Path = "tmp",
-                    wrapper_lst: list[Meter] = None) -> tuple[Generator[tuple[float], None, None], list[str]]:
+                    filename: str | Path = "tmp", wrapper_lst: list[Meter] = None) \
+            -> tuple[Path, int, Generator[tuple[float], None, None], list[str]]:
         """
         watch the sense values with time and record them into the csv file
         this function is basically a special case of get_measure_dict method
@@ -586,18 +616,28 @@ class MeasureManager(DataPlot):
         sense_mods = [sense_mods[i].split("_")[0].split("-")[0] for i in range(len(sense_mods))]
         file_path = self.proj_path / "watch" / filename
         file_path.parent.mkdir(parents=True, exist_ok=True)
-        rec_lst = []
+        rec_lst = [time_generator()]
         cols = ["time"]
-        for idx, sense_mod in enumerate(sense_mods):
-            rec_lst.append(self.sense_apply(sense_mod, wrapper_lst[idx]))
-            if sense_mod == "V" and isinstance(wrapper_lst[idx], WrapperSR830):
+        for sense_mod in sense_mods:
+            sense_mod = (sense_mod.replace("T", "temp").replace("B", "mag").replace("H", "mag").
+                          replace("Theta", "angle"))
+            if sense_mod not in ["mag","temp","angle"]:
+                rec_lst.append(self.sense_apply(sense_mod, tmp_wrapper := wrapper_lst.pop(0)))
+            else:
+                rec_lst.append(self.sense_apply(sense_mod))
+
+            if sense_mod == "V" and isinstance(tmp_wrapper, WrapperSR830):
                 cols += ["X", "Y", "R", "Theta"]
             else:
                 cols.append(sense_mod)
 
         cols = rename_duplicates(cols)
         total_gen = combined_generator_list(rec_lst)
-        return total_gen, cols
+
+        self.dfs["curr_measure"] = pd.DataFrame(columns=cols)
+        self.dfs["curr_measure"].to_csv(file_path, sep=",", index=False, float_format="%.12f")
+
+        return file_path, len(cols), total_gen, cols
 
     def extract_meter_info(self, meter: str | Meter) -> Meter | SourceMeter:
         """

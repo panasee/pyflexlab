@@ -3,9 +3,13 @@ import re
 import sys
 from datetime import datetime
 from functools import wraps
-from typing import Literal, Generator
+from typing import Literal, Generator, Sequence, Optional
+from matplotlib.colors import LinearSegmentedColormap, ListedColormap
+from matplotlib import colormaps
 
 import numpy as np
+import pandas as pd
+
 import pylab_dk.pltconfig.color_preset as colors
 
 # define constants
@@ -106,7 +110,7 @@ def convert_unit(before: float | int | str | list[float | int | str, ...] | tupl
         value_SI = value * factor(unit, mode="to_SI")
         new_value = value_SI * factor(target_unit, mode="from_SI")
         return new_value, f"{new_value}{target_unit}"
-    elif isinstance(before, (np.int64, np.float64)):
+    elif isinstance(before, (np.integer, np.floating)):
         return convert_unit(float(before), target_unit)
     elif isinstance(before, (list, tuple, np.ndarray)):
         return [convert_unit(i, target_unit)[0] for i in before], [convert_unit(i, target_unit)[1] for i in before]

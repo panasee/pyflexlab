@@ -154,10 +154,14 @@ class SourceMeter(Meter):
             self.output_switch("on")
 
         curr_val = self.get_output_status()[0]
+        if curr_val == value:
+            self.uni_output(value, freq=freq, type_str=type_str, compliance=compliance)
+            return
         if interval is None:
-            if curr_val == value:
-                return
-            arr = np.linspace(curr_val, value, 100)
+            if abs(curr_val - value) > 20:
+                arr = np.arange(curr_val, value, 0.2*np.sign(value - curr_val))
+            else:
+                arr = np.linspace(curr_val, value, 100)
         elif isinstance(interval, (float, str)):
             interval = convert_unit(interval, "")[0]
             interval = abs(interval) * np.sign(value - curr_val)
@@ -166,9 +170,9 @@ class SourceMeter(Meter):
         else:
             raise ValueError("interval should be a float or str or just left as default")
 
-        for i in arr:
+        for idx, i in enumerate(arr):
             self.uni_output(i, freq=freq, type_str=type_str, compliance=compliance)
-            print_progress_bar(i / value * 100, 100, prefix="Ramping:")
+            print_progress_bar((idx + 1) / len(arr) * 100, 100, prefix="Ramping Meter:")
             time.sleep(sleep)
 
 
@@ -316,13 +320,13 @@ class Wrapper6221(ACSourceMeter, DCSourceMeter):
             if freq is not None:
                 self.rms_output(value, freq=freq, compliance=compliance, type_str=type_str)
             elif freq is None:
-                self.setup("dc")
+                self.setup("source", "dc")
                 self.dc_output(value, compliance=compliance, type_str=type_str)
         elif self.info_dict["ac_dc"] == "dc":
             if freq is None:
                 self.dc_output(value, compliance=compliance, type_str=type_str)
             elif freq is not None:
-                self.setup("ac")
+                self.setup("source", "ac")
                 self.rms_output(value, freq=freq, compliance=compliance, type_str=type_str)
 
         self.output_target = convert_unit(value, "A")[0]
@@ -340,7 +344,7 @@ class Wrapper6221(ACSourceMeter, DCSourceMeter):
             raise ValueError("6221 is a current source, so the output is always current")
 
         if self.info_dict["ac_dc"] == "dc":
-            self.setup("ac")
+            self.setup("source", "ac")
 
         value = convert_unit(value, "")[0]
         value_p2p = value * np.sqrt(2)
@@ -526,7 +530,7 @@ class WrapperSR830(ACSourceMeter):
     def setup(self, function: Literal["source", "sense"] = "sense", *, filter_slope=24, time_constant=0.3, input_config="A - B",
               input_coupling="AC", input_grounding="Float", sine_voltage: float = 0,
               input_notch_config="None", reference_source="External",
-              reserve="High Reserve", filter_synchronous=False) -> None:
+              reserve="Normal", filter_synchronous=False) -> None:
         """
         setup the SR830 instruments using pre-stored setups here, this function will not fully reset the instruments,
         only overwrite the specific settings here, other settings will all be reserved
@@ -552,16 +556,19 @@ class WrapperSR830(ACSourceMeter):
         else:
             raise ValueError("function should be either source or sense")
 
-    def reference_set(self, *, freq: float | str = None, source: Literal["Internal", "External"] = "Internal",
-                      trigger: Literal["SINE", "POS EDGE", "NEG EDGE"] = "SINE", harmonic: int = 1):
+    def reference_set(self, *, freq: float | str = None, source: Literal["Internal", "External"] = None,
+                      trigger: Literal["SINE", "POS EDGE", "NEG EDGE"] = None, harmonic: int = None):
         """
         set the reference frequency and source
         """
         if freq is not None:
             self.meter.frequency = convert_unit(freq, "Hz")[0]
-        self.meter.reference_source_trigger = trigger
-        self.meter.reference_source = source
-        self.meter.harmonic = harmonic
+        if source is not None:
+            self.meter.reference_source = source
+        if trigger is not None:
+            self.meter.reference_source_trigger = trigger
+        if harmonic is not None:
+            self.meter.harmonic = harmonic
         self.info_sync()
 
     def sense(self, type_str: Literal["volt"] = "volt") -> list:
@@ -642,6 +649,7 @@ class Wrapper6430(DCSourceMeter):
             self.meter.autozero(auto_zero)
         elif function == "sense":
             self.meter.sense_autorange(True)
+            self.meter.autozero(auto_zero)
         else:
             raise ValueError("function should be either source or sense")
         self.info_sync()
@@ -696,7 +704,7 @@ class Wrapper6430(DCSourceMeter):
             else:
                 if abs(value) <= self.meter.source_current_range() / 100 or abs(
                         value) >= self.meter.source_current_range():
-                    new_range = value if abs(value) > 1E-12 else 1E-12
+                    new_range = abs(value) if abs(value) > 1E-12 else 1E-12
                     self.meter.source_current_range(new_range)
             if compliance is None:
                 if abs(value * 1000) < 1E-1:
@@ -714,7 +722,7 @@ class Wrapper6430(DCSourceMeter):
             else:
                 if abs(value) <= self.meter.source_voltage_range() / 100 or abs(
                         value) >= self.meter.source_voltage_range():
-                    new_range = value if abs(value) > 0.2 else 0.2
+                    new_range = abs(value) if abs(value) > 0.2 else 0.2
                     self.meter.source_voltage_range(new_range)
             if compliance is None:
                 if abs(value / 1000) < 1E-7:
@@ -753,7 +761,12 @@ class Wrapper2400(DCSourceMeter):
             "sense_type": self.meter.sense().lower(),
         })
 
-    def setup(self, function: Literal["sense", "source"] = "sense"):
+    def setup(self, function: Literal["sense", "source"] = "sense", reset: bool = False):
+        self.meter.write("*CLS")
+        self.meter.write(":TRAC:FEED:CONT NEV")  # disables data buffer
+        self.meter.write(":RES:MODE MAN")  # disables auto resistance
+        if reset:  # reset will also reset the GPIB
+            self.meter.write("*RST")
         self.info_sync()
 
     def sense(self, type_str: Literal["curr", "volt", "resist"]) -> float:
@@ -1048,16 +1061,19 @@ class WrapperIPS(Magnet):
         fieldz_target = field if isinstance(field, (float, int)) else field[2]
         self.ips.z_target(fieldz_target)
 
-    def sw_heater(self, switch: Optional[bool | Literal["on", "off", "ON", "OFF"]] = "on") -> Optional[bool]:
+    def sw_heater(self, switch: Optional[bool | Literal["on", "off", "ON", "OFF"]] = None) -> Optional[bool]:
         """
         switch the heater of the magnet
         """
         if switch is not None:
             switch = switch_dict.get(switch, False) if isinstance(switch, str) else switch
-            self.ips.sw_heater(switch)
+            if switch:
+                self.ips.GRPZ.sw_heater("ON")
+            else:
+                self.ips.GRPZ.sw_heater("OFF")
             print("Heater switched", "on" if switch else "off")
         else:
-            match self.ips.sw_heater():
+            match self.ips.GRPZ.sw_heater():
                 case "ON" | "on" | True:
                     return True
                 case "OFF" | "off" | False:
@@ -1080,7 +1096,9 @@ class WrapperIPS(Magnet):
         """
         if not self.sw_heater():
             self.sw_heater("on")
-            time.sleep(330)
+            for i in range(310):
+                print_progress_bar(i, 310, prefix="waiting for heater")
+                time.sleep(1)
         else:
             pass
 
@@ -1177,14 +1195,13 @@ class ITC(ABC):
         """
         pass
 
-    def wait_for_temperature(self, temp, *, delta=0.01, check_interval=1, stability_counter=120,
-                             thermalize_counter=120):
+    def wait_for_temperature(self, temp, *, check_interval=1, stability_counter=21,
+                             thermalize_counter=17):
         """
         wait for the temperature to stablize for a certain time length
 
         Args:
             temp (float): the target temperature
-            delta (float): the temperature difference to consider the temperature stablized
             check_interval (int,[s]): the interval to check the temperature
             stability_counter (int): the number of times the temperature is within the delta range
                 to consider the temperature stablized
@@ -1198,8 +1215,9 @@ class ITC(ABC):
             if T > 10:
                 return T / 1000
             else:
-                return 0.005
+                return 0.007
 
+        trend: Literal["up", "down", "up-huge", "down-huge"]
         if abs(self.temperature - temp) < tolerance_T(temp):
             return
         elif self.temperature < temp - 100:
@@ -1214,7 +1232,7 @@ class ITC(ABC):
         i = 0
         while i < stability_counter:
             self.correction_ramping(self.temperature, trend)
-            if abs(self.temperature - temp) < ITC.dynamic_delta(temp, delta):
+            if abs(self.temperature - temp) < ITC.dynamic_delta(temp):
                 i += 1
             elif i >= 5:
                 i -= 5
@@ -1228,30 +1246,36 @@ class ITC(ABC):
             time.sleep(check_interval)
         print("Thermalizing finished")
 
-    def ramp_to_temperature(self, temp, *, delta=0.01, check_interval=1, stability_counter=60, thermalize_counter=60,
+    def ramp_to_temperature(self, temp, *, delta=0.02, check_interval=1, stability_counter=21, thermalize_counter=17,
                             pid: dict = None, ramp_rate=None, wait=True):
         """ramp temperature to the target value (not necessary sample temperature)"""
         self.temperature_set = temp
         if pid is not None:
             self.set_pid(pid)
         if wait:
-            self.wait_for_temperature(temp, delta=delta, check_interval=check_interval,
+            self.wait_for_temperature(temp, check_interval=check_interval,
                                       stability_counter=stability_counter,
                                       thermalize_counter=thermalize_counter)
 
     @staticmethod
-    def dynamic_delta(temp, delta_lowt) -> float:
+    def dynamic_delta(temp) -> float:
         """
         calculate a dynamic delta to help high temperature to stabilize (reach 0.1K tolerance when 300K and {delta_lowt} when 10K)
         """
-        # let the delta be delta_lowt at 1.5K and 0.2K at 300K
-        t_low = 1.5
-        delta_hight = 0.2
+        # linear interpolation
+        delta_hight = 0.3
         t_high = 300
+        delta_lowt = 0.02
+        t_low = 1.5
         return (delta_hight - delta_lowt) * (temp - t_low) / (t_high - t_low) + delta_lowt
 
 
 class ITCMercury(ITC):
+    """
+    Variable Params:
+    self.correction_ramping: modify pressure according to the temperature and trend
+    self.calculate_vti_temp (in driver): automatically calculate the set VTI temperature
+    """
     def __init__(self, address="TCPIP0::10.97.27.13::7020::SOCKET"):
         self.mercury = MercuryITC("mercury_itc", address)
 
@@ -1316,8 +1340,8 @@ class ITCMercury(ITC):
     def set_vti_temperature(self, temp):
         self.mercury.vti_temp_setpoint(temp)
 
-    def ramp_to_temperature(self, temp, *, delta=0.01, check_interval=1, stability_counter=120, thermalize_counter=120,
-                            pid=None, ramp_rate=None, wait=True, if_plot=False, vti_diff: Optional[float] = 5):
+    def ramp_to_temperature(self, temp, *, delta=0.01, check_interval=1, stability_counter=10, thermalize_counter=7,
+                            pid=None, ramp_rate=None, wait=True, vti_diff: Optional[float] = 5):
         """ramp temperature to the target value (not necessary sample temperature)
 
         Args:
@@ -1329,9 +1353,9 @@ class ITCMercury(ITC):
             pid (Dict): a dictionary as {"P": float, "I": float, "D": float}
             ramp_rate (float, [K/min]): the rate to ramp the temperature
             wait (bool): whether to wait for the ramping to finish
-            if_plot (bool): whether to plot the temperature during the ramping
             vti_diff (float, None to ignore VTI): the difference between the sample temperature and the VTI temperature
         """
+        temp = convert_unit(temp, "K")[0]
         self.temperature_set = temp
         if pid is not None:
             self.set_pid(pid)
@@ -1343,9 +1367,9 @@ class ITCMercury(ITC):
         else:
             self.mercury.probe_temp_ramp_mode("OFF")
         if wait:
-            self.wait_for_temperature(temp, delta=delta, check_interval=check_interval,
+            self.wait_for_temperature(temp, check_interval=check_interval,
                                       stability_counter=stability_counter,
-                                      thermalize_counter=thermalize_counter, if_plot=if_plot)
+                                      thermalize_counter=thermalize_counter)
 
     def correction_ramping(self, temp: float, trend: Literal["up", "down", "up-huge", "down-huge"]):
         """
@@ -1356,14 +1380,19 @@ class ITCMercury(ITC):
             trend (Literal["up","down","up-huge","down-huge"]): the trend of the temperature
         """
         if trend == "up-huge":
-            self.set_pres(5)
+            self.set_pres(8)
         elif trend == "down-huge":
             if temp >= 5:
-                self.set_pres(15)
+                self.set_pres(25)
+            elif temp > 2:
+                self.set_pres(8)
             else:
                 self.set_pres(3)
         else:
-            self.set_pres(3)
+            if temp <= 2.3:
+                self.set_pres(3)
+            else:
+                self.set_pres(8)
 
 
 class ITCs(ITC):
