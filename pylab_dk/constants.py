@@ -256,6 +256,94 @@ def hex_to_rgb(hex_str: str, fractional: bool = True) -> tuple[int, ...] | tuple
     return tuple(int(hex_str[i:i + 2], 16) for i in (0, 2, 4))
 
 
+def timestr_convert(t: pd.Series | Sequence[str] | np.ndarray, format_str: str = "%Y-%m-%d_%H:%M:%S.%f", *,
+                    elapsed: Optional[Literal["sec", "min", "hour"]] = None) -> list[datetime] | list[float]:
+    """
+    Convert the time to datetime object, used to split time series without day information
+
+    Args:
+    t : pd.Series
+        The time series to be converted, format should be like "11:30 PM"
+    format_str : str
+        The format string for the time, e.g. "%I:%M %p"
+        the meaning of each character and optional characters is as follows:
+        %H : Hour (24-hour clock) as a zero-padded decimal number. 00, 01, ..., 23
+        %I : Hour (12-hour clock) as a zero-padded decimal number. 01, 02, ..., 12
+        %p : Locale’s equivalent of either AM or PM.
+        %M : Minute as a zero-padded decimal number. 00, 01, ..., 59
+        %S : Second as a zero-padded decimal number. 00, 01, ..., 59
+        %f : Microsecond as a decimal number, zero-padded on the left. 000000, 000001, ..., 999999
+        %a : Weekday as locale’s abbreviated name.
+        %A : Weekday as locale’s full name.
+        %w : Weekday as a decimal number, where 0 is Sunday and 6 is Saturday.
+        %d : Day of the month as a zero-padded decimal number. 01, 02, ..., 31
+        %b : Month as locale’s abbreviated name.
+        %B : Month as locale’s full name.
+        %m : Month as a zero-padded decimal number. 01, 02, ..., 12
+        %y : Year without century as a zero-padded decimal number. 00, 01, ..., 99
+        %Y : Year with century as a decimal number. 0001, 0002, ..., 2013, 2014, ..., 9998, 9999
+    elapsed : Literal["sec", "min", "hour"]
+        Whether to return the time past from first time points instead of return datetime list
+    Returns:
+    list[datetime] | list[float]
+        The datetime list or the time past from the first time points
+    """
+    datetime_lst = [datetime.strptime(ts, format_str) for ts in t]
+    if not datetime_lst:
+        raise ValueError("The input time series is empty")
+    if elapsed is not None:
+        time_start = datetime_lst[0]
+        match elapsed:
+            case "sec":
+                elapsed_times = [(dt - time_start).total_seconds() for dt in datetime_lst]
+            case "min":
+                elapsed_times = [(dt - time_start).total_seconds() / 60 for dt in datetime_lst]
+            case "hour":
+                elapsed_times = [(dt - time_start).total_seconds() / 3600 for dt in datetime_lst]
+            case _:
+                raise ValueError("The elapsed argument should be one of 'sec', 'min', 'hour'")
+        return elapsed_times
+    else:
+        return datetime_lst
+
+
+def truncate_cmap(cmap, min_val: float = 0.0, max_val: float = 1.0, n: int = 256):
+    """
+    truncate the colormap to the specific range
+
+    Args:
+        cmap : LinearSegmentedColormap | ListedColormap
+            the colormap to be truncated
+        min_val : float
+            the minimum value of the colormap
+        max_val : float
+            the maximum value of the colormap
+        n : int
+            the number of colors in the colormap
+    """
+    new_cmap = LinearSegmentedColormap.from_list(
+        f"trunc({cmap.name},{min_val:.2f},{max_val:.2f})", cmap(np.linspace(min_val, max_val, n)))
+    return new_cmap
+
+
+def combine_cmap(cmap_lst: list, segment: int = 128):
+    """
+    combine the colormaps in the list
+
+    Args:
+        cmap_lst : list
+            the list of colormaps to be combined
+        segment : int
+            the number of segments in each colormap
+    """
+    c_lst = []
+    for cmap in cmap_lst:
+        c_lst.extend(cmap(np.linspace(0, 1, segment)))
+    new_cmap = LinearSegmentedColormap.from_list("combined", c_lst)
+    return new_cmap
+
+
+
 if "__name__" == "__main__":
     if is_notebook():
         print("This is a notebook")
