@@ -6,7 +6,9 @@ import copy
 import json
 import threading
 import time
+import sys
 from collections.abc import Sequence
+from importlib import resources
 from pathlib import Path
 from typing import Optional, Literal
 
@@ -140,6 +142,24 @@ class DataPlot(DataProcess):
         else:
             for i in self.query_proj()["measurements"]:
                 self.create_folder(f"plot/{i}")
+
+    def unit_factor(self, axis_name: str) -> float:
+        """
+        Used in plotting, to get the factor of the unit
+
+        Args:
+        - axis_name: the unit name string (like: uA)
+        """
+        return self.get_unit_factor_and_texname(self.unit[axis_name])[0]
+
+    def unit_name(self, axis_name: str) -> str:
+        """
+        Used in plotting, to get the TeX name of the unit
+
+        Args:
+        - axis_name: the unit name string (like: uA)
+        """
+        return self.get_unit_factor_and_texname(self.unit[axis_name])[1]
 
     @staticmethod
     def get_unit_factor_and_texname(unit: str) -> tuple[float, str]:
@@ -401,7 +421,7 @@ class DataPlot(DataProcess):
                        pixel_width: float = 1200, *, titles: Sequence[Sequence[str]] = None,
                        axes_labels: Sequence[Sequence[Sequence[str]]] = None,
                        line_labels: Sequence[Sequence[Sequence[str]]] = None,
-                       plot_types: Sequence[Sequence[Literal["scatter", "contour"]]] = None) -> None:
+                       plot_types: Sequence[Sequence[Literal["scatter", "contour", "heatmap"]]] = None) -> None:
         """
         initialize the real-time plotter using plotly
 
@@ -449,6 +469,10 @@ class DataPlot(DataProcess):
                         data_idx += 1
                 elif plot_type == 'contour':
                     fig.add_trace(go.Contour(z=[], x=[], y=[], name=line_labels[i][j][0]), row=i + 1, col=j + 1)
+                    data_idx += 1
+                elif plot_type == 'heatmap':
+                    fig.add_trace(go.Heatmap(z=[], x=[], y=[], name=line_labels[i][j][0], zsmooth="best"),
+                                  row=i + 1, col=j + 1)
                     data_idx += 1
                 else:
                     raise ValueError(f"Unsupported plot type '{plot_type}' at subplot ({i},{j})")
@@ -517,6 +541,7 @@ class DataPlot(DataProcess):
         should be like [[0],[1]], instead of [0,1] (incremental case).
         Example: live_plot_update((0,1), (0,1), (0,1), [x_arr1, x_arr2], [y_arr1, y_arr2]) will
         plot the (0,0,0) line with x_arr1 and y_arr1, and (1,1,1) line with x_arr2 and y_arr2
+        SET data to empty list [] to clear the figure
 
         Args:
         - row: the row of the subplot (from 0)
@@ -541,6 +566,8 @@ class DataPlot(DataProcess):
 
         def ensure_2d_array(data, if_with_str=False) -> np.ndarray:
             data_arr = ensure_list(data)
+            if data_arr == []:
+                return np.array([[]])
             if not isinstance(data_arr[0], np.ndarray):
                 if if_with_str:
                     return np.array([data_arr])
@@ -553,9 +580,14 @@ class DataPlot(DataProcess):
         row = ensure_list(row)
         col = ensure_list(col)
         lineno = ensure_list(lineno)
-        x_data = ensure_2d_array(x_data, with_str)
-        y_data = ensure_2d_array(y_data, with_str)
-        z_data = ensure_2d_array(z_data, with_str)
+        if not incremental:
+            x_data = ensure_2d_array(x_data, with_str)
+            y_data = ensure_2d_array(y_data, with_str)
+            z_data = ensure_2d_array(z_data, with_str)
+        else:
+            x_data = ensure_list(x_data)
+            y_data = ensure_list(y_data)
+            z_data = ensure_list(z_data)
 
         #dim_tolift = [0, 0, 0]
         with (self.go_f.batch_update()):
@@ -572,7 +604,7 @@ class DataPlot(DataProcess):
                     else:
                         trace.x = x_data[no]
                         trace.y = y_data[no]
-                if plot_type == 'contour':
+                if plot_type == 'contour' or plot_type == "heatmap":
                     if not incremental:
                         trace.x = x_data[no]
                         trace.y = y_data[no]
@@ -586,32 +618,141 @@ class DataPlot(DataProcess):
                 "z_data should have the same length as the number of contour plots"
 
     @staticmethod
-    def sel_pan_color(row: int = None, col: int = None) -> Optional[tuple[tuple[float | int, ...], str]]:
+    def sel_pan_color(row: int = None, col: int = None, data_extract: bool = False) \
+            -> Optional[tuple[tuple[float | int, ...], str]] | tuple[list[list[tuple[float | int, ...]]], dict]:
         """
         select the color according to the position in pan_colors method (use row and col as in 2D array)
         leave row and col as None to show the color palette
+        if customized file is used, the length should be similar (2305 - 2352)
+
+        Args:
+        - row: the row of the color selected
+        - col: the column of the color selected
+        - data_extract: used internally to get color data without plotting
         """
-        with open(DataPlot._local_database_dir / "pan-colors.json") as f:
-            color_dict = json.load(f)
+        if DataPlot._local_database_dir is None:
+            with resources.open_text("pylab_dk.pltconfig", "rand_color.json") as f:
+                color_dict = json.load(f)
+        else:
+            with open(DataPlot._local_database_dir / "pan-colors.json") as f:
+                color_dict = json.load(f)
         full_rgbs = list(map(hex_to_rgb, color_dict["values"]))
         rgbs = full_rgbs[:2304]
         extra = full_rgbs[2304:]
         extra += [(1, 1, 1)] * (48 - len(extra))
         rgb_mat = [rgbs[i * 48:(i + 1) * 48] for i in range(48)]
         rgb_mat.append(extra)
-        if row is None and col is None:
-            DataPlot.load_settings(False, False)
-            fig, ax, _ = DataPlot.init_canvas(1, 1, 20, 20)
-            ax.imshow(rgb_mat)
-            ax.set_xticks(np.arange(0, 48, 5))
-            ax.tick_params(top=True, labeltop=True, bottom=False, labelbottom=False)
-            ax.set_yticks(np.arange(0, 48, 5))
-            plt.grid()
-            plt.show()
-        elif row is not None and col is not None:
-            return rgb_mat[row][col], color_dict["names"][row * 48 + col]
+        if not data_extract:
+            if row is None and col is None:
+                DataPlot.load_settings(False, False)
+                fig, ax, _ = DataPlot.init_canvas(1, 1, 20, 20)
+                ax.imshow(rgb_mat)
+                ax.set_xticks(np.arange(0, 48, 5))
+                ax.tick_params(top=True, labeltop=True, bottom=False, labelbottom=False)
+                ax.set_yticks(np.arange(0, 48, 5))
+                plt.grid()
+                plt.show()
+            elif row is not None and col is not None:
+                return rgb_mat[row][col], color_dict["names"][row * 48 + col]
+            else:
+                print("x and y should be both None or both not None")
         else:
-            print("x and y should be both None or both not None")
+            return rgb_mat, color_dict
+
+    @staticmethod
+    def gui_pan_color() -> None:
+        """
+        GUI for selecting the color
+        """
+        try:
+            from PyQt6.QtWidgets import (
+                QApplication, QTableWidget, QTableWidgetItem, QHeaderView,
+                QWidget, QLabel, QVBoxLayout, QHBoxLayout
+            )
+            from PyQt6.QtGui import QColor, QBrush
+            from PyQt6.QtCore import Qt, pyqtSignal
+        except ImportError:
+            print("PyQt6 is not installed")
+            return
+
+        def rgb_float_to_int(rgb_tuple):
+            return tuple(int(c * 255) for c in rgb_tuple)
+
+        class ColorPaletteWidget(QTableWidget):
+            colorSelected = pyqtSignal(str, tuple, str)
+
+            def __init__(self, _rgb_mat, _color_dict):
+                super().__init__(len(_rgb_mat), 48)
+                self.rgb_mat = _rgb_mat
+                self.color_dict = _color_dict
+                self.init_ui()
+
+            def init_ui(self):
+                self.verticalHeader().setVisible(False)
+                self.horizontalHeader().setVisible(False)
+                self.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.Stretch)
+                self.verticalHeader().setSectionResizeMode(QHeaderView.ResizeMode.Stretch)
+
+                for r in range(len(self.rgb_mat)):
+                    for c in range(48):
+                        rgb = self.rgb_mat[r][c]
+                        item = QTableWidgetItem()
+                        # Convert RGB float to int (0-255)
+                        rgb_int = rgb_float_to_int(rgb)
+                        qcolor = QColor(*rgb_int)
+                        item.setBackground(QBrush(qcolor))
+                        self.setItem(r, c, item)
+
+                self.cellClicked.connect(self.handle_cell_click)
+
+            def handle_cell_click(self, row, col):
+                index = row * 48 + col
+                if index < len(self.color_dict["names"]):
+                    color_name = self.color_dict["names"][index]
+                else:
+                    color_name = "Unknown"
+                rgb = self.rgb_mat[row][col]
+                rgb_int = rgb_float_to_int(rgb)
+                hex_val = "#{:02X}{:02X}{:02X}".format(*rgb_int)
+                self.colorSelected.emit(color_name, rgb_int, hex_val)
+
+        class MainWindow(QWidget):
+            def __init__(self):
+                super().__init__()
+                rgb_mat, color_dict = DataPlot.sel_pan_color(data_extract=True)
+                self.color_widget = ColorPaletteWidget(rgb_mat, color_dict)
+
+                # Info labels
+                self.name_label = QLabel("Name: N/A")
+                self.rgb_label = QLabel("RGB: N/A")
+                self.hex_label = QLabel("Hex: N/A")
+
+                # Layout for info panel
+                info_layout = QHBoxLayout()
+                info_layout.addWidget(self.name_label)
+                info_layout.addWidget(self.rgb_label)
+                info_layout.addWidget(self.hex_label)
+
+                main_layout = QVBoxLayout()
+                main_layout.addWidget(self.color_widget)
+                main_layout.addLayout(info_layout)
+
+                self.setLayout(main_layout)
+                self.setWindowTitle("Color Palette Selector")
+                self.resize(1200, 900)
+
+                # Connect signal
+                self.color_widget.colorSelected.connect(self.update_info)
+
+            def update_info(self, name, rgb_int, hex_str):
+                self.name_label.setText(f"Name: {name}")
+                self.rgb_label.setText(f"RGB: {rgb_int}")
+                self.hex_label.setText(f"Hex: {hex_str}")
+
+        app = QApplication(sys.argv)
+        w = MainWindow()
+        w.show()
+        sys.exit(app.exec())
 
     @staticmethod
     def preview_colors(color_lst: tuple[float | int, ...] | list[tuple[float | int, ...]] |
