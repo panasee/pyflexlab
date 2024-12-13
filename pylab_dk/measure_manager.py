@@ -563,6 +563,8 @@ class MeasureManager(DataPlot):
                         while abs(self.instrs["rotator"].curr_angle() - ini) > 0.3:
                             self.instrs["rotator"].ramp_angle(ini, wait=True)
                         self.instrs["rotator"].ramp_angle(target, wait=False)
+                else:
+                    raise ValueError("Vary module not recognized")
 
                 rec_lst.append(self.sense_apply(oth_mod["name"], if_during_vary=True, vary_criteria=vary_criteria))
             elif oth_mod["sweep_fix"] == "sweep":

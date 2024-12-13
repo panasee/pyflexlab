@@ -82,7 +82,10 @@ class Meter(ABC):
         pass
 
     def __del__(self):
-        self.meter.__del__()
+        try:
+            self.meter.__del__()
+        except AttributeError:
+            del self.meter
 
 
 class SourceMeter(Meter):
@@ -1404,6 +1407,8 @@ class ITCs(ITC):
     def __init__(self, address_up: str = "GPIB0::23::INSTR", address_down: str = "GPIB0::24::INSTR", clear_buffer=True):
         self.itc_up = ITC503(address_up, clear_buffer=clear_buffer)
         self.itc_down = ITC503(address_down, clear_buffer=clear_buffer)
+        self.itc_up.control_mode = "RU"
+        self.itc_down.control_mode = "RU"
 
     def chg_display(self, itc_name, target):
         """
