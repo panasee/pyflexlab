@@ -5,6 +5,8 @@ import importlib
 import copy
 import json
 import threading
+import re
+import os
 import time
 import sys
 from collections.abc import Sequence
@@ -28,7 +30,8 @@ from pylab_dk.data_process import DataProcess
 class DataPlot(DataProcess):
     """
     This class is responsible for processing and plotting the data.
-    Two series of functions will be provided, one is for automatic plotting, the other will provide dataframe or other data structures for manual plotting
+    Two series of functions will be provided, one is for automatic plotting, the other will provide dataframe or
+    other data structures for manual plotting
     """
     # define static variables
     legend_font: dict
@@ -235,7 +238,6 @@ class DataPlot(DataProcess):
             defined if the unit is not the default one(uA, V), the format is {"I":"uA", "V":"mV", "R":"mOhm"}
         """
         nonlinear = self.dfs["nonlinear"].copy()
-        if_indep = False
         return_handlers = False
 
         if reverse_V[0]:
@@ -248,7 +250,6 @@ class DataPlot(DataProcess):
         factor_r, unit_r_print = DataPlot.get_unit_factor_and_texname(self.unit["R"])
 
         if handlers is None:
-            if_indep = True
             fig, ax, params = DataPlot.init_canvas(2, 1, 10, 12)
             ax_1w, ax_2w = ax
             ax_1w_phi = ax_1w.twinx()
@@ -301,7 +302,7 @@ class DataPlot(DataProcess):
                 ax_1w.set_yscale("log")
             if xylog1[0]:
                 ax_1w.set_xscale("log")
-        if if_indep:
+        if handlers is None:
             fig.tight_layout()
             plt.show()
         if return_handlers:
@@ -631,8 +632,18 @@ class DataPlot(DataProcess):
         - data_extract: used internally to get color data without plotting
         """
         if DataPlot._local_database_dir is None:
-            with resources.open_text("pylab_dk.pltconfig", "rand_color.json") as f:
-                color_dict = json.load(f)
+            localenv_filter = re.compile(r"^PYLAB_DB_LOCAL")
+            filtered_vars = {
+                key: value for key, value in os.environ.items() if localenv_filter.match(key)
+            }
+            used_var = list(filtered_vars.keys())[0]
+            if filtered_vars:
+                DataPlot.reload_paths(local_db_path=filtered_vars[used_var])  # just retrieve the first
+                print(f"load path from ENVIRON: {used_var}")
+                return DataPlot.sel_pan_color(row, col, data_extract)
+            else:
+                with resources.open_text("pylab_dk.pltconfig", "rand_color.json") as f:
+                    color_dict = json.load(f)
         else:
             with open(DataPlot._local_database_dir / "pan-colors.json") as f:
                 color_dict = json.load(f)
