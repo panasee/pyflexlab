@@ -18,7 +18,7 @@ from pylab_dk.data_plot import DataPlot
 from pylab_dk.constants import convert_unit, print_progress_bar, gen_seq, constant_generator, \
     combined_generator_list, rename_duplicates, time_generator
 from pylab_dk.equip_wrapper import ITCs, ITCMercury, WrapperSR830, Wrapper2400, Wrapper6430, Wrapper2182, \
-    Wrapper6221, Meter, SourceMeter, WrapperIPS
+    Wrapper6221, Wrapper2450, Meter, SourceMeter, WrapperIPS
 
 
 class MeasureManager(DataPlot):
@@ -34,6 +34,7 @@ class MeasureManager(DataPlot):
             "6430": Wrapper6430,
             "2182": Wrapper2182,
             "2400": Wrapper2400,
+            "2450": Wrapper2450,
             "6221": Wrapper6221,
             "sr830": WrapperSR830
         }
@@ -48,7 +49,7 @@ class MeasureManager(DataPlot):
         """
         return self._out_database_dir_proj
 
-    def load_meter(self, meter_no: Literal["sr830", "6221", "2182", "2182a", "2400", "2401", "6430"],
+    def load_meter(self, meter_no: Literal["sr830", "6221", "2182", "2182a", "2400", "2401", "6430", "2450"],
                    *address: str) -> None:
         """
         load the instrument according to the address, store it in self.instrs[meter]

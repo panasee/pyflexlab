@@ -400,7 +400,7 @@ class DataPlot(DataProcess):
 
     @staticmethod
     def init_canvas(n_row: int, n_col: int, figsize_x: float, figsize_y: float,
-                    sub_adj: tuple[float] = (0.19, 0.13, 0.97, 0.97, 0.2, 0.2), **kwargs) \
+                    sub_adj: tuple[float] = (0.19, 0.13, 0.97, 0.97, 0.2, 0.2),*, lines_per_fig: int = 2, **kwargs) \
             -> tuple[Figure, Axes, PlotParam]:
         """
         initialize the canvas for the plot, return the fig and ax variables and params(n_row, n_col, 2)
@@ -411,12 +411,13 @@ class DataPlot(DataProcess):
         - figsize_x: the width of the whole figure in cm
         - figsize_y: the height of the whole figure in cm
         - sub_adj: the adjustment of the subplots (left, bottom, right, top, wspace, hspace)
+        - lines_per_fig: the number of lines per figure (used for appointing params)
         - **kwargs: keyword arguments for the plt.subplots function
         """
         fig, ax = plt.subplots(n_row, n_col, figsize=(figsize_x * cm_to_inch, figsize_y * cm_to_inch), **kwargs)
         fig.subplots_adjust(left=sub_adj[0], bottom=sub_adj[1], right=sub_adj[2], top=sub_adj[3], wspace=sub_adj[4],
                             hspace=sub_adj[5])
-        return fig, ax, DataPlot.PlotParam(n_row, n_col, 2)
+        return fig, ax, DataPlot.PlotParam(n_row, n_col, lines_per_fig)
 
     def live_plot_init(self, n_rows: int, n_cols: int, lines_per_fig: int = 2, pixel_height: float = 600,
                        pixel_width: float = 1200, *, titles: Sequence[Sequence[str]] = None,

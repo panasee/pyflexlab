@@ -295,7 +295,7 @@ class Wrapper6221(ACSourceMeter, DCSourceMeter):
         return the output value from device and also the target value set by output methods
 
         Returns:
-            tuple[float, float]: the output value (rms for ac) and the target value
+            tuple[float, float, float]: the output value (rms for ac) and the target value
         """
         if self.info_dict["ac_dc"] == "ac":
             # amplitude for 6221 is peak to peak
@@ -699,9 +699,12 @@ class Wrapper6430(DCSourceMeter):
     def dc_output(self, value: float | str, *, compliance: float | str,
                   fix_range: Optional[float | str] = None, type_str: Literal["curr", "volt"]):
         value = convert_unit(value, "")[0]
+        # close and reopen the source meter to avoid error when switching source type
+        if self.meter.mode().lower() != type_str:
+            self.output_switch("off")
+
         if type_str == "curr":
-            self.meter.source_mode("CURR")
-            # source range is between 1pA and 105mA and is 1.05En A
+            self.meter.source_mode("CURR")  # need to observe if repeatedly set mode cause side effects
             if fix_range is not None:
                 self.meter.source_current_range(convert_unit(fix_range, "A")[0])
             else:
@@ -710,8 +713,8 @@ class Wrapper6430(DCSourceMeter):
                     new_range = abs(value) if abs(value) > 1E-12 else 1E-12
                     self.meter.source_current_range(new_range)
             if compliance is None:
-                if abs(value * 1000) < 1E-1:
-                    compliance = 1E-1
+                if abs(value * 1000) < 1E-3:  # this limit is only for 2400 (compliancev > 1E-3)
+                    compliance = 1E-3
                 else:
                     compliance = abs(value * 1000)
             self.meter.source_voltage_compliance(convert_unit(compliance, "A")[0])
@@ -719,17 +722,16 @@ class Wrapper6430(DCSourceMeter):
 
         elif type_str == "volt":
             self.meter.source_mode("VOLT")
-            # source range is between 0.2V and 200V and is 2.1En A
             if fix_range is not None:
                 self.meter.source_voltage_range(convert_unit(fix_range, "V")[0])
             else:
                 if abs(value) <= self.meter.source_voltage_range() / 100 or abs(
                         value) >= self.meter.source_voltage_range():
-                    new_range = abs(value) if abs(value) > 0.2 else 0.2
+                    new_range = value if abs(value) > 0.2 else 0.2
                     self.meter.source_voltage_range(new_range)
             if compliance is None:
-                if abs(value / 1000) < 1E-7:
-                    compliance = 1E-7
+                if abs(value / 1000) < 1E-6:
+                    compliance = 1E-6
                 else:
                     compliance = abs(value / 1000)
             self.meter.source_current_compliance(convert_unit(compliance, "V")[0])
@@ -876,11 +878,11 @@ class Wrapper2450(DCSourceMeter):
     def info_sync(self):
         self.info_dict.update({
             "output_status": self.meter.output_enabled(),
-            "output_type": self.meter.source.function(),
+            "output_type": self.meter.source_function(),
             "compliance": self.meter.source.limit(),
             "source_range": self.meter.source.range(),
             "sense_range": self.meter.sense.range(),
-            "sense_type": self.meter.sense.function(),
+            "sense_type": self.meter.sense_function(),
             "sense_autozero": self.meter.sense.auto_zero_enabled(),
         })
 
@@ -941,30 +943,24 @@ class Wrapper2450(DCSourceMeter):
             self.output_switch("off")
 
         if type_str == "curr":
-            self.meter.source.function("current")
+            self.meter.source_function("current")
             if fix_range is not None:
                 self.meter.source.range(convert_unit(fix_range, "A")[0])
             else:
                 self.meter.source.auto_range(True)
             if compliance is None:
-                if abs(value * 1000) < 1E-3:  # this limit is only for 2400 (compliancev > 1E-3)
-                    compliance = 1E-3
-                else:
-                    compliance = abs(value * 1000)
+                compliance = abs(value * 1000) if abs(value * 1000) >= 1E-3 else 1E-3
             self.meter.source.limit(convert_unit(compliance, "A")[0])
             self.meter.source.current(value)
 
         elif type_str == "volt":
-            self.meter.mode("VOLT")
+            self.meter.source.function("voltage")
             if fix_range is not None:
-                self.meter.rangev(convert_unit(fix_range, "V")[0])
+                self.meter.source.range(convert_unit(fix_range, "V")[0])
             else:
                 self.meter.source.auto_range(True)
             if compliance is None:
-                if abs(value / 1000) < 1E-6:
-                    compliance = 1E-6
-                else:
-                    compliance = abs(value / 1000)
+                compliance = abs(value * 1000) if abs(value * 1000) >= 1E-6 else 1E-6
             self.meter.source.limit(convert_unit(compliance, "V")[0])
             self.meter.source.voltage(value)
 

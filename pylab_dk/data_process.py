@@ -201,8 +201,7 @@ class DataProcess(FileOrganizer):
         rle = [(direction, len(list(group))) for direction, group in groupby(directions)]
         # Initialize filtered directions list
         filtered_directions = []
-        for idx in range(len(rle)):
-            direction, length = rle[idx]
+        for idx, (direction, length) in enumerate(rle):
             if length >= min_count and direction != 0:
                 # Accept the run as is
                 filtered_directions.extend([direction] * length)
