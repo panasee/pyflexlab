@@ -4,6 +4,20 @@ from pathlib import Path
 LOCAL_DB_PATH: Path | None = None
 OUT_DB_PATH: Path | None = None
 
+def set_envs() -> None:
+    """
+    set the environment variables from related environment variables
+    e.g. PYLAB_DB_LOCAL_XXX -> PYLAB_DB_LOCAL
+    """
+    for env_var in ["PYLAB_DB_LOCAL", "PYLAB_DB_OUT"]:
+        if env_var not in os.environ:
+            for key in os.environ:
+                if key.startswith(env_var):
+                    os.environ[env_var] = os.environ[key]
+                    print(f"set with {key}")
+                    break
+            else:
+                print(f"{env_var} not found in environment variables")
 
 def set_paths(*, local_db_path: Path | str | None = None, out_db_path: Path | str | None = None) -> None:
     """
@@ -31,4 +45,5 @@ def set_paths(*, local_db_path: Path | str | None = None, out_db_path: Path | st
             print(f"read from PYLAB_DB_OUT:{OUT_DB_PATH}")
 
 
+set_envs()
 set_paths()
