@@ -360,6 +360,8 @@ class Wrapper6221(ACSourceMeter, DCSourceMeter):
         # create a shortcut for turning output to 0
         if value == 0:
             self.meter.waveform_amplitude = 0
+            if not self.info_dict["output_status"]:
+                self.output_switch("on")
             return
         value_p2p = value * np.sqrt(2)
         if freq is not None:
@@ -389,6 +391,7 @@ class Wrapper6221(ACSourceMeter, DCSourceMeter):
         # create a shortcut for turning output to 0
         if value == 0:
             self.meter.source_current = 0
+            self.output_switch("on")
             return
 
         if compliance is not None:
@@ -718,6 +721,7 @@ class Wrapper6430(DCSourceMeter):
                 self.meter.source_current(0)
             elif self.info_dict["output_type"] == "volt":
                 self.meter.source_voltage(0)
+            self.output_switch("on")
             return
         # close and reopen the source meter to avoid error when switching source type
         if self.info_dict["output_type"] != type_str:
@@ -843,6 +847,7 @@ class Wrapper2400(DCSourceMeter):
                 self.meter.curr(0)
             elif self.info_dict["output_type"] == "volt":
                 self.meter.volt(0)
+            self.output_switch("on")
             return
         # close and reopen the source meter to avoid error when switching source type
         if self.info_dict["output_type"] != type_str:
@@ -909,44 +914,39 @@ class Wrapper2450(DCSourceMeter):
             "compliance": self.meter.source.limit(),
             "source_range": self.meter.source.range(),
             "sense_range": self.meter.sense.range(),
-            "sense_type": self.meter.sense_function(),
+            "sense_type": self.meter.sense_function().lower().replace("current", "curr").replace("voltage", "volt").replace("resistance", "resist"),
             "sense_autozero": self.meter.sense.auto_zero_enabled(),
         })
 
     def setup(self, function: Literal["sense", "source"] = "sense"):
-        self.meter.reset()
+        if function == "source":
+            self.meter.reset()
+            self.meter.source.auto_range(True)
         self.info_sync()
         self.meter.terminals("front")
         self.meter.sense.auto_range(True)
-        self.meter.source.auto_range(True)
 
     def sense(self, type_str: Literal["curr", "volt", "resist"]) -> float:
-        if type_str == "curr":
-            if self.info_dict["output_type"] == "curr":
-                print("in curr mode, print the set point")
-                return self.meter.source.current()
-            return self.meter.sense.current()
-        elif type_str == "volt":
-            if self.info_dict["output_type"] == "volt":
-                print("in curr mode, print the set point")
-                return self.meter.source.voltage()
-            return self.meter.sense.voltage()
-        elif type_str == "resist":
-            return self.meter.sense.resistance()
+        if self.info_dict["sense_type"] == type_str:
+            pass
+        else:
+            self.meter.sense.function(type_str.replace("curr", "current").replace("volt", "voltage").replace("resist", "resistance"))
+            self.info_dict["sense_type"] = type_str
+        return self.meter.sense._measure()
 
     def get_output_status(self) -> tuple[float, float, float]:
         """
         return the output value from device and also the target value set by output methods
 
         Returns:
-            tuple[float, float, float]: the output value, target value and range
+            tuple[float, float, float]: the real output value, target value and range
         """
         if not self.info_dict["output_status"]:
             return 0, self.output_target, self.meter.source.range()
         if self.meter.source.function() == "current":
-            return self.meter.source.current(), self.output_target, self.meter.source.range()
+            return self.sense("curr"), self.output_target, self.meter.source.range()
         elif self.meter.source.function() == "voltage":
-            return self.meter.source.voltage(), self.output_target, self.meter.source.range()
+            return self.sense("volt"), self.output_target, self.meter.source.range()
 
     def output_switch(self, switch: bool | Literal["on", "off", "ON", "OFF"]):
         switch = switch_dict.get(switch, False) if isinstance(switch, str) else switch
@@ -972,6 +972,8 @@ class Wrapper2450(DCSourceMeter):
                 self.meter.source.current(0)
             elif self.info_dict["output_type"] == "volt":
                 self.meter.source.voltage(0)
+            # open the output to avoid error when sensing
+            self.output_switch("on")  # careful about inf loop
             return
         # close and reopen the source meter to avoid error when switching source type
         if self.info_dict["output_type"] != type_str:

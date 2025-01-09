@@ -1,11 +1,7 @@
 #!/usr/bin/env python
-import os
 import time
-
 import pandas as pd
 import datetime
-os.environ["PYLAB_DB_LOCAL"] = r""
-os.environ["PYLAB_DB_OUT"] = r""
 # make sure environment variables are set before importing pylab_dk
 # MeasureManager module will need the NIDAQmx module to work,
 from pylab_dk.measure_manager import MeasureManager

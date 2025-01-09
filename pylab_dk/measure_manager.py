@@ -118,7 +118,7 @@ class MeasureManager(DataPlot):
                            meter: str | SourceMeter, *, max_value: float | str, step_value: float | str,
                            compliance: float | str, freq: float | str = None,
                            sweepmode: Optional[Literal["0-max-0", "0--max-max-0", "0-max--max-max-0","manual"]] = None,
-                           resistor: float = None, sweep_table: Optional[list[float | str, ...]] = None) \
+                           resistor: Optional[float] = None, sweep_table: Optional[list[float | str, ...]] = None) \
             -> Generator[float, None, None]:
         """
         source the current using the source meter, initializations will be done automatically
@@ -329,8 +329,8 @@ class MeasureManager(DataPlot):
                     yield instr.curr_angle()
 
     def record_init(self, measure_mods: tuple[str], *var_tuple: float | str,
-                    manual_columns: list[str] = None, return_df: bool = False,
-                    special_folder: str = None, with_timer: bool = True) \
+                    manual_columns: Optional[list[str]] = None, return_df: bool = False,
+                    special_folder: Optional[str] = None, with_timer: bool = True) \
             -> tuple[Path, int, Path] | tuple[Path, int, pd.DataFrame, Path]:
         """
         initialize the record of the measurement and the csv file;
@@ -388,7 +388,7 @@ class MeasureManager(DataPlot):
         return file_path, len(columns_lst), tmp_plot_path
 
     def record_update(self, file_path: Path, record_num: int, record_tuple: tuple[float],
-                      target_df: pd.DataFrame = None,
+                      target_df: Optional[pd.DataFrame] = None,
                       force_write: bool = False, nocache: bool = False) -> None:
         """
         update the record of the measurement and also control the size of dataframe
@@ -473,8 +473,7 @@ class MeasureManager(DataPlot):
         assert len(src_lst) == len(compliance_lst), "The number of sources and compliance should be the same"
 
         # init record dataframe
-        file_path, record_num, record_plot_path = self.record_init(measure_mods, *var_tuple,
-                                                                   special_folder=special_name)
+        file_path, record_num, record_plot_path = self.record_init(measure_mods, *var_tuple, special_folder = special_name)
         rec_lst = [time_generator()] if with_timer else []
 
         # =============assemble the record generators into one list==============
@@ -494,8 +493,7 @@ class MeasureManager(DataPlot):
             if src_mod[mod_i]["sweep_fix"] == "fixed":
                 if ramp_intervals is not None:
                     interval = ramp_intervals.pop(0)
-                    wrapper_lst[idx].ramp_output(mod_i, src_mod[mod_i]["fix"],
-                                                 compliance=compliance_lst[idx], interval=interval)
+                    wrapper_lst[idx].ramp_output(mod_i, src_mod[mod_i]["fix"], compliance=compliance_lst[idx], interval=interval)
                 else:
                     wrapper_lst[idx].ramp_output(mod_i, src_mod[mod_i]["fix"], compliance=compliance_lst[idx])
                 rec_lst.append(constant_generator(src_mod[mod_i]["fix"]))
@@ -504,13 +502,18 @@ class MeasureManager(DataPlot):
                     sweep_table = sweep_tables.pop(0)
                 else:
                     sweep_table = None
-                rec_lst.append(self.source_sweep_apply(mod_i, src_mod[mod_i]["ac_dc"], wrapper_lst[idx],
-                                                       max_value=src_mod[mod_i]["max"],
-                                                       step_value=src_mod[mod_i]["step"],
-                                                       compliance=compliance_lst[idx], freq=src_mod[mod_i]["freq"],
-                                                       sweepmode=src_mod[mod_i]["mode"],
-                                                       resistor=sr830_current_resistor,
-                                                       sweep_table=sweep_table))
+                rec_lst.append(
+                    self.source_sweep_apply(
+                        mod_i, src_mod[mod_i]["ac_dc"], wrapper_lst[idx],
+                        max_value=src_mod[mod_i]["max"], 
+                        step_value=src_mod[mod_i]["step"],
+                        compliance=compliance_lst[idx],
+                        freq=src_mod[mod_i]["freq"],
+                        sweepmode=src_mod[mod_i]["mode"],
+                        resistor=sr830_current_resistor,
+                        sweep_table=sweep_table
+                    )
+                )
                 sweep_idx.append(idx)
         # sense part
         for idx, sense_mod in enumerate(sense_lst):
@@ -574,11 +577,11 @@ class MeasureManager(DataPlot):
                 else:
                     sweep_table = None
                 rec_lst.append(self.ext_sweep_apply(oth_mod["name"],
-                                                    min_value=oth_mod["min"],
-                                                    max_value=oth_mod["max"],
-                                                    step_value=oth_mod["step"],
-                                                    sweepmode=oth_mod["mode"],
-                                                    sweep_table=sweep_table))
+                             min_value=oth_mod["min"],
+                             max_value=oth_mod["max"],
+                             step_value=oth_mod["step"],
+                             sweepmode=oth_mod["mode"],
+                             sweep_table=sweep_table))
                 sweep_idx.append(idx + len(src_lst) + len(sense_lst))
         if if_combine_gen:
             total_gen = combined_generator_list(rec_lst)
