@@ -25,7 +25,8 @@ dependencies = [
     "pyvisa-py",
     "pymeasure>=0.14.0",
     "qcodes>=0.47.0",
-    "jupyter"
+    "jupyter",
+    "dash"
 ]
 
 [project.optional-dependencies]
