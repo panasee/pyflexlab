@@ -79,9 +79,9 @@ into the local database directory for quick setup. The template will be copied t
 
 # Roadmap
 - Short-term Goals:
+  - add quick changing method during measurement, instead of setting range and compliance all every time
+  - refine the logic of setting compliance and range by default
   - fix rotator DLL API-calling bugs
-- Long-term Goals:
-  - add interface by dash or PyQt6
 
 # dependencies
 - python >= 3.11 (earlier version is not tested)

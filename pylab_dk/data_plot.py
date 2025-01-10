@@ -496,8 +496,51 @@ class DataPlot(DataProcess):
                         self.live_dfs[i][j].append(self.go_f.data[idx])
                         idx += 1
             display(self.go_f)
-        elif not is_notebook():
-            fig.show()
+        else:
+            import dash
+            from dash import html, dcc
+            from dash.dependencies import Input, Output
+            import threading
+            import webbrowser
+
+            port = 11235
+            app = dash.Dash(__name__)
+            app.layout = html.Div([
+                dcc.Graph(id='live-graph', figure=fig),
+                dcc.Interval(id='interval-component', interval= 500, n_intervals=0)
+            ])
+
+            self.go_f = fig
+            idx = 0
+            for i in range(n_rows):
+                for j in range(n_cols):
+                    num_traces = traces_per_subplot[i][j]
+                    for k in range(num_traces):
+                        self.live_dfs[i][j].append(self.go_f.data[idx])
+                        idx += 1
+
+            @app.callback(
+                Output('live-graph', 'figure'),
+                Input('interval-component', 'n_intervals'),
+                prevent_initial_call=True
+            )
+            def update_graph(_):
+                return self.go_f
+
+            # Run Dash server in a separate thread
+            def run_dash():
+                print(f"\nStarting real-time plot server...")
+                print(f"View the plot at: http://localhost:{port}")
+                # Open the browser automatically
+                webbrowser.open(f'http://localhost:{port}')
+                # Run the server
+                app.run_server(debug=False, port=port, dev_tools_silence_routes_logging=True,
+                use_reloader=False)
+
+            self._dash_thread = threading.Thread(target=run_dash, daemon=True)
+            self._dash_thread.start()
+            # Give the server a moment to start
+            time.sleep(2)
 
     def save_fig_periodically(self, plot_path: Path | str, time_interval: int = 60) -> None:
         """
@@ -560,15 +603,20 @@ class DataPlot(DataProcess):
         if not incremental and max_points is not None:
             print("max_points will be ignored when incremental is False")
 
-        def ensure_list(data) -> np.ndarray:
+        def ensure_list(data, target_type: type = np.float32) -> np.ndarray:
+            def try_type(x):
+                try:
+                    return target_type(x)
+                except (ValueError, TypeError):
+                    return x
             if isinstance(data, (list, tuple, np.ndarray, pd.Series, pd.DataFrame)):
-                return np.array(data)
+                return np.array([try_type(i) for i in data])
             else:
-                return np.array([data])
+                return np.array([try_type(data)])
 
         def ensure_2d_array(data, if_with_str=False) -> np.ndarray:
             data_arr = ensure_list(data)
-            if data_arr == []:
+            if data_arr.size == 0:
                 return np.array([[]])
             if not isinstance(data_arr[0], np.ndarray):
                 if if_with_str:
@@ -579,9 +627,9 @@ class DataPlot(DataProcess):
                     return np.array(data_arr)
                 return np.array(data_arr, dtype=np.float32)
 
-        row = ensure_list(row)
-        col = ensure_list(col)
-        lineno = ensure_list(lineno)
+        row = ensure_list(row, target_type=int)
+        col = ensure_list(col, target_type=int)
+        lineno = ensure_list(lineno, target_type=int)
         if not incremental:
             x_data = ensure_2d_array(x_data, with_str)
             y_data = ensure_2d_array(y_data, with_str)
@@ -618,6 +666,9 @@ class DataPlot(DataProcess):
                     idx_z += 1
             assert idx_z == len(z_data) or (idx_z == 0 and z_data == (0,)), \
                 "z_data should have the same length as the number of contour plots"
+        if not is_notebook() and not incremental:
+            self.go_f.update_layout(uirevision=True)
+            time.sleep(0.5)
 
     @staticmethod
     def sel_pan_color(row: int = None, col: int = None, data_extract: bool = False) \
