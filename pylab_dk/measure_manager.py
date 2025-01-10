@@ -534,7 +534,7 @@ class MeasureManager(DataPlot):
                     if not no_start_vary:
                         self.instrs["itc"].ramp_to_temperature(oth_mod["start"], wait=True)
 
-                        def temp_vary(reverse: bool = False):
+                        def temp_vary(reverse: bool = False, oth_mod = oth_mod):
                             target = oth_mod["start"] if reverse else oth_mod["stop"]
                             ini = oth_mod["stop"] if reverse else oth_mod["start"]
                             while abs(self.instrs["itc"].temperature - ini) > 0.1:
@@ -544,24 +544,24 @@ class MeasureManager(DataPlot):
                     # define a function instead of directly calling the ramp_to_temperature method
                     # to avoid possible interruption or delay
                     else:
-                        def temp_vary(reverse: bool = False):
+                        def temp_vary(reverse: bool = False, oth_mod = oth_mod):
                             target = oth_mod["start"] if reverse else oth_mod["stop"]
                             self.instrs["itc"].ramp_to_temperature(target, wait=False)
                 elif oth_mod["name"] == "B":
                     vary_mod.append("B")
                     self.instrs["ips"].ramp_to_field(oth_mod["start"], wait=True)
 
-                    def mag_vary(reverse: bool = False):
+                    def mag_vary(reverse: bool = False, oth_mod = oth_mod):
                         target = oth_mod["start"] if reverse else oth_mod["stop"]
                         ini = oth_mod["stop"] if reverse else oth_mod["start"]
-                        while abs(self.instrs["ips"].field - ini) > 0.01:
+                        while abs(float(self.instrs["ips"].field) - ini) > 0.01:
                             self.instrs["ips"].ramp_to_field(ini, wait=True)
                         self.instrs["ips"].ramp_to_field(target, wait=False)
                 elif oth_mod["name"] == "Theta":
                     vary_mod.append("Theta")
                     self.instrs["rotator"].ramp_angle(oth_mod["start"], wait=True)
 
-                    def angle_vary(reverse: bool = False):
+                    def angle_vary(reverse: bool = False, oth_mod = oth_mod):
                         target = oth_mod["start"] if reverse else oth_mod["stop"]
                         ini = oth_mod["stop"] if reverse else oth_mod["start"]
                         while abs(self.instrs["rotator"].curr_angle() - ini) > 0.3:

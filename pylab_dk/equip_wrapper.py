@@ -749,7 +749,7 @@ class Wrapper6430(DCSourceMeter):
                 self.meter.source_voltage_range(convert_unit(fix_range, "V")[0])
             else:
                 if abs(value) <= self.meter.source_voltage_range() / 100 or abs(value) >= self.meter.source_voltage_range():
-                    new_range = value if abs(value) > 0.2 else 0.2
+                    new_range = abs(value) if abs(value) > 0.2 else 0.2
                     self.meter.source_voltage_range(new_range)
             if compliance is None:
                 if abs(value / 1000) < 1E-6:
