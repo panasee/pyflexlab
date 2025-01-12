@@ -176,10 +176,12 @@ class FileOrganizer:
                 filepath = self._out_database_dir_proj / measure_name / tmpfolder / filename
                 if plot:
                     filepath = self._out_database_dir_proj / "plot" / measure_name / tmpfolder / filename
+                    suffix = ".png"
             else:
                 filepath = self._out_database_dir_proj / measure_name / filename
                 if plot:
                     filepath = self._out_database_dir_proj / "plot" / measure_name / filename
+                    suffix = ".png"
             return filepath.with_suffix(suffix)
 
         except Exception:

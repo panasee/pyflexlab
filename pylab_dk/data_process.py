@@ -92,7 +92,7 @@ class DataProcess(FileOrganizer):
 
     @staticmethod
     def symmetrize(ori_df: pd.DataFrame, index_col: str | float | int,
-                   obj_col: list[str | float | int], neutral_point: float = 0) -> tuple[pd.DataFrame, pd.DataFrame]:
+                   obj_col: str| float | int | list[str | float | int], neutral_point: float = 0) -> tuple[pd.DataFrame, pd.DataFrame]:
         """
         do symmetrization to the dataframe w.r.t. the index col and return the symmetric and antisymmetric DataFrames,
         note that this function is dealing with only one dataframe, meaning the positive and negative parts
@@ -110,6 +110,8 @@ class DataProcess(FileOrganizer):
         - pd.DataFrame[0]: the symmetric part (col names are suffixed with "_sym")
         - pd.DataFrame[1]: the antisymmetric part (col names are suffixed with "_antisym")
         """
+        if not isinstance(obj_col, (tuple, list)):
+            obj_col = [obj_col]
         # Separate the negative and positive parts for interpolation
         df_negative = ori_df[ori_df[index_col] < neutral_point][[index_col]+obj_col].copy()
         df_positive = ori_df[ori_df[index_col] > neutral_point][[index_col]+obj_col].copy()
@@ -132,56 +134,70 @@ class DataProcess(FileOrganizer):
         return sym_df, antisym_df
 
     @staticmethod
-    def difference(ori_df: pd.DataFrame | Sequence[pd.DataFrame],
+    def difference(ori_df: Sequence[pd.DataFrame],
                    index_col: str | float | int | Sequence[str | float | int],
-                   target_col: str | float | int | Sequence[str | float | int],
-                   relative: bool = False) -> pd.DataFrame:
+                   target_col: str | float | int | Sequence[str | float | int] | Sequence[Sequence[str | float | int]],
+                   relative: bool = False, interpolate_method: str = "linear") -> pd.DataFrame:
         """
-        Calculate the difference between the values in the column(should have the same name) of two dataframes
-        or in two columns of one dataframe, the final df will use the first col name given
+        Calculate the difference between the values in the columns(should have the same name) of two dataframes
+        the final df will use the names of the first df
         NOTE the interpolation will cause severe error for extension outside the original range
         the overlapped values will be AVERAGED
+        e.g. ori_df = [df1, df2], index_col = ["B1", "B2"] (if given "B", it equals to ["B", "B"]), target_col = [["I1", "I2"], ["I3", "I4"]] (same as above, low-dimension will be expanded to high-dimension), the result will be df["B1"] = df1["B1"] - df2["B2"], df["I1"] = df1["I1"] - df2["I3"], df["I2"] = df1["I2"] - df2["I4"]
 
         Args:
         - ori_df: the original dataframe(s)
         - index_col: the name of the index column for symmetrization
         - target_col: the name of the target column for difference calculation
         - relative: whether to calculate the relative difference
+        - interpolate_method: the method for interpolation, default is "linear"
         """
-        if isinstance(index_col, (tuple, list)) and isinstance(target_col, (tuple, list)):
-            assert len(index_col) == len(target_col) and len(index_col) == 2, "The length of two cols should be 2"
-            rename_dict = {target_col[1]: target_col[0], index_col[1]: index_col[0]}
-            if isinstance(ori_df, pd.DataFrame):
-                df_1 = ori_df[[index_col[0], target_col[0]]].copy()
-                df_2 = ori_df[[index_col[1], target_col[1]]].copy()
-                df_1.set_index(index_col[0], inplace=True)
-                df_2.set_index(index_col[1], inplace=True)
-            elif isinstance(ori_df, Sequence):
-                df_1 = ori_df[0][[index_col[0], target_col[0]]].copy()
-                df_2 = ori_df[1][[index_col[1], target_col[1]]].copy()
-                df_1.set_index(index_col[0], inplace=True)
-                df_2.set_index(index_col[1], inplace=True)
-            else:
-                raise ValueError("check the type of ori_df and two cols")
-            df_2.rename(columns=rename_dict, inplace=True)
-        elif not isinstance(index_col, (tuple, list)) and not isinstance(target_col, (tuple, list)):
-            assert isinstance(ori_df, Sequence), "check the type of ori_df and two cols"
-            df_1 = ori_df[0][[index_col, target_col]].copy()
-            df_2 = ori_df[1][[index_col, target_col]].copy()
-            df_1.set_index(index_col, inplace=True)
-            df_2.set_index(index_col, inplace=True)
-        else:
-            raise ValueError("two cols should be both list or both not list")
+        assert len(ori_df) == 2, "ori_df should be a sequence of two dataframes"
+        if isinstance(index_col, (str, float, int)):
+            return DataProcess.difference(ori_df, [index_col, index_col], target_col, relative, interpolate_method)
+        assert len(index_col) == 2, "index_col should be a sequence of two elements"
+        if isinstance(target_col, (str, float, int)):
+            return DataProcess.difference(ori_df, index_col, [[target_col], [target_col]], relative, interpolate_method)
+        elif isinstance(target_col[0], (str, float, int)):
+            return DataProcess.difference(ori_df, index_col, [target_col, target_col], relative, interpolate_method)
+        assert len(target_col) == 2 and len(target_col[0]) == len(target_col[1]), "target_col should be a sequence of two equally long sequences"
+
+        rename_dict = {index_col[1]: index_col[0]}
+        for i in range(len(target_col[0])):
+            rename_dict[target_col[1][i]] = target_col[0][i]
+        df_1 = ori_df[0][[index_col[0]] + target_col[0]].copy()
+        df_2 = ori_df[1][[index_col[1]] + target_col[1]].copy()
+        df_1.set_index(index_col[0], inplace=True)
+        df_2.set_index(index_col[1], inplace=True)
+        df_2.rename(columns=rename_dict, inplace=True)
 
         common_idx = sorted(set(df_1.index).union(set(df_2.index)))
-        df_1_reindexed = df_1.groupby(df_1.index).mean().reindex(common_idx).interpolate(method="linear").sort_index()
-        df_2_reindexed = df_2.groupby(df_2.index).mean().reindex(common_idx).interpolate(method="linear").sort_index()
+        df_1_reindexed = df_1.groupby(df_1.index).mean().reindex(common_idx).interpolate(method=interpolate_method).sort_index()
+        df_2_reindexed = df_2.groupby(df_2.index).mean().reindex(common_idx).interpolate(method=interpolate_method).sort_index()
         diff = df_1_reindexed - df_2_reindexed
         if relative:
             diff = diff / df_2_reindexed
         diff[index_col[0]] = diff.index
         diff.reset_index(drop=True, inplace=True)
         return diff
+
+    @staticmethod
+    def loop_diff(ori_df: pd.DataFrame, vary_col: str | float | int, target_col: str | float | int | list[str | float | int], relative: bool = False, interpolate_method: str = "linear"):
+        """
+        Calculate the difference within a hysteresis loop (increasing minus decreasing direction)
+
+        Args:
+        - ori_df: the original dataframe
+        - vary_col: the name of the column to vary
+        - target_col: the name of the column to calculate the difference
+        - relative: whether to calculate the relative difference
+        - interpolate_method: the method for interpolation, default is "linear"
+        """
+        if not isinstance(target_col, (tuple, list)):
+            target_col = [target_col]
+        df_1 = ori_df[[vary_col] + target_col].copy()
+        df_1 = DataProcess.identify_direction(df_1, vary_col)
+        return DataProcess.difference([df_1[df_1["direction"]==1], df_1[df_1["direction"]==-1]], vary_col, target_col, relative, interpolate_method)
 
     @staticmethod
     def identify_direction(ori_df: pd.DataFrame, idx_col: str | float | int, min_count: int = 17):
