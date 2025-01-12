@@ -26,7 +26,7 @@ unit_factor_toSI = {"": 1, "f": 1E-15, "p": 1E-12, "n": 1E-9, "u": 1E-6, "m": 1E
                     "P": 1E15}
 
 #define plotting default settings
-default_plot_dict = {"color": colors.Genshin["Nilou"][0], "linewidth": 1, "linestyle": "-", "marker": "o",
+default_plot_dict = {"color": colors.Presets["Nl"][0], "linewidth": 1, "linestyle": "-", "marker": "o",
                      "markersize": 1.5, "markerfacecolor": "None", "markeredgecolor": "black", "markeredgewidth": 0.3,
                      "label": "", "alpha": 0.77}
 

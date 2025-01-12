@@ -4,14 +4,14 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "pylab_dk"
-version = "1.0a2"
+version = "1.0b"
 description = "Integrated Tools for Electronic, Cryogenic and Magnetic Measurements"
 authors = [{name="Dongkai", email="dongkai001@e.ntu.edu.sg"}]
 readme = "README.md"
 license = {text = "MIT License"}
 requires-python = ">=3.11"
 classifiers = [
-  "Development Status :: 3 - Alpha",
+  "Development Status :: 4 - Beta",
   "Programming Language :: Python",
   "intended Audience :: Science/Research"
 ]

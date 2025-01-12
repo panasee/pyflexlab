@@ -597,9 +597,9 @@ class MeasureManager(DataPlot):
             "plot_record_path": record_plot_path,
             "record_num": record_num,
             "vary_mod": vary_mod,
-            "tmp_vary": None if "T" not in vary_mod else temp_vary,
-            "mag_vary": None if "B" not in vary_mod else mag_vary,
-            "angle_vary": None if "Theta" not in vary_mod else angle_vary
+            "tmp_vary": None if "T" not in vary_mod else (temp_vary, lambda: self.instrs["itc"].temperature, lambda: self.instrs["itc"].temperature_set),
+            "mag_vary": None if "B" not in vary_mod else (mag_vary, lambda: self.instrs["ips"].field, lambda: self.instrs["ips"].field_set),
+            "angle_vary": None if "Theta" not in vary_mod else (angle_vary, self.instrs["rotator"].curr_angle, lambda: self.instrs["rotator"].angle_set)
         }
 
     def watch_sense(self, sense_mods: tuple[str], time_len: Optional[int] = None, time_step: int = 1,
