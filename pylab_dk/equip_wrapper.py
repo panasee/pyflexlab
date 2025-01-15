@@ -170,7 +170,7 @@ class SourceMeter(Meter):
             if abs(curr_val - value) > 20:
                 arr = np.arange(curr_val, value, 0.2*np.sign(value - curr_val))
             else:
-                arr = np.linspace(curr_val, value, 100)
+                arr = np.linspace(curr_val, value, 70)
         elif isinstance(interval, (float, str)):
             interval = convert_unit(interval, "")[0]
             interval = abs(interval) * np.sign(value - curr_val)
@@ -640,7 +640,7 @@ class Wrapper6430(DCSourceMeter):
         self.meter = Keithley_6430("Keithley6430", GPIB)
         self.info_dict = {}
         self.output_target = 0
-        self.safe_step = {"volt": 1E-2, "curr": 2E-6}
+        self.safe_step = {"volt": 2E-1, "curr": 5E-6}
         self.info_sync()
 
     def info_sync(self):
@@ -741,7 +741,7 @@ class Wrapper6430(DCSourceMeter):
                 else:
                     compliance = abs(value * 100000)
             if compliance != self.meter.source_voltage_compliance():
-                self.meter.source_voltage_compliance(convert_unit(compliance, "A")[0])
+                self.meter.source_voltage_compliance(convert_unit(compliance, "V")[0])
             self.meter.source_current(value)
 
         elif type_str == "volt":
@@ -757,7 +757,7 @@ class Wrapper6430(DCSourceMeter):
                 else:
                     compliance = abs(value / 1000)
             if compliance != self.meter.source_current_compliance():
-                self.meter.source_current_compliance(convert_unit(compliance, "V")[0])
+                self.meter.source_current_compliance(convert_unit(compliance, "A")[0])
             self.meter.source_voltage(value)
 
         self.info_dict["output_type"] = type_str
@@ -1119,7 +1119,7 @@ class WrapperIPS(Magnet):
                     raise ValueError("The heater status is not recognized")
 
     def ramp_to_field(self, field: float | int | tuple[float] | list[float], *,
-                      rate: tuple[float] = (0.00333,) * 3, wait: bool = True,
+                      rate: float | tuple[float] = (0.2,) * 3, wait: bool = True,
                       tolerance: float = 3e-3) -> None:
         """
         ramp the magnetic field to the target value with the rate, current the field is only in Z direction limited by the actual instrument setting
@@ -1127,7 +1127,7 @@ class WrapperIPS(Magnet):
 
         Args:
             field (tuple[float]): the target field coor
-            rate (float): the rate of the field change (T/s)
+            rate (float): the rate of the field change (T/min)
             wait (bool): whether to wait for the ramping to finish
             tolerance (float): the tolerance of the field (T)
         """
@@ -1141,11 +1141,14 @@ class WrapperIPS(Magnet):
 
         if abs(self.field_set - field) < tolerance:
             return
-        if max(rate) * 60 > 0.2:
-            raise ValueError("The rate is too high, the maximum rate is 0.2 T/min")
-        #self.ips.GRPX.field_ramp_rate(rate[0])
-        #self.ips.GRPY.field_ramp_rate(rate[1])
-        self.ips.GRPZ.field_ramp_rate(rate[2])
+        if isinstance(rate, (float,int)):
+            assert rate <= 0.2, "The rate is too high, the maximum rate is 0.2 T/min"
+            self.ips.GRPZ.field_ramp_rate(rate/60)
+        else:
+            assert max(rate) <= 0.2, "The rate is too high, the maximum rate is 0.2 T/min"
+            self.ips.GRPZ.field_ramp_rate(rate[2]/60)
+        #self.ips.GRPX.field_ramp_rate(rate[0]/60)
+        #self.ips.GRPY.field_ramp_rate(rate[1]/60)
         # no x and y field for now (see the setter method for details)
         self.field_set = field
 

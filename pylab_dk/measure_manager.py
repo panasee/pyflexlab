@@ -206,7 +206,8 @@ class MeasureManager(DataPlot):
     def ext_sweep_apply(self, ext_type: Literal["temp", "mag", "B", "T", "angle", "Theta"], *,
                         min_value: float | str = None, max_value: float | str, step_value: float | str,
                         sweepmode: Literal["0-max-0", "0--max-max-0", "min-max", "manual"] = "0-max-0",
-                        sweep_table: Optional[tuple[float | str, ...]] = None) \
+                        sweep_table: Optional[tuple[float | str, ...]] = None,
+                        field_ramp_rate: float = 0.2) \
             -> Generator[float, None, None]:
         """
         sweep the external field (magnetic/temperature).
@@ -219,6 +220,7 @@ class MeasureManager(DataPlot):
             step_value (float | str): the step of the field
             sweepmode (Literal["0-max-0","0--max-max-0","min-max", "manual"]): the mode of the field sweep
             sweep_table (tuple[float,...]): the table of the sweep values (only if sweepmode is "manual")
+            field_ramp_rate (float): the rate of the field ramp (T/min)
         """
         ext_type = ext_type.replace("T", "temp").replace("B", "mag").replace("Theta", "angle")
         if ext_type == "temp":
@@ -253,7 +255,7 @@ class MeasureManager(DataPlot):
             if ext_type == "temp":
                 instr.ramp_to_temperature(value_i, wait=True)
             elif ext_type == "mag":
-                instr.ramp_to_field(value_i, wait=True)
+                instr.ramp_to_field(value_i, rate=field_ramp_rate, wait=True)
             elif ext_type == "angle":
                 instr.ramp_angle(value_i)
             yield value_i
@@ -430,7 +432,8 @@ class MeasureManager(DataPlot):
                          sr830_current_resistor: float = None, if_combine_gen: bool = True,
                          sweep_tables: list[list[float | str, ...]] | tuple[tuple[float | str, ...]] = None,
                          special_name: str = None, with_timer: bool = True, no_start_vary: bool = False,
-                         ramp_intervals: list[float] | tuple[float] = None, vary_criteria: int = 10) -> dict:
+                         ramp_intervals: list[float] | tuple[float] = None, vary_criteria: int = 10,
+                         field_ramp_rate: float = 0.2) -> dict:
         """
         do the preset of measurements and return the generators, filepath and related info
         1. meter setup should be done before calling this method, they will be bound to generators
@@ -459,15 +462,44 @@ class MeasureManager(DataPlot):
             no_start_vary (bool): vary without starting from a fixed start
             ramp_intervals (list[float]): the intervals for ramping the source, used with care, note the correspondence
             vary_criteria (int): the criteria (no of steps) to judge if the field/temperature is stable
+            field_ramp_rate (float): the rate of the field ramp (T/min)
 
         Returns:
             dict: a dictionary containing the list of generators, dataframe csv filepath and record number
                 keys: "gen_lst"(combined list generator), "swp_idx" (indexes for sweeping generator, not including vary),
                 "file_path"(csv file), "record_num"(num of record data columns, without time),
-                "tmp_vary", "mag_vary", "angle_vary" (the function used to begin the varying of T/B/Theta,
+                "tmp_vary", "mag_vary", "angle_vary"
+                (the function used to begin the varying of T/B/Theta,
                     e.g. start magnetic field varying by calling mag_vary(),
                     add reverse=True to reverse the varying direction, used to do circular varying)
         """
+        if sweep_tables is not None:
+            if isinstance(sweep_tables, list):
+                if isinstance(sweep_tables[0], list):
+                    pass
+                elif isinstance(sweep_tables[0], np.ndarray):
+                    sweep_tables = [i.tolist() for i in sweep_tables]
+                elif isinstance(sweep_tables[0], tuple):
+                    sweep_tables = [list(i) for i in sweep_tables]
+                else:
+                    raise TypeError("unsupported sweep_tables type")
+            elif isinstance(sweep_tables, tuple):
+                return self.get_measure_dict(measure_mods, *var_tuple,
+                                     wrapper_lst=wrapper_lst, compliance_lst=compliance_lst,
+                                     sr830_current_resistor=sr830_current_resistor, if_combine_gen=if_combine_gen,
+                                     sweep_tables=list(sweep_tables), special_name=special_name, with_timer=with_timer,
+                                     no_start_vary=no_start_vary, ramp_intervals=ramp_intervals,
+                                     vary_criteria=vary_criteria, field_ramp_rate=field_ramp_rate)
+            elif isinstance(sweep_tables, np.ndarray):
+                return self.get_measure_dict(measure_mods, *var_tuple,
+                                             wrapper_lst=wrapper_lst, compliance_lst=compliance_lst,
+                                             sr830_current_resistor=sr830_current_resistor, if_combine_gen=if_combine_gen,
+                                             sweep_tables=sweep_tables.tolist(), special_name=special_name, with_timer=with_timer,
+                                             no_start_vary=no_start_vary, ramp_intervals=ramp_intervals,
+                                             vary_criteria=vary_criteria, field_ramp_rate=field_ramp_rate)
+            else:
+                raise TypeError("unsupported sweep_tables type")
+
         src_lst, sense_lst, oth_lst = self.extract_info_mods(measure_mods, *var_tuple)
         assert len(src_lst) + len(sense_lst) == len(wrapper_lst), "The number of modules and meters should be the same"
         assert len(src_lst) == len(compliance_lst), "The number of sources and compliance should be the same"
@@ -505,7 +537,7 @@ class MeasureManager(DataPlot):
                 rec_lst.append(
                     self.source_sweep_apply(
                         mod_i, src_mod[mod_i]["ac_dc"], wrapper_lst[idx],
-                        max_value=src_mod[mod_i]["max"], 
+                        max_value=src_mod[mod_i]["max"],
                         step_value=src_mod[mod_i]["step"],
                         compliance=compliance_lst[idx],
                         freq=src_mod[mod_i]["freq"],
@@ -531,6 +563,7 @@ class MeasureManager(DataPlot):
             elif oth_mod["sweep_fix"] == "vary":
                 if oth_mod["name"] == "T":
                     vary_mod.append("T")
+                    vary_bound_T = (oth_mod["start"], oth_mod["stop"])
                     if not no_start_vary:
                         self.instrs["itc"].ramp_to_temperature(oth_mod["start"], wait=True)
 
@@ -550,16 +583,18 @@ class MeasureManager(DataPlot):
                 elif oth_mod["name"] == "B":
                     vary_mod.append("B")
                     self.instrs["ips"].ramp_to_field(oth_mod["start"], wait=True)
+                    vary_bound_B = (oth_mod["start"], oth_mod["stop"])
 
                     def mag_vary(reverse: bool = False, oth_mod = oth_mod):
                         target = oth_mod["start"] if reverse else oth_mod["stop"]
                         ini = oth_mod["stop"] if reverse else oth_mod["start"]
                         while abs(float(self.instrs["ips"].field) - ini) > 0.01:
                             self.instrs["ips"].ramp_to_field(ini, wait=True)
-                        self.instrs["ips"].ramp_to_field(target, wait=False)
+                        self.instrs["ips"].ramp_to_field(target, rate=field_ramp_rate, wait=False)
                 elif oth_mod["name"] == "Theta":
                     vary_mod.append("Theta")
                     self.instrs["rotator"].ramp_angle(oth_mod["start"], wait=True)
+                    vary_bound_Theta = (oth_mod["start"], oth_mod["stop"])
 
                     def angle_vary(reverse: bool = False, oth_mod = oth_mod):
                         target = oth_mod["start"] if reverse else oth_mod["stop"]
@@ -573,7 +608,7 @@ class MeasureManager(DataPlot):
                 rec_lst.append(self.sense_apply(oth_mod["name"], if_during_vary=True, vary_criteria=vary_criteria))
             elif oth_mod["sweep_fix"] == "sweep":
                 if oth_mod["mode"] == "manual":
-                    sweep_table = sweep_tables.pop(0)  # pop from start
+                    sweep_table = sweep_tables.pop(0)
                 else:
                     sweep_table = None
                 rec_lst.append(self.ext_sweep_apply(oth_mod["name"],
@@ -597,9 +632,9 @@ class MeasureManager(DataPlot):
             "plot_record_path": record_plot_path,
             "record_num": record_num,
             "vary_mod": vary_mod,
-            "tmp_vary": None if "T" not in vary_mod else (temp_vary, lambda: self.instrs["itc"].temperature, lambda: self.instrs["itc"].temperature_set),
-            "mag_vary": None if "B" not in vary_mod else (mag_vary, lambda: self.instrs["ips"].field, lambda: self.instrs["ips"].field_set),
-            "angle_vary": None if "Theta" not in vary_mod else (angle_vary, self.instrs["rotator"].curr_angle, lambda: self.instrs["rotator"].angle_set)
+            "tmp_vary": None if "T" not in vary_mod else (temp_vary, lambda: self.instrs["itc"].temperature, lambda: self.instrs["itc"].temperature_set, vary_bound_T),
+            "mag_vary": None if "B" not in vary_mod else (mag_vary, lambda: self.instrs["ips"].field, lambda: self.instrs["ips"].field_set, vary_bound_B),
+            "angle_vary": None if "Theta" not in vary_mod else (angle_vary, self.instrs["rotator"].curr_angle, lambda: self.instrs["rotator"].angle_set, vary_bound_Theta)
         }
 
     def watch_sense(self, sense_mods: tuple[str], time_len: Optional[int] = None, time_step: int = 1,

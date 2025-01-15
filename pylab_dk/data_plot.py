@@ -617,7 +617,7 @@ class DataPlot(DataProcess):
         def ensure_2d_array(data, if_with_str=False) -> np.ndarray:
             data_arr = ensure_list(data)
             if data_arr.size == 0:
-                return np.array([[]])
+                return data_arr
             if not isinstance(data_arr[0], np.ndarray):
                 if if_with_str:
                     return np.array([data_arr])

@@ -182,7 +182,7 @@ class DataProcess(FileOrganizer):
         return diff
 
     @staticmethod
-    def loop_diff(ori_df: pd.DataFrame, vary_col: str | float | int, target_col: str | float | int | list[str | float | int], relative: bool = False, interpolate_method: str = "linear"):
+    def loop_diff(ori_df: pd.DataFrame, vary_col: str | float | int, target_col: str | float | int | list[str | float | int], relative: bool = False, interpolate_method: str = "linear") -> pd.DataFrame:
         """
         Calculate the difference within a hysteresis loop (increasing minus decreasing direction)
 
