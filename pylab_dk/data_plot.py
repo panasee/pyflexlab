@@ -174,9 +174,9 @@ class DataPlot(DataProcess):
         """
         _factor = factor(unit)
         if unit[0] == "u":
-            namestr = rf"$\mathrm{{\mu {unit[1:]}}}$".replace("Ohm", r"\Omega").replace("Omega", r"\Omega")
+            namestr = rf"$\mathrm{{\mu {unit[1:]}}}$".replace("Omega", r"\Omega").replace("Ohm", r"\Omega")
         else:
-            namestr = rf"$\mathrm{{{unit}}}$".replace("Ohm", r"\Omega").replace("Omega", r"\Omega")
+            namestr = rf"$\mathrm{{{unit}}}$".replace("Omega", r"\Omega").replace("Ohm", r"\Omega")
         return _factor, namestr
 
     def set_unit(self, unit_new: dict = None) -> None:

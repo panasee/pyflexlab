@@ -118,7 +118,8 @@ class MeasureManager(DataPlot):
                            meter: str | SourceMeter, *, max_value: float | str, step_value: float | str,
                            compliance: float | str, freq: float | str = None,
                            sweepmode: Optional[Literal["0-max-0", "0--max-max-0", "0-max--max-max-0","manual"]] = None,
-                           resistor: Optional[float] = None, sweep_table: Optional[list[float | str, ...]] = None) \
+                           resistor: Optional[float] = None, sweep_table: Optional[list[float | str, ...]] = None,
+                           ramp_step: bool = False) \
             -> Generator[float, None, None]:
         """
         source the current using the source meter, initializations will be done automatically
@@ -136,6 +137,8 @@ class MeasureManager(DataPlot):
             resistor (float): the resistance of the resistor, used only for sr830 source. Once it is provided, the
                 source value will be regarded automatically as current
             sweep_table (list[float|str,...]): the table of the sweep values (only if sweepmode is "manual")
+            ramp_step (bool): whether to ramp the step value, if true,
+              the step value will be ramped to the next value with the interval set by safe_step of each meter
         """
         # load the instrument needed
         source_type = source_type.replace("V", "volt").replace("I", "curr")
@@ -178,7 +181,10 @@ class MeasureManager(DataPlot):
             else:
                 raise ValueError("sweepmode not recognized")
             for value_i in value_gen:
-                instr.uni_output(value_i, compliance=compliance, type_str=source_type)
+                if ramp_step:
+                    instr.ramp_output(source_type, value_i, interval=safe_step, compliance=compliance,no_progress=True)
+                else:
+                    instr.uni_output(value_i, compliance=compliance, type_str=source_type)
                 yield value_i
         elif ac_dc == "ac":
             if resistor is not None:  # automatically regard the source value as current and set output mode to volt
@@ -196,11 +202,14 @@ class MeasureManager(DataPlot):
                     instr.setup("source", "ac")
                 if sweepmode == "manual":
                     value_gen = (i for i in convert_unit(sweep_table, "")[0])
-                    instr.ramp_output(source_type, sweep_table[0], interval=safe_step, compliance=compliance)
+                    instr.ramp_output(source_type, sweep_table[0], interval=safe_step, freq=freq, compliance=compliance)
                 else:
                     value_gen = (i for i in list(np.arange(0, max_value, step_value)) + [max_value])
                 for value_i in value_gen:
-                    instr.uni_output(value_i, freq=freq, compliance=compliance, type_str=source_type)
+                    if ramp_step:
+                        instr.ramp_output(source_type, value_i, interval=safe_step, freq=freq, compliance=compliance,no_progress=True)
+                    else:
+                        instr.uni_output(value_i, freq=freq, compliance=compliance, type_str=source_type)
                     yield value_i
 
     def ext_sweep_apply(self, ext_type: Literal["temp", "mag", "B", "T", "angle", "Theta"], *,

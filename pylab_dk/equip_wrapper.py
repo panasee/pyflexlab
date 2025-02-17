@@ -141,7 +141,7 @@ class SourceMeter(Meter):
         self.meter.__del__()
 
     def ramp_output(self, type_str: Literal["curr", "volt", "V", "I"], value: float | str, *, freq: Optional[float | str] = None,
-                    compliance: Optional[float | str] = None, interval: Optional[float | str] = None, sleep=0.2, from_curr=True) -> None:
+                    compliance: Optional[float | str] = None, interval: Optional[float | str] = None, sleep=0.2, from_curr=True, no_progress=False) -> None:
         """
         ramp the output to the target value
 
@@ -154,6 +154,7 @@ class SourceMeter(Meter):
             value: the target value
             compliance: the compliance value
             from_curr: whether to ramp from the current value(default) or from 0
+            no_progress: whether to suppress the progress bar
         """
         type_str: Literal["curr", "volt"] = type_str.replace("V", "volt").replace("I", "curr")
         value = convert_unit(value, "")[0]
@@ -181,7 +182,8 @@ class SourceMeter(Meter):
 
         for idx, i in enumerate(arr):
             self.uni_output(i, freq=freq, type_str=type_str, compliance=compliance)
-            print_progress_bar((idx + 1) / len(arr) * 100, 100, prefix="Ramping Meter:")
+            if not no_progress:
+                print_progress_bar((idx + 1) / len(arr) * 100, 100, prefix="Ramping Meter:")
             time.sleep(sleep)
 
 
@@ -1654,3 +1656,4 @@ class ITCs(ITC):
 
     def correction_ramping(self, temp: float, trend: Literal["up", "down", "up-huge", "down-huge"]):
         pass
+
