@@ -464,7 +464,7 @@ class Wrapper6500(Meter):
     def __init__(self, GPIB: str = "GPIB0::16::INSTR"):
         super().__init__()
         self.meter = KeithleyDMM6500(GPIB)
-        self.setup()
+        self.setup("sense")
         self.info_dict = {"GPIB": GPIB,
                           "channel": 1,
                           "sense_type": "volt",

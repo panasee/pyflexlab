@@ -2,15 +2,27 @@
 
 **pylab_dk** is an integrated package based on [PyMeasure](https://github.com/pymeasure/pymeasure) and [QCoDeS](https://github.com/microsoft/Qcodes),
 designed for collecting, processing, and plotting experimental data.
-(**why not use QCoDeS directly:** allow for more flexible measurements and plotting in the lower level)
+(**why not use QCoDeS directly:** allow for more flexible measurements and plotting at lower level)
 
 ## Table of Contents
 
 - [Installation](#installation)
+- [Key Features](#key-features)
 - [Usage](#usage)
-    - [Json Structure of `measure_types.json`](#json-structure-of-measure_typesjson)
-- [Known issues](#known-issues)
+    - [Set Environmental Variables](#set-environmental-variables)
+    - [Create Own measure_types.json](#create-own-measure_typesjson)
+    - [Create Own Jupyter Notebook](#create-own-jupyter-notebook)
+    - [Provided GUIs](#provided-guis)
+    - [Provided Template](#provided-template)
+- [Known Issues](#known-issues)
 - [Dependencies](#dependencies)
+
+## Key Features
+- (most importantly) Lower-level interface and modularized components, enabling flexible composition of complex functionalities.
+- Unified interface for instruments control
+- Structured data storage with automatic file organization
+- Real-time visualization and data recording (Jupyter / Dash web interface)
+- Attached with data analysis and processing methods
 
 ## Installation
 
@@ -76,6 +88,9 @@ As for real-time data plotting, the package will use `dash` to create a web app 
 ### Provided GUIs
 - "gui-coor-trans": a GUI for coordinate transformation used to locate objects using two reference points on a flat surface
 - "gui-pan-color": a color palette for choosing colors 
+
+### Provided template
+See the provided [template](template.md) for detailed template which contains most of the common measurement types.
 
 ## Known issues
 - The driver of the rotator is not working properly
