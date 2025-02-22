@@ -40,13 +40,14 @@ from abc import ABC, abstractmethod
 import numpy as np
 from pymeasure.instruments.srs import SR830
 from pymeasure.instruments.oxfordinstruments import ITC503
-from pymeasure.instruments.keithley import Keithley6221, KeithleyDMM6500
+from pymeasure.instruments.keithley import KeithleyDMM6500
 from pymeasure.instruments.keithley import Keithley2182
 from qcodes.instrument_drivers.Keithley import Keithley2400, Keithley2450
 
 from pylab_dk.drivers.MercuryiPS_VISA import OxfordMercuryiPS
 from pylab_dk.drivers.mercuryITC import MercuryITC
 from pylab_dk.drivers.Keithley_6430 import Keithley_6430
+from pylab_dk.drivers.keithley6221 import Keithley6221
 
 from pylab_dk.constants import convert_unit, print_progress_bar, switch_dict
 from pylab_dk.data_plot import DataPlot
@@ -230,6 +231,7 @@ class Wrapper6221(ACSourceMeter, DCSourceMeter):
                           "output_value": 0,
                           }
         self.info_sync()
+        self.mea_mode: Literal["normal", "delta", "pulse-delta", "differential"] = "normal"
         print("note the grounding:")  #TODO: add grounding instruction#
 
     def info_sync(self):
@@ -243,8 +245,11 @@ class Wrapper6221(ACSourceMeter, DCSourceMeter):
                                "low_grounded": self.meter.output_low_grounded,
                                })
 
-    def setup(self, function: Literal["source"] = "source", mode: Literal["ac", "dc"] = "ac", *, offset=0, source_auto_range=True,
-              low_grounded=True, wave_function="sine") -> None:
+    def setup(self, function: Literal["source"] = "source", 
+              mode: Literal["ac", "dc"] = "ac", *, offset=0, source_auto_range=True,
+              low_grounded=True, 
+              wave_function: Literal["sine", "ramp", "square", "arbitrary1", "arbitrary2", "arbitrary3", "arbitrary4"] = "sine", 
+              mea_mode: Literal["normal", "delta", "pulse-delta", "differential"] = "normal") -> None:
         """
         set up the Keithley 6221 instruments, overwrite the specific settings here, other settings will all be
         reserved. Note that the waveform will not begin here
@@ -254,6 +259,11 @@ class Wrapper6221(ACSourceMeter, DCSourceMeter):
         # first must close the output to do setup
         self.output_switch("off")
         source_6221.clear()
+        if mea_mode == "delta":
+            print("delta mode is selected, please set the specific parameters using delta_setup method")
+            self.delta_setup()
+            self.mea_mode = mea_mode
+            mode = "dc"
         if mode == "ac":
             self.info_dict["ac_dc"] = "ac"
             source_6221.waveform_function = wave_function
@@ -270,10 +280,20 @@ class Wrapper6221(ACSourceMeter, DCSourceMeter):
         source_6221.source_auto_range = source_auto_range
         source_6221.output_low_grounded = low_grounded
         self.info_dict.update({"low_grounded": low_grounded})
+    
+    def delta_setup(self, *, delta_delay = 0.02, delta_cycles: int | Literal["INF"] = "INF", delta_mea_sets: int | Literal["INF"] = 1, delta_compliance_abort: bool = True, delta_cold_switch: bool = False):
+        """
+        set the specific parameters for delta mode
+        """
+        self.meter.delta_delay = delta_delay
+        self.meter.delta_cycles = delta_cycles
+        self.meter.delta_mea_sets = delta_mea_sets
+        self.meter.delta_compliance_abort = delta_compliance_abort
+        self.meter.delta_cold_switch = delta_cold_switch
 
     def output_switch(self, switch: bool | Literal["on", "off", "ON", "OFF"]):
         """
-        switch the output on or off
+        switch the output on or off (not suitable for special modes)
         """
         switch = switch_dict.get(switch, False) if isinstance(switch, str) else switch
 
@@ -300,7 +320,7 @@ class Wrapper6221(ACSourceMeter, DCSourceMeter):
 
     def get_output_status(self) -> tuple[float, float, float]:
         """
-        return the output value from device and also the target value set by output methods
+        return the output value from device and also the target value set by output methods (not suitable for special modes)
 
         Returns:
             tuple[float, float, float]: the output value (rms for ac) and the target value
@@ -319,31 +339,37 @@ class Wrapper6221(ACSourceMeter, DCSourceMeter):
         # judge if the output exceeds the range first
         # since 6221 use the same source_range for both ac and dc
         # so the range could be treated in this unified method
-        value = convert_unit(value, "")[0]
-        if abs(value) > 0.105:
-            raise ValueError("6221 output should be less than 0.105A")
-        range_curr = self.meter.source_range
-        if (abs(range_curr) * 1.05 <= abs(value) or abs(value) <= abs(range_curr) / 100) and value != 0:
-            if freq is not None:
-                self.output_switch("off")  # turn off the output before changing the range for ac mode
-            self.meter.source_range = value
-        # directly call corresponding output method if desired output type is matched
-        # call setup first if desired output type is not matched
-        if self.info_dict["ac_dc"] == "ac":
-            if freq is not None:
-                self.rms_output(value, freq=freq, compliance=compliance, type_str=type_str)
-            else:
-                self.setup("source", "dc")
-                self.dc_output(value, compliance=compliance, type_str=type_str)
-        elif self.info_dict["ac_dc"] == "dc":
-            if freq is None:
-                self.dc_output(value, compliance=compliance, type_str=type_str)
-            elif freq is not None:
-                self.setup("source", "ac")
-                self.rms_output(value, freq=freq, compliance=compliance, type_str=type_str)
+        if self.mea_mode == "normal":
+            value = convert_unit(value, "")[0]
+            if abs(value) > 0.105:
+                raise ValueError("6221 output should be less than 0.105A")
+            range_curr = self.meter.source_range
+            if (abs(range_curr) * 1.05 <= abs(value) or abs(value) <= abs(range_curr) / 100) and value != 0:
+                if freq is not None:
+                    self.output_switch("off")  # turn off the output before changing the range for ac mode
+                self.meter.source_range = value
+            # directly call corresponding output method if desired output type is matched
+            # call setup first if desired output type is not matched
+            if self.info_dict["ac_dc"] == "ac":
+                if freq is not None:
+                    self.rms_output(value, freq=freq, compliance=compliance, type_str=type_str)
+                else:
+                    self.setup("source", "dc")
+                    self.dc_output(value, compliance=compliance, type_str=type_str)
+            elif self.info_dict["ac_dc"] == "dc":
+                if freq is None:
+                    self.dc_output(value, compliance=compliance, type_str=type_str)
+                elif freq is not None:
+                    self.setup("source", "ac")
+                    self.rms_output(value, freq=freq, compliance=compliance, type_str=type_str)
 
-        self.output_target = convert_unit(value, "A")[0]
-        return self.get_output_status()[0]
+            self.output_target = convert_unit(value, "A")[0]
+            return self.get_output_status()[0]
+        elif self.mea_mode == "delta":
+            self.meter.delta_high = value
+            self.meter.delta_arm()
+            self.meter.delta_start()
+            return self.meter.delta_high
 
     def rms_output(self, value: float | str, *, freq: Optional[float | str] = None, compliance: Optional[float | str] = None,
                    type_str: Literal["curr"] = "curr"):
@@ -408,7 +434,10 @@ class Wrapper6221(ACSourceMeter, DCSourceMeter):
         self.output_switch("on")
 
     def sense(self, type_str: Literal["curr", "volt"]):
-        print("6221 is a source meter, no sense function")
+        if self.mea_mode == "normal":
+            print("6221 is a source meter, no sense function")
+        elif self.mea_mode == "delta":
+            return self.meter.delta_sense
 
     def shutdown(self):
         if self.info_dict["output_status"]:
