@@ -292,8 +292,10 @@ class MeasureManager(DataPlot):
             instr = self.extract_meter_info(meter)
             print(f"Sense Meter/Instr: {instr.meter}")
             instr.setup(function="sense")
+            if isinstance(meter, WrapperSR830) and sense_type == "curr":
+                instr.setup(function="sense", input_config="I (1 MOhm)", input_grounding="Ground")
             while True:
-                yield instr.sense(type_str=sense_type)
+                yield instr.sense_delay(type_str=sense_type)
         elif sense_type == "temp":
             instr = self.instrs["itc"]
             print(f"Sense Meter/Instr: {instr}")
@@ -318,7 +320,7 @@ class MeasureManager(DataPlot):
                 timer_i = 0
                 while timer_i < vary_criteria:
                     # only z field is considered
-                    if abs(instr.field - instr.field_set) < 0.01:
+                    if abs(instr.field - instr.field_set) < 0.001:
                         timer_i += 1
                     else:
                         timer_i = 0
@@ -385,7 +387,7 @@ class MeasureManager(DataPlot):
             for name, detail in zip(list(pure_name_lst), mod_detail_lst):
                 if detail["source_sense"] == "source":
                     columns_lst.append(f"{name}_source")
-                elif name == "V" and ac_dc == "ac":  # note the "sense" is assumed here
+                elif detail["source_sense"] == "sense" and ac_dc == "ac":  # note the "sense" is assumed here
                     columns_lst += ["X", "Y", "R", "Theta"]
                 else:
                     columns_lst.append(name)
@@ -532,6 +534,7 @@ class MeasureManager(DataPlot):
                 raise ValueError(f"No source is specified for source {idx}")
 
             if src_mod[mod_i]["sweep_fix"] == "fixed":
+                wrapper_lst[idx].setup(function = "source")
                 if ramp_intervals is not None:
                     interval = ramp_intervals.pop(0)
                     wrapper_lst[idx].ramp_output(mod_i, src_mod[mod_i]["fix"], compliance=compliance_lst[idx], interval=interval)

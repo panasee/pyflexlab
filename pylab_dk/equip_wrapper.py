@@ -82,6 +82,10 @@ class Meter(ABC):
     def info_sync(self):
         self.info_dict.update({})
 
+    def sense_delay(self, type_str: Literal["curr", "volt"], *, delay: float = 0.03):
+        time.sleep(delay)
+        return self.sense(type_str=type_str)
+
     @abstractmethod
     def sense(self, type_str: Literal["curr", "volt"]) -> float | list:
         pass
@@ -556,6 +560,7 @@ class WrapperSR830(ACSourceMeter):
         self.output_target = 0
         self.info_dict = {"GPIB": GPIB}
         self.safe_step = 2E-3
+        self.if_source = False  # if the meter has been declared as source (as source initialization is earlier)
         if reset:
             self.setup()
         self.info_sync()
@@ -579,7 +584,7 @@ class WrapperSR830(ACSourceMeter):
 
     def setup(self, function: Literal["source", "sense"] = "sense", *, filter_slope=24, time_constant=0.3, input_config="A - B",
               input_coupling="AC", input_grounding="Float", sine_voltage: float = 0,
-              input_notch_config="None", reference_source="External",
+              input_notch_config="None",
               reserve="Normal", filter_synchronous=False) -> None:
         """
         setup the SR830 instruments using pre-stored setups here, this function will not fully reset the instruments,
@@ -592,17 +597,23 @@ class WrapperSR830(ACSourceMeter):
             self.meter.input_coupling = input_coupling
             self.meter.input_grounding = input_grounding
             self.meter.input_notch_config = input_notch_config
-            self.meter.reference_source = reference_source
+            if not self.if_source:
+                self.meter.reference_source = "External" 
+            else:
+                self.if_source = False  # restore the if_source to False for the next initialization, would cause unexpected behavior if called twice in one measurement
             self.meter.reserve = reserve
             self.meter.filter_synchronous = filter_synchronous
             self.info_dict.update({"filter_slope": filter_slope, "time_constant": time_constant,
                                    "input_config": input_config, "input_coupling": input_coupling,
                                    "input_grounding": input_grounding,
-                                   "input_notch_config": input_notch_config, "reference_source": reference_source,
+                                   "input_notch_config": input_notch_config, "reference_source": "External",
                                    "reserve": reserve, "filter_synchronous": filter_synchronous})
         elif function == "source":
             self.meter.sine_voltage = sine_voltage
-            self.info_dict.update({"sine_voltage": sine_voltage})
+            self.meter.reference_source = "Internal"
+            self.if_source = True
+            self.info_dict.update({"sine_voltage": sine_voltage,
+                                   "reference_source": "Internal"})
         else:
             raise ValueError("function should be either source or sense")
 
@@ -621,7 +632,7 @@ class WrapperSR830(ACSourceMeter):
             self.meter.harmonic = harmonic
         self.info_sync()
 
-    def sense(self, type_str: Literal["volt"] = "volt") -> list:
+    def sense(self, type_str: Literal["volt", "curr"] = "volt") -> list:
         return self.meter.snap("X", "Y", "R", "THETA")
 
     def get_output_status(self) -> tuple[float, float]:
@@ -1149,9 +1160,25 @@ class WrapperIPS(Magnet):
                 case _:
                     raise ValueError("The heater status is not recognized")
 
+    #=======suitable for Z-axis only ips========
+    @property
+    def status(self) -> Literal["HOLD", "TO SET", "CLAMP", "TO ZERO"]:
+        """
+        return the status of the magnet
+        """
+        return self.ips.GRPZ.ramp_status()
+
+    @status.setter
+    def status(self, status: Literal["HOLD", "TO SET", "CLAMP", "TO ZERO"]) -> None:
+        """
+        set the status of the magnet
+        """
+        assert status in ["HOLD", "TO SET", "CLAMP", "TO ZERO"], "The status is not recognized"
+        self.ips.GRPZ.ramp_status(status)
+
     def ramp_to_field(self, field: float | int | tuple[float] | list[float], *,
                       rate: float | tuple[float] = (0.2,) * 3, wait: bool = True,
-                      tolerance: float = 3e-3) -> None:
+                      tolerance: float = 1e-3) -> None:
         """
         ramp the magnetic field to the target value with the rate, current the field is only in Z direction limited by the actual instrument setting
         (currently only B_z can be ramped)
