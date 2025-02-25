@@ -1,5 +1,5 @@
 #
-# This file is part of the PyMeasure package.
+# This file is modified from the PyMeasure package.
 #
 # Copyright (c) 2013-2024 PyMeasure Developers
 #
@@ -32,7 +32,7 @@ from pymeasure.instruments import Instrument, SCPIMixin
 from pymeasure.errors import RangeException
 from pymeasure.instruments.validators import truncated_range, strict_discrete_set, joined_validators
 
-from .buffer import KeithleyBuffer
+from pymeasure.instruments.keithley.buffer import KeithleyBuffer
 
 log = logging.getLogger(__name__)
 log.addHandler(logging.NullHandler())
@@ -155,8 +155,16 @@ class Keithley6221(KeithleyBuffer, SCPIMixin, Instrument):
     )
 
     ################
-    # DELTA SOURCE #
+    # DELTA MEASURE #
     ################
+
+    delta_unit = Instrument.control(
+        ":UNIT:VOLT:DC?", ":UNIT:VOLT:DC %s",
+        """ A string property that controls the delta unit (voltage is the basic unit, other units are derived from this). Valid values are 'V', 'Ohms', 'W' and 'Siemens' """,
+        validator=strict_discrete_set,
+        values={"V": "V", "Ohms": "OHMS", "W": "W", "Siemens": "SIEM"},
+        map_values=True
+    )
 
     delta_high = Instrument.control(
         ":SOUR:DELT:HIGH?", ":SOUR:DELT:HIGH %g",
@@ -183,7 +191,7 @@ class Keithley6221(KeithleyBuffer, SCPIMixin, Instrument):
     )
 
     delta_cycles = Instrument.control( 
-        ":SOUR:DELT:COUN?", ":SOUR:DELT:COUN %d",
+        ":SOUR:DELT:COUN?", ":SOUR:DELT:COUN %s",
         """ A integer property that controls the number of cycles for the delta measurements.
         . """,
         validator=joined_validators(truncated_range, strict_discrete_set),
@@ -191,7 +199,7 @@ class Keithley6221(KeithleyBuffer, SCPIMixin, Instrument):
     )
 
     delta_mea_sets = Instrument.control( 
-        ":SOUR:SWEep:COUN?", ":SOUR:SWEep:COUN %d",
+        ":SOUR:SWEep:COUN?", ":SOUR:SWEep:COUN %s",
         """ A integer property that controls the number of measurement sets for the delta measurements.
         . """,
         validator=joined_validators(truncated_range, strict_discrete_set),
@@ -202,7 +210,7 @@ class Keithley6221(KeithleyBuffer, SCPIMixin, Instrument):
         ":SOUR:DELT:CAB?", ":SOUR:DELT:CAB %s",
         """ A integer property that controls the delta count 
         . """,
-        values={True: 1, False: 0},
+        values={True: "ON", False: "OFF"},
         map_values=True,
     )
 
@@ -210,7 +218,7 @@ class Keithley6221(KeithleyBuffer, SCPIMixin, Instrument):
         ":SOUR:DELT:CSW?", ":SOUR:DELT:CSW %s",
         """ A integer property that controls the delta count 
         . """,
-        values={True: 1, False: 0},
+        values={True: "ON", False: "OFF"},
         map_values=True,
     )
 

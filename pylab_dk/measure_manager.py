@@ -444,7 +444,8 @@ class MeasureManager(DataPlot):
                          sweep_tables: list[list[float | str, ...]] | tuple[tuple[float | str, ...]] = None,
                          special_name: str = None, with_timer: bool = True, no_start_vary: bool = False,
                          ramp_intervals: list[float] | tuple[float] = None, vary_criteria: int = 10,
-                         field_ramp_rate: float = 0.2) -> dict:
+                         field_ramp_rate: float = 0.2,
+                         special_mea: Literal["normal", "delta"] = "normal") -> dict:
         """
         do the preset of measurements and return the generators, filepath and related info
         1. meter setup should be done before calling this method, they will be bound to generators
@@ -474,6 +475,7 @@ class MeasureManager(DataPlot):
             ramp_intervals (list[float]): the intervals for ramping the source, used with care, note the correspondence
             vary_criteria (int): the criteria (no of steps) to judge if the field/temperature is stable
             field_ramp_rate (float): the rate of the field ramp (T/min)
+            special_mea (Literal["normal", "delta"]): whether to do the special measurement, "delta" means the delta current-reversal measurement
 
         Returns:
             dict: a dictionary containing the list of generators, dataframe csv filepath and record number
@@ -484,6 +486,10 @@ class MeasureManager(DataPlot):
                     e.g. start magnetic field varying by calling mag_vary(),
                     add reverse=True to reverse the varying direction, used to do circular varying)
         """
+        if special_mea == "delta":
+            print("use instance.instrs['6221'][0].delta_setup(**kwargs) to set customized parameters if needed AFTER this method")
+            print("delta measurement should use a fixed current, make sure the 6221 source is fixed")
+
         if sweep_tables is not None:
             if isinstance(sweep_tables, list):
                 if isinstance(sweep_tables[0], list):
@@ -534,7 +540,11 @@ class MeasureManager(DataPlot):
                 raise ValueError(f"No source is specified for source {idx}")
 
             if src_mod[mod_i]["sweep_fix"] == "fixed":
-                wrapper_lst[idx].setup(function = "source")
+                if isinstance(wrapper_lst[idx], Wrapper6221):
+                    wrapper_lst[idx].setup(function = "source", mea_mode = special_mea)  # here assume only one 6221
+                else:
+                    wrapper_lst[idx].setup(function = "source")
+
                 if ramp_intervals is not None:
                     interval = ramp_intervals.pop(0)
                     wrapper_lst[idx].ramp_output(mod_i, src_mod[mod_i]["fix"], compliance=compliance_lst[idx], interval=interval)

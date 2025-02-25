@@ -249,7 +249,7 @@ class Wrapper6221(ACSourceMeter, DCSourceMeter):
                                "low_grounded": self.meter.output_low_grounded,
                                })
 
-    def setup(self, function: Literal["source"] = "source", 
+    def setup(self, function: Literal["source", "sense"] = "source", 
               mode: Literal["ac", "dc"] = "ac", *, offset=0, source_auto_range=True,
               low_grounded=True, 
               wave_function: Literal["sine", "ramp", "square", "arbitrary1", "arbitrary2", "arbitrary3", "arbitrary4"] = "sine", 
@@ -258,7 +258,8 @@ class Wrapper6221(ACSourceMeter, DCSourceMeter):
         set up the Keithley 6221 instruments, overwrite the specific settings here, other settings will all be
         reserved. Note that the waveform will not begin here
         """
-        assert function == "source", "6221 is a source meter, so the function should be source"
+        if mea_mode == "normal":
+            assert function == "source", "6221 is a source meter, so the function should be source"
         source_6221 = self.meter
         # first must close the output to do setup
         self.output_switch("off")
@@ -266,8 +267,8 @@ class Wrapper6221(ACSourceMeter, DCSourceMeter):
         if mea_mode == "delta":
             print("delta mode is selected, please set the specific parameters using delta_setup method")
             self.delta_setup()
-            self.mea_mode = mea_mode
             mode = "dc"
+        self.mea_mode = mea_mode
         if mode == "ac":
             self.info_dict["ac_dc"] = "ac"
             source_6221.waveform_function = wave_function
@@ -285,10 +286,13 @@ class Wrapper6221(ACSourceMeter, DCSourceMeter):
         source_6221.output_low_grounded = low_grounded
         self.info_dict.update({"low_grounded": low_grounded})
     
-    def delta_setup(self, *, delta_delay = 0.02, delta_cycles: int | Literal["INF"] = "INF", delta_mea_sets: int | Literal["INF"] = 1, delta_compliance_abort: bool = True, delta_cold_switch: bool = False):
+    def delta_setup(self, *, delta_unit: Literal["V", "Ohms", "W", "Siemens"] = "V", delta_delay = 0.02, delta_cycles: int | Literal["INF"] = "INF", delta_mea_sets: int | Literal["INF"] = 1, delta_compliance_abort: bool = True, delta_cold_switch: bool = False, trace_pts: int = 10):
         """
         set the specific parameters for delta mode
         """
+        self.mea_mode = "delta"
+        self.meter.delta_unit = delta_unit
+        self.meter.delta_buffer = trace_pts
         self.meter.delta_delay = delta_delay
         self.meter.delta_cycles = delta_cycles
         self.meter.delta_mea_sets = delta_mea_sets
@@ -371,7 +375,11 @@ class Wrapper6221(ACSourceMeter, DCSourceMeter):
             return self.get_output_status()[0]
         elif self.mea_mode == "delta":
             self.meter.delta_high = value
+            if compliance is not None:
+                compliance = convert_unit(compliance, "")[0]
+                self.meter.source_compliance = compliance
             self.meter.delta_arm()
+            time.sleep(2)  # wait for the delta mode to be armed
             self.meter.delta_start()
             return self.meter.delta_high
 
@@ -437,7 +445,7 @@ class Wrapper6221(ACSourceMeter, DCSourceMeter):
         self.meter.source_current = value
         self.output_switch("on")
 
-    def sense(self, type_str: Literal["curr", "volt"]):
+    def sense(self, type_str: Literal["volt"] = "volt"):
         if self.mea_mode == "normal":
             print("6221 is a source meter, no sense function")
         elif self.mea_mode == "delta":
