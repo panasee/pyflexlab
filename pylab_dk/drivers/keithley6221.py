@@ -98,7 +98,7 @@ class Keithley6221(KeithleyBuffer, SCPIMixin, Instrument):
         """ A string property that controls to whom the shield is connected, default to "output-low".
         Valid values are "guard" and "output-low". """,
         validator=strict_discrete_set,
-        values={"guard": "GUARd", "output-low": "OLOW"},
+        values={"guard": "GUAR", "output-low": "OLOW"},
         map_values=True
     )
 
