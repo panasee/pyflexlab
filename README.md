@@ -27,6 +27,7 @@ designed for collecting, processing, and plotting experimental data.
     - [Configure Local Setting Files](#configure-local-setting-files)
     - [Start Measurement](#start-measurement)
     - [Provided GUIs](#provided-guis)
+- [🔌 Supported Instruments](#-supported-instruments)
 - [⚠️ Known Issues](#️-known-issues)
 - [📦 Dependencies](#-dependencies)
 
@@ -79,6 +80,18 @@ Detailed examples of a few typical measurements have been demonstrated in `assis
 
 - 🔄 **gui-coor-trans**: A GUI for coordinate transformation used to locate objects using two reference points on a flat surface (linear transform solver)
 - 🎨 **gui-pan-color**: A color palette for choosing colors 
+
+## 🔌 Supported Instruments
+
+Currently supported instruments are listed here (some are directly from or modified from PyMeasure/QCoDeS; others are self-written):
+
+- **Meters**: Keithley 2182a/2400/2401/2450/6221/6430/6500; SR830
+- **Temperature Controllers**: Oxford ITC503, Oxford Mercury ITC
+- **Magnet Controllers**: Oxford IPS
+- **Other Instruments**: Probe Rotator (need C++ interface WJ_API.dll)
+
+Custom instrument drivers can be easily added referring to the abstract classes in `equip_wrapper.py`.
+Drivers with good universality will be contributed back to PyMeasure or QCoDeS, hopefully.
 
 ## ⚠️ Known Issues
 
