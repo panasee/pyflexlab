@@ -291,10 +291,11 @@ class Wrapper6221(ACSourceMeter, DCSourceMeter):
         """
         self.mea_mode = "delta"
         self.meter.delta_unit = delta_unit
-        self.meter.delta_buffer = trace_pts
+        self.meter.delta_buffer_points = trace_pts
+
         self.meter.delta_delay = delta_delay
         self.meter.delta_cycles = delta_cycles
-        self.meter.delta_mea_sets = delta_mea_sets
+        self.meter.delta_measurement_sets = delta_mea_sets
         self.meter.delta_compliance_abort = delta_compliance_abort
         self.meter.delta_cold_switch = delta_cold_switch
 
@@ -373,14 +374,14 @@ class Wrapper6221(ACSourceMeter, DCSourceMeter):
             self.output_target = convert_unit(value, "A")[0]
             return self.get_output_status()[0]
         elif self.mea_mode == "delta":
-            self.meter.delta_high = value
+            self.meter.delta_high_source = value
             if compliance is not None:
                 compliance = convert_unit(compliance, "")[0]
                 self.meter.source_compliance = compliance
             self.meter.delta_arm()
             time.sleep(2)  # wait for the delta mode to be armed
             self.meter.delta_start()
-            return self.meter.delta_high
+            return self.meter.delta_high_source
 
     def rms_output(self, value: float | str, *, freq: Optional[float | str] = None, compliance: Optional[float | str] = None,
                    type_str: Literal["curr"] = "curr"):
