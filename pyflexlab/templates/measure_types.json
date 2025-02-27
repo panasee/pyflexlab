@@ -1,0 +1,43 @@
+{
+    "V": {
+        "sense": "V{note}-{vhigh}-{vlow}",
+        "source": {
+            "fixed": {
+                "dc": "Vfix{fixv}V-{vhigh}-{vlow}",
+                "ac": "Vfix{fixv}V-freq{freq}Hz-{vhigh}-{vlow}"
+            },
+            "sweep": {
+                "dc": "Vmax{maxv}V-step{stepv}V-{vhigh}-{vlow}-swpmode{mode}",
+                "ac": "Vmax{maxv}V-step{stepv}V-freq{freq}Hz-{vhigh}-{vlow}"
+            }
+        }
+    },
+    "I": {
+        "sense": "I{note}-{iin}-{iout}",
+        "source": {
+            "fixed": {
+                "dc": "Ifix{fixi}A-{iin}-{iout}",
+                "ac": "Ifix{fixi}A-freq{freq}Hz-{iin}-{iout}"
+            },
+            "sweep": {
+                "dc": "Imax{maxi}A-step{stepi}A-{iin}-{iout}-swpmode{mode}",
+                "ac": "Imax{maxi}A-step{stepi}A-freq{freq}Hz-{iin}-{iout}"
+            }
+        }
+    },
+    "T": {
+        "fixed": "Temp{fixT}K",
+        "sweep": "Temp{Tstart}-{Tstop}K-step{stepT}K-swpmode{mode}",
+        "vary": "Temp{Tstart}-{Tstop}K"
+    },
+    "B": {
+        "fixed": "B{fixB}T",
+        "sweep": "B{Bstart}-{Bstop}T-step{stepB}T-swpmode{mode}",
+        "vary": "B{Bstart}-{Bstop}T"
+    },
+    "Theta": {
+        "fixed": "Theta{fixTheta}deg",
+        "sweep": "Theta{Thetastart}-{Thetastop}deg-step{stepTheta}deg-swpmode{mode}",
+        "vary": "Theta{Thetastart}-{Thetastop}deg"
+    }
+}
