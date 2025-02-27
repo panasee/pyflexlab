@@ -2,18 +2,27 @@
 requires = ["setuptools"]
 build-backend = "setuptools.build_meta"
 
+[tool.setuptools.packages.find]
+exclude = ["tests"]
+
 [project]
-name = "pylab_dk"
-version = "1.0b"
+name = "pyflexlab"
+version = "1.0b1"
 description = "Integrated Tools for Electronic, Cryogenic and Magnetic Measurements"
 authors = [{name="Dongkai", email="dongkai001@e.ntu.edu.sg"}]
 readme = "README.md"
 license = {text = "MIT License"}
+urls = { Homepage = "https://github.com/panasee/pyflexlab" }
 requires-python = ">=3.11"
+keywords = [
+  "measurement", 
+  "instrumentation"
+]
 classifiers = [
   "Development Status :: 4 - Beta",
   "Programming Language :: Python",
-  "intended Audience :: Science/Research"
+  "Intended Audience :: Science/Research",
+  "Topic :: Scientific/Engineering :: Physics"
 ]
 dependencies = [
     "numpy",
@@ -33,11 +42,14 @@ dependencies = [
 gui = ["PyQt6"]
 
 [project.scripts]
-gui_coor_trans = "pylab_dk.auxiliary:Flakes.gui_coor_transition"
-gui_pan_color = "pylab_dk.data_plot:DataPlot.gui_pan_color"
+gui_coor_trans = "pyflexlab.auxiliary:Flakes.gui_coor_transition"
+gui_pan_color = "pyflexlab.data_plot:DataPlot.gui_pan_color"
 
 [tool.setuptools]
 include-package-data = true
 
 [tool.setuptools.package-data]
-pylab_dk = ["pltconfig/rand_color.json"]
+pyflexlab = [
+  "pltconfig/rand_color.json",
+  "templates/**/*"
+]
