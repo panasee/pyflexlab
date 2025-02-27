@@ -1,4 +1,4 @@
-from pylab_dk.auxiliary import Flakes
+from pyflexlab.auxiliary import Flakes
 
 Flakes.coor_transition(ref1=(-1, 0), ref1_new=(1, 1),
                        ref2=(0, -1), ref2_new=(2, 2),

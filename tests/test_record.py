@@ -4,7 +4,7 @@ import pandas as pd
 import datetime
 # make sure environment variables are set before importing pylab_dk
 # MeasureManager module will need the NIDAQmx module to work,
-from pylab_dk.measure_manager import MeasureManager
+from pyflexlab.measure_manager import MeasureManager
 
 project_name = "Date-Material"  # Name used only for test
 measurement = MeasureManager(project_name)

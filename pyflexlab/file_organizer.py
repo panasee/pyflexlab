@@ -14,8 +14,8 @@ from typing import Literal
 from itertools import islice
 import shutil
 import re
-import pylab_dk
-from pylab_dk import set_paths
+from . import constants
+from .constants import set_paths
 
 
 def print_help_if_needed(func: callable) -> callable:
@@ -37,8 +37,8 @@ class FileOrganizer:
     # the None value is only to avoid the error when the class is imported
     # the value must be set before the class is used
     # in all methods and properties, they are assumed to be SET and not None
-    _local_database_dir = Path(pylab_dk.LOCAL_DB_PATH) if pylab_dk.LOCAL_DB_PATH is not None else None
-    _out_database_dir = Path(pylab_dk.OUT_DB_PATH) if pylab_dk.OUT_DB_PATH is not None else None
+    _local_database_dir = Path(constants.LOCAL_DB_PATH) if constants.LOCAL_DB_PATH is not None else None
+    _out_database_dir = Path(constants.OUT_DB_PATH) if constants.OUT_DB_PATH is not None else None
     _trash_dir = _out_database_dir / "trash" if _out_database_dir is not None else None
 
     # load the json files to dicts for storing important records information note that the dicts are static variables
@@ -61,8 +61,8 @@ class FileOrganizer:
     def reload_paths(*, local_db_path: str | Path = None, out_db_path: str | Path = None) -> None:
         """reload the paths from the environment variables"""
         set_paths(local_db_path=local_db_path, out_db_path=out_db_path)
-        FileOrganizer._local_database_dir = Path(pylab_dk.LOCAL_DB_PATH) if pylab_dk.LOCAL_DB_PATH is not None else None
-        FileOrganizer._out_database_dir = Path(pylab_dk.OUT_DB_PATH) if pylab_dk.OUT_DB_PATH is not None else None
+        FileOrganizer._local_database_dir = Path(constants.LOCAL_DB_PATH) if constants.LOCAL_DB_PATH is not None else None
+        FileOrganizer._out_database_dir = Path(constants.OUT_DB_PATH) if constants.OUT_DB_PATH is not None else None
         FileOrganizer._trash_dir = FileOrganizer._out_database_dir / "trash" if FileOrganizer._out_database_dir is not None else None
 
     def __init__(self, proj_name: str, copy_from: str = None) -> None:

@@ -1,14 +1,11 @@
 #!/usr/bin/env python
 """This module is responsible for processing and plotting the data"""
 from itertools import groupby
-from os.path import commonpath
 from typing import Literal, Sequence, List, Optional
 import numpy as np
 import pandas as pd
 
-from pylab_dk.file_organizer import FileOrganizer, print_help_if_needed
-from pylab_dk.constants import factor
-from datetime import datetime, timedelta
+from .file_organizer import FileOrganizer, print_help_if_needed
 
 
 class DataProcess(FileOrganizer):

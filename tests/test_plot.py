@@ -1,7 +1,7 @@
 #!/usr/bin/env python
 import time
 import numpy as np
-from pylab_dk.measure_manager import MeasureManager
+from pyflexlab.measure_manager import MeasureManager
 
 project_name = "Date-Material"  # Name used only for test
 measurement = MeasureManager(project_name)

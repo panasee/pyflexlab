@@ -22,9 +22,8 @@ from plotly.subplots import make_subplots
 import numpy as np
 import pandas as pd
 
-import pylab_dk.pltconfig.color_preset as colors
-from pylab_dk.constants import cm_to_inch, factor, default_plot_dict, is_notebook, hex_to_rgb
-from pylab_dk.data_process import DataProcess
+from .constants import cm_to_inch, factor, default_plot_dict, is_notebook, hex_to_rgb
+from .data_process import DataProcess
 
 
 class DataPlot(DataProcess):
@@ -371,7 +370,7 @@ class DataPlot(DataProcess):
     @staticmethod
     def load_settings(usetex: bool = False, usepgf: bool = False) -> None:
         """load the settings for matplotlib saved in another file"""
-        file_name = "pylab_dk.pltconfig.plot_config"
+        file_name = "pyflexlab.pltconfig.plot_config"
         if usetex:
             file_name += "_tex"
             if usepgf:
@@ -683,7 +682,14 @@ class DataPlot(DataProcess):
         - col: the column of the color selected
         - data_extract: used internally to get color data without plotting
         """
-        if DataPlot._local_database_dir is None:
+        if DataPlot._local_database_dir is not None:
+            try:
+                with open(DataPlot._local_database_dir / "pan-colors.json", encoding='utf-8') as f:
+                    color_dict = json.load(f)
+            except FileNotFoundError:
+                with resources.open_text("pyflexlab.pltconfig", "rand_color.json") as f:
+                    color_dict = json.load(f)
+        else:
             localenv_filter = re.compile(r"^PYLAB_DB_LOCAL")
             filtered_vars = {
                 key: value for key, value in os.environ.items() if localenv_filter.match(key)
@@ -694,11 +700,8 @@ class DataPlot(DataProcess):
                 print(f"load path from ENVIRON: {used_var}")
                 return DataPlot.sel_pan_color(row, col, data_extract)
             else:
-                with resources.open_text("pylab_dk.pltconfig", "rand_color.json") as f:
+                with resources.open_text("pyflexlab.pltconfig", "rand_color.json") as f:
                     color_dict = json.load(f)
-        else:
-            with open(DataPlot._local_database_dir / "pan-colors.json") as f:
-                color_dict = json.load(f)
         full_rgbs = list(map(hex_to_rgb, color_dict["values"]))
         rgbs = full_rgbs[:2304]
         extra = full_rgbs[2304:]

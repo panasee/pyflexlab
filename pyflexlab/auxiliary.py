@@ -3,7 +3,7 @@ import math
 from typing import Literal
 import numpy as np
 from matplotlib import pyplot as plt
-from pylab_dk.file_organizer import FileOrganizer
+from .file_organizer import FileOrganizer
 
 
 class Flakes:

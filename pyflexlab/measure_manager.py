@@ -12,13 +12,11 @@ import pyvisa
 import pandas as pd
 from pathlib import Path
 import re
-from pylab_dk.drivers.probe_rotator import RotatorProbe
-from pylab_dk.file_organizer import print_help_if_needed, FileOrganizer
-from pylab_dk.data_plot import DataPlot
-from pylab_dk.constants import convert_unit, print_progress_bar, gen_seq, constant_generator, \
-    combined_generator_list, rename_duplicates, time_generator
-from pylab_dk.equip_wrapper import ITCs, ITCMercury, WrapperSR830, Wrapper2400, Wrapper6430, Wrapper2182, \
-    Wrapper6221, Wrapper2450, Meter, SourceMeter, WrapperIPS
+from .drivers.probe_rotator import RotatorProbe
+from .file_organizer import print_help_if_needed, FileOrganizer
+from .data_plot import DataPlot
+from .constants import convert_unit, print_progress_bar, gen_seq, constant_generator, combined_generator_list, rename_duplicates, time_generator
+from .equip_wrapper import ITCs, ITCMercury, WrapperSR830, Wrapper2400, Wrapper6430, Wrapper2182, Wrapper6221, Wrapper2450, Meter, SourceMeter, WrapperIPS
 
 
 class MeasureManager(DataPlot):

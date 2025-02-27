@@ -1,5 +1,7 @@
 #!/usr/bin/env python
 import re
+import os
+from pathlib import Path
 import sys
 from datetime import datetime
 from functools import wraps
@@ -10,7 +12,50 @@ from matplotlib import colormaps
 import numpy as np
 import pandas as pd
 
-import pylab_dk.pltconfig.color_preset as colors
+import pyflexlab.pltconfig.color_preset as colors
+
+LOCAL_DB_PATH: Path | None = None
+OUT_DB_PATH: Path | None = None
+
+def set_envs() -> None:
+    """
+    set the environment variables from related environment variables
+    e.g. PYLAB_DB_LOCAL_XXX -> PYLAB_DB_LOCAL
+    """
+    for env_var in ["PYLAB_DB_LOCAL", "PYLAB_DB_OUT"]:
+        if env_var not in os.environ:
+            for key in os.environ:
+                if key.startswith(env_var):
+                    os.environ[env_var] = os.environ[key]
+                    print(f"set with {key}")
+                    break
+            else:
+                print(f"{env_var} not found in environment variables")
+
+def set_paths(*, local_db_path: Path | str | None = None, out_db_path: Path | str | None = None) -> None:
+    """
+    two ways are provided to set the paths:
+    1. set the paths directly in the function (before other modules are imported)
+    2. set the paths in the environment variables PYLAB_DB_LOCAL and PYLAB_DB_OUT
+    """
+    global LOCAL_DB_PATH, OUT_DB_PATH
+    if local_db_path is not None:
+        LOCAL_DB_PATH = Path(local_db_path)
+    else:
+        if os.getenv("PYLAB_DB_LOCAL") is None:
+            print("PYLAB_DB_LOCAL not set")
+        else:
+            LOCAL_DB_PATH = Path(os.getenv("PYLAB_DB_LOCAL"))
+            print(f"read from PYLAB_DB_LOCAL:{LOCAL_DB_PATH}")
+
+    if out_db_path is not None:
+        OUT_DB_PATH = Path(out_db_path)
+    else:
+        if os.getenv("PYLAB_DB_OUT") is None:
+            print("PYLAB_DB_OUT not set")
+        else:
+            OUT_DB_PATH = Path(os.getenv("PYLAB_DB_OUT"))
+            print(f"read from PYLAB_DB_OUT:{OUT_DB_PATH}")
 
 # define constants
 cm_to_inch = 0.3937
@@ -273,16 +318,16 @@ def timestr_convert(t: pd.Series | Sequence[str] | np.ndarray, format_str: str =
         the meaning of each character and optional characters is as follows:
         %H : Hour (24-hour clock) as a zero-padded decimal number. 00, 01, ..., 23
         %I : Hour (12-hour clock) as a zero-padded decimal number. 01, 02, ..., 12
-        %p : Locale’s equivalent of either AM or PM.
+        %p : Locale's equivalent of either AM or PM.
         %M : Minute as a zero-padded decimal number. 00, 01, ..., 59
         %S : Second as a zero-padded decimal number. 00, 01, ..., 59
         %f : Microsecond as a decimal number, zero-padded on the left. 000000, 000001, ..., 999999
-        %a : Weekday as locale’s abbreviated name.
-        %A : Weekday as locale’s full name.
+        %a : Weekday as locale's abbreviated name.
+        %A : Weekday as locale's full name.
         %w : Weekday as a decimal number, where 0 is Sunday and 6 is Saturday.
         %d : Day of the month as a zero-padded decimal number. 01, 02, ..., 31
-        %b : Month as locale’s abbreviated name.
-        %B : Month as locale’s full name.
+        %b : Month as locale's abbreviated name.
+        %B : Month as locale's full name.
         %m : Month as a zero-padded decimal number. 01, 02, ..., 12
         %y : Year without century as a zero-padded decimal number. 00, 01, ..., 99
         %Y : Year with century as a decimal number. 0001, 0002, ..., 2013, 2014, ..., 9998, 9999

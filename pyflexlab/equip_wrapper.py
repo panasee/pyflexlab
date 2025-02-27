@@ -44,13 +44,12 @@ from pymeasure.instruments.keithley import KeithleyDMM6500
 from pymeasure.instruments.keithley import Keithley2182
 from qcodes.instrument_drivers.Keithley import Keithley2400, Keithley2450
 
-from pylab_dk.drivers.MercuryiPS_VISA import OxfordMercuryiPS
-from pylab_dk.drivers.mercuryITC import MercuryITC
-from pylab_dk.drivers.Keithley_6430 import Keithley_6430
-from pylab_dk.drivers.keithley6221 import Keithley6221
+from .drivers.MercuryiPS_VISA import OxfordMercuryiPS
+from .drivers.mercuryITC import MercuryITC
+from .drivers.Keithley_6430 import Keithley_6430
+from .drivers.keithley6221 import Keithley6221
 
-from pylab_dk.constants import convert_unit, print_progress_bar, switch_dict
-from pylab_dk.data_plot import DataPlot
+from .constants import convert_unit, print_progress_bar, switch_dict
 
 
 class Meter(ABC):

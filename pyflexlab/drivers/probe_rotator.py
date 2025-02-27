@@ -9,8 +9,8 @@ from typing import Optional
 
 from pathlib import Path
 import ctypes
-import pylab_dk
-from pylab_dk.constants import print_progress_bar
+from .. import constants
+from ..constants import print_progress_bar
 
 
 def avoid_running(method):
@@ -29,10 +29,10 @@ def avoid_running(method):
 
 
 class RotatorProbe:
-    if pylab_dk.LOCAL_DB_PATH is None:
+    if constants.LOCAL_DB_PATH is None:
         dll_path = Path('.')
     else:
-        dll_path = Path(pylab_dk.LOCAL_DB_PATH / 'WJ_API.dll')
+        dll_path = Path(constants.LOCAL_DB_PATH / 'WJ_API.dll')
 
     # currently only one axis is used, so all methods are for one axis (axis_num: 1)
     def __init__(self, *, port: Optional[int] = None):
