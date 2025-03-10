@@ -791,6 +791,8 @@ class Wrapper6430(DCSourceMeter):
                 else:
                     compliance = abs(value * 100000)
             if compliance != self.meter.source_voltage_compliance():
+                self.meter.source_voltage_range(convert_unit(compliance, "V")[0])
+                self.meter.source_autorange(True)
                 self.meter.source_voltage_compliance(convert_unit(compliance, "V")[0])
             self.meter.source_current(value)
 
@@ -807,6 +809,8 @@ class Wrapper6430(DCSourceMeter):
                 else:
                     compliance = abs(value / 1000)
             if compliance != self.meter.source_current_compliance():
+                self.meter.source_current_range(convert_unit(compliance, "A")[0])
+                self.meter.source_autorange(True)
                 self.meter.source_current_compliance(convert_unit(compliance, "A")[0])
             self.meter.source_voltage(value)
 
