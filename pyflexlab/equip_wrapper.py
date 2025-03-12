@@ -49,7 +49,12 @@ from .drivers.mercuryITC import MercuryITC
 from .drivers.Keithley_6430 import Keithley_6430
 from .drivers.keithley6221 import Keithley6221
 
-from .constants import convert_unit, print_progress_bar, switch_dict
+from .constants import (
+    convert_unit, 
+    print_progress_bar, 
+    switch_dict, 
+    CacheArray
+    )
 
 
 class Meter(ABC):
@@ -1273,14 +1278,45 @@ Wrappers for ITC are following
 class ITC(ABC):
     # parent class to incorporate both two ITCs
     @abstractmethod
-    def __init__(self, address: str):
-        pass
+    def __init__(self, address: str, cache_length: int = 60, var_crit: float = 1E-4):
+        self.cache = CacheArray(cache_length=cache_length, var_crit=var_crit)
+
+    def set_cache(self, *, cache_length: int, var_crit: Optional[float] = None):
+        """
+        set the cache for the ITC
+        """
+        if var_crit is None:
+            self.cache = CacheArray(cache_length=cache_length)
+        else:
+            self.cache = CacheArray(cache_length=cache_length, var_crit=var_crit)
 
     @property
-    @abstractmethod
-    def temperature(self):
+    def temperature(self) -> float:
         """return the precise temperature of the sample"""
-        pass
+        temp: float = self.get_temperature()
+        self.cache.update_cache(temp)
+        return temp
+
+    def add_cache(self) -> None:
+        """add the temperature to the cache without returning"""
+        temp: float = self.get_temperature()
+        self.cache.update_cache(temp)
+
+    @abstractmethod
+    def get_temperature(self) -> float:
+        """get the temperature from the instrument without caching"""
+
+    @property
+    def status(self) -> Literal["VARYING", "HOLD"]:
+        """return the varying status of the ITC"""
+        status_return = self.cache.get_status()
+        if status_return is None:
+            for i in range(self.cache.cache_length):
+                self.cache.update_cache(self.get_temperature())
+                print_progress_bar(i+1, self.cache.cache_length, prefix="loading cache")
+                time.sleep(1)
+            status_return = self.cache.get_status()
+        return "HOLD" if status_return["if_stable"] else "VARYING"
 
     @property
     @abstractmethod
@@ -1325,8 +1361,10 @@ class ITC(ABC):
         """
         pass
 
-    def wait_for_temperature(self, temp, *, check_interval=1, stability_counter=21,
-                             thermalize_counter=17):
+    def wait_for_temperature(self, temp, *,
+                             check_interval=1,
+                             stability_counter=7,
+                             thermalize_counter=11):
         """
         wait for the temperature to stablize for a certain time length
 
@@ -1359,19 +1397,26 @@ class ITC(ABC):
         else:
             trend = "down"
 
+        while self.status == "VARYING":
+            self.add_cache()
+            time.sleep(check_interval)
+
         i = 0
         while i < stability_counter:
+            self.add_cache()
             self.correction_ramping(self.temperature, trend)
-            if abs(self.temperature - temp) < ITC.dynamic_delta(temp):
+            if abs(self.cache.get_status()["mean"] - temp) < ITC.dynamic_delta(temp):
                 i += 1
-            elif i >= 5:
-                i -= 5
-            print_progress_bar(i, stability_counter, prefix="Stablizing",
+            else:
+                i = 0
+            print_progress_bar(i, stability_counter, 
+                               prefix="Stablizing",
                                suffix=f"Temperature: {self.temperature:.2f} K")
             time.sleep(check_interval)
         print("Temperature stablized")
         for i in range(thermalize_counter):
-            print_progress_bar(i + 1, thermalize_counter, prefix="Thermalizing",
+            print_progress_bar(i + 1, thermalize_counter, 
+                               prefix="Thermalizing",
                                suffix=f"Temperature: {self.temperature:.2f} K")
             time.sleep(check_interval)
         print("Thermalizing finished")
@@ -1406,8 +1451,10 @@ class ITCMercury(ITC):
     self.correction_ramping: modify pressure according to the temperature and trend
     self.calculate_vti_temp (in driver): automatically calculate the set VTI temperature
     """
-    def __init__(self, address="TCPIP0::10.97.27.13::7020::SOCKET"):
+    def __init__(self, address="TCPIP0::10.97.27.13::7020::SOCKET",
+                 cache_length: int = 60, var_crit: float = 5E-4):
         self.mercury = MercuryITC("mercury_itc", address)
+        self.cache = CacheArray(cache_length=cache_length, var_crit=var_crit)
 
     @property
     def pres(self):
@@ -1443,8 +1490,7 @@ class ITCMercury(ITC):
     def pid_control(self, control: Literal["ON", "OFF"]):
         self.mercury.temp_PID_control(control)
 
-    @property
-    def temperature(self):
+    def get_temperature(self) -> float:
         return self.mercury.probe_temp()
 
     def set_temperature(self, temp, vti_diff=None):
@@ -1510,19 +1556,19 @@ class ITCMercury(ITC):
             trend (Literal["up","down","up-huge","down-huge"]): the trend of the temperature
         """
         if trend == "up-huge":
-            self.set_pres(8)
+            self.set_flow(2)
         elif trend == "down-huge":
             if temp >= 5:
-                self.set_pres(25)
+                self.set_flow(15)
             elif temp > 2:
-                self.set_pres(8)
+                self.set_flow(8)
             else:
-                self.set_pres(3)
+                self.set_flow(3)
         else:
             if temp <= 2.3:
-                self.set_pres(3)
+                self.set_flow(2)
             else:
-                self.set_pres(8)
+                self.set_flow(5)
 
 
 class ITCs(ITC):
@@ -1531,11 +1577,12 @@ class ITCs(ITC):
     There are two ITC503 incorporated in the setup, named up and down. The up one measures the temperature of the heat switch(up R1), PT2(up R2), leaving R3 no specific meaning. The down one measures the temperature of the sorb(down R1), POT LOW(down R2), POT HIGH(down R3).
     """
 
-    def __init__(self, address_up: str = "GPIB0::23::INSTR", address_down: str = "GPIB0::24::INSTR", clear_buffer=True):
+    def __init__(self, address_up: str = "GPIB0::23::INSTR", address_down: str = "GPIB0::24::INSTR", clear_buffer=True, cache_length: int = 60, var_crit: float = 3E-4):
         self.itc_up = ITC503(address_up, clear_buffer=clear_buffer)
         self.itc_down = ITC503(address_down, clear_buffer=clear_buffer)
         self.itc_up.control_mode = "RU"
         self.itc_down.control_mode = "RU"
+        self.cache = CacheArray(cache_length=cache_length, var_crit=var_crit)
 
     def chg_display(self, itc_name, target):
         """
@@ -1734,8 +1781,7 @@ class ITCs(ITC):
         return {"sw": self.itc_up.temperature_1, "pt2": self.itc_up.temperature_2, "sorb": self.itc_down.temperature_1,
                 "pot_low": self.itc_down.temperature_2, "pot_high": self.itc_down.temperature_3}
 
-    @property
-    def temperature(self):
+    def get_temperature(self):
         """ Returns the precise temperature of the sample """
         if self.temperatures["pot_high"] < 1.9:
             return self.temperatures["pot_low"]

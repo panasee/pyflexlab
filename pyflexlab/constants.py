@@ -77,6 +77,43 @@ default_plot_dict = {"color": colors.Presets["Nl"][0], "linewidth": 1, "linestyl
 
 switch_dict = {"on": True, "off": False, "ON": True, "OFF": False}
 
+class CacheArray:
+    def __init__(self, cache_length: int = 60, var_crit: float = 1E-4):
+        self.cache_length = cache_length
+        self.mean:float = None
+        self.cache = np.array([])
+        self.var_crit = var_crit
+
+    def update_cache(self, new_value: float | Sequence[float]) -> tuple[Sequence[float], bool]:
+        """
+        update the cache using newest values 
+        """
+        if isinstance(new_value, (int, float)):
+            new_value = [new_value]
+        
+        self.cache = np.append(self.cache, new_value)[-self.cache_length:]
+        self.mean = self.cache.mean()
+
+    def get_status(self, *, require_cache: bool = False, var_crit: Optional[float] = None) -> dict[str, float | Sequence[float] | bool] | None:
+        """
+        return the cache, mean value, and whether the cache is stable
+
+        Args:
+            require_cache (bool): whether to return the cache array
+            var_crit (float): the criterion of the variance
+        """
+        if self.cache.size <= 3:
+            print("Cache is not enough to judge the stability")
+            return None
+        if var_crit is None:
+            var_stable = (self.cache.var() < self.var_crit)
+        else:
+            var_stable = (self.cache.var() < var_crit)
+        if require_cache:
+            return {"cache": self.cache, "mean": self.mean, "if_stable": var_stable}
+        else:
+            return {"mean": self.mean, "if_stable": var_stable}
+
 
 def factor(unit: str, mode: str = "from_SI"):
     """
@@ -159,7 +196,6 @@ def convert_unit(before: float | int | str | list[float | int | str, ...] | tupl
         return convert_unit(float(before), target_unit)
     elif isinstance(before, (list, tuple, np.ndarray)):
         return [convert_unit(i, target_unit)[0] for i in before], [convert_unit(i, target_unit)[1] for i in before]
-
 
 def print_progress_bar(iteration: float, total: float, prefix='', suffix='', decimals=1, length=50, fill='#',
                        print_end="\r") -> None:

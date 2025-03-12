@@ -5,7 +5,7 @@ initialzed right before the measurement, as there may be a long time between loa
 possibilities of parameter changing"""
 import copy
 from itertools import product
-from typing import Literal, Generator, Optional, Sequence
+from typing import Literal, Generator, Optional, Sequence, Callable
 import gc
 import numpy as np
 import pyvisa
@@ -268,7 +268,10 @@ class MeasureManager(DataPlot):
             yield value_i
 
     def sense_apply(self, sense_type: Literal["volt", "curr", "temp", "mag", "V", "I", "T", "B", "H", "angle", "Theta"],
-                    meter: str | Meter = None, *, if_during_vary=False, vary_criteria: int = 10) \
+                    meter: str | Meter = None, *,
+                    if_during_vary=False,
+                    vary_criteria: Optional[int | float] = None,
+                    trigger_func: Callable = None) \
             -> Generator[float, None, None]:
         """
         sense the current using the source meter, initializations will be done for volt/curr meters
@@ -279,11 +282,16 @@ class MeasureManager(DataPlot):
             if_during_vary (bool): whether the sense is bonded with a varying temp/field, this will limit the generator,
                 and the sense will be stopped when the temp/field is stable (not available for meters and rotator)
             vary_criteria (int): the criteria (no of steps) to judge if the field/temperature is stable
+            trigger_func (Callable): the function to trigger WHEN THE SENSE VALUE IS STABLE (REACH VARY BOUND), the function will be called with the sense value
         Returns:
             float | tuple[float]: the sensed value (tuple for sr830 ac sense)
         """
-        sense_type = (sense_type.replace("V", "volt").replace("I", "curr").
-                      replace("T", "temp").replace("B", "mag").replace("H", "mag").
+        sense_type = (sense_type.
+                      replace("V", "volt").
+                      replace("I", "curr").
+                      replace("T", "temp").
+                      replace("B", "mag").
+                      replace("H", "mag").
                       replace("Theta", "angle"))
         print(f"Sense Type: {sense_type}")
         if sense_type in ["volt", "curr"] and meter is not None:
@@ -294,6 +302,14 @@ class MeasureManager(DataPlot):
                 instr.setup(function="sense", input_config="I (1 MOhm)", input_grounding="Ground")
             while True:
                 yield instr.sense_delay(type_str=sense_type)
+
+        if vary_criteria is not None:
+            if vary_criteria < 1:
+                print(f"variance criteria is set to {vary_criteria}, only suitable for ITC")
+            else:
+                print(f"step criteria is deprecated, please use variance criteria instead")
+                vary_criteria = None
+
         elif sense_type == "temp":
             instr = self.instrs["itc"]
             print(f"Sense Meter/Instr: {instr}")
@@ -301,12 +317,17 @@ class MeasureManager(DataPlot):
                 while True:
                     yield instr.temperature
             else:
-                timer_i = 0
-                while timer_i < vary_criteria:
-                    if abs(instr.temperature - instr.temperature_set) < instr.dynamic_delta(instr.temperature_set):
-                        timer_i += 1
-                    else:
-                        timer_i = 0
+#                timer_i = 0
+#                while timer_i < vary_criteria:
+#                    if abs(instr.temperature - instr.temperature_set) < instr.dynamic_delta(instr.temperature_set):
+#                        timer_i += 1
+#                    else:
+#                        timer_i = 0
+                if vary_criteria is not None:
+                    instr.set_cache(var_crit=vary_criteria)
+                    for _ in range(instr.cache.cache_length):
+                        yield instr.temperature
+                while instr.status == "VARYING":
                     yield instr.temperature
         elif sense_type == "mag":
             instr = self.instrs["ips"]
@@ -315,13 +336,8 @@ class MeasureManager(DataPlot):
                 while True:
                     yield instr.field
             else:
-                timer_i = 0
-                while timer_i < vary_criteria:
+                while instr.status == "TO SET":
                     # only z field is considered
-                    if abs(instr.field - instr.field_set) < 0.001:
-                        timer_i += 1
-                    else:
-                        timer_i = 0
                     yield instr.field
         elif sense_type == "angle":
             instr = self.instrs["rotator"]
