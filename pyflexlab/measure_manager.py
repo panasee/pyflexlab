@@ -67,9 +67,9 @@ class MeasureManager(DataPlot):
         for addr in address:
             self.instrs[meter_no].append(self.meter_wrapper_dict[meter_no](addr))
             try:
-                self.instrs[meter_no][-1].setup(function="source")
+                self.instrs[meter_no][-1].setup(function="source", reset=True)
             except:
-                self.instrs[meter_no][-1].setup(function="sense")
+                self.instrs[meter_no][-1].setup(function="sense", reset=True)
 
     def load_rotator(self) -> None:
         """

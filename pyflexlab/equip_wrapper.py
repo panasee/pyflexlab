@@ -252,11 +252,14 @@ class Wrapper6221(ACSourceMeter, DCSourceMeter):
               mode: Literal["ac", "dc"] = "ac", *, offset=0, source_auto_range=True,
               low_grounded=True, 
               wave_function: Literal["sine", "ramp", "square", "arbitrary1", "arbitrary2", "arbitrary3", "arbitrary4"] = "sine", 
-              mea_mode: Literal["normal", "delta", "pulse-delta", "differential"] = "normal") -> None:
+              mea_mode: Literal["normal", "delta", "pulse-delta", "differential"] = "normal",
+              reset: bool = False) -> None:
         """
         set up the Keithley 6221 instruments, overwrite the specific settings here, other settings will all be
         reserved. Note that the waveform will not begin here
         """
+        if reset:
+            self.meter.write("*RST")
         if mea_mode == "normal":
             assert function == "source", "6221 is a source meter, so the function should be source"
         source_6221 = self.meter
@@ -473,8 +476,9 @@ class Wrapper2182(Meter):
                           "channel": 1,
                           "sense_type": "volt"}
 
-    def setup(self, function: Literal["sense"] = "sense", *, channel: Literal[0, 1, 2] = 1) -> None:
-        self.meter.reset()
+    def setup(self, function: Literal["sense"] = "sense", *, channel: Literal[0, 1, 2] = 1, reset: bool = False) -> None:
+        if reset:
+            self.meter.reset()
         self.meter.active_channel = channel
         self.meter.channel_function = "voltage"
         self.meter.voltage_nplc = 5
@@ -513,9 +517,10 @@ class Wrapper6500(Meter):
                           "auto_zero": True,
                           "terminal": "front"}
 
-    def setup(self, function: Literal["source", "sense"]) -> None:
+    def setup(self, function: Literal["source", "sense"], reset: bool = False) -> None:
         """default to measuring voltage"""
-        self.meter.write("*RST")
+        if reset:
+            self.meter.write("*RST")
         self.meter.auto_range()
         if function == "sense":
             self.meter.write(":SENS:VOLT:INP AUTO")  # auto impedance
@@ -590,14 +595,24 @@ class WrapperSR830(ACSourceMeter):
                                "reserve": self.meter.reserve,
                                "filter_synchronous": self.meter.filter_synchronous})
 
-    def setup(self, function: Literal["source", "sense"] = "sense", *, filter_slope=24, time_constant=0.3, input_config="A - B",
-              input_coupling="AC", input_grounding="Float", sine_voltage: float = 0,
+    def setup(self, function: Literal["source", "sense"] = "sense", *, 
+              filter_slope=24, 
+              time_constant=0.3, 
+              input_config="A - B",
+              input_coupling="AC", 
+              input_grounding="Float", 
+              sine_voltage: float = 0,
               input_notch_config="None",
-              reserve="Normal", filter_synchronous=False) -> None:
+              reserve="Normal", 
+              filter_synchronous=False, 
+              reset: bool = False) -> None:
         """
         setup the SR830 instruments using pre-stored setups here, this function will not fully reset the instruments,
         only overwrite the specific settings here, other settings will all be reserved
         """
+        if reset:
+            self.setup()
+            return
         if function == "sense":
             self.meter.filter_slope = filter_slope
             self.meter.time_constant = time_constant
@@ -711,12 +726,16 @@ class Wrapper6430(DCSourceMeter):
             "autozero": self.meter.autozero(),
         })
 
-    def setup(self, function: Literal["sense", "source"] = "sense", *, auto_zero: str = "on"):
+    def setup(self, function: Literal["sense", "source"] = "sense", *, 
+              auto_zero: str = "on", reset: bool = False):
         if function == "source":
-            self.meter.reset()
-            self.meter.output_enabled(False)
+            if reset:
+                self.meter.reset()
+                self.meter.output_enabled(False)
             self.meter.autozero(auto_zero)
         elif function == "sense":
+            if reset:
+                self.meter.reset()
             self.meter.sense_autorange(True)
             self.meter.autozero(auto_zero)
         else:
@@ -791,8 +810,8 @@ class Wrapper6430(DCSourceMeter):
                 else:
                     compliance = abs(value * 100000)
             if compliance != self.meter.source_voltage_compliance():
-                self.meter.source_voltage_range(convert_unit(compliance, "V")[0])
-                self.meter.source_autorange(True)
+                self.meter.sense_voltage_range(convert_unit(compliance, "V")[0])
+                self.meter.sense_autorange(True)
                 self.meter.source_voltage_compliance(convert_unit(compliance, "V")[0])
             self.meter.source_current(value)
 
@@ -809,8 +828,8 @@ class Wrapper6430(DCSourceMeter):
                 else:
                     compliance = abs(value / 1000)
             if compliance != self.meter.source_current_compliance():
-                self.meter.source_current_range(convert_unit(compliance, "A")[0])
-                self.meter.source_autorange(True)
+                self.meter.sense_current_range(convert_unit(compliance, "A")[0])
+                self.meter.sense_autorange(True)
                 self.meter.source_current_compliance(convert_unit(compliance, "A")[0])
             self.meter.source_voltage(value)
 
@@ -972,9 +991,10 @@ class Wrapper2450(DCSourceMeter):
             "sense_autozero": self.meter.sense.auto_zero_enabled(),
         })
 
-    def setup(self, function: Literal["sense", "source"] = "sense"):
-        if function == "source":
+    def setup(self, function: Literal["sense", "source"] = "sense", *, reset: bool = False):
+        if reset:
             self.meter.reset()
+        if function == "source":
             self.meter.source.auto_range(True)
         self.info_sync()
         self.meter.terminals("front")
