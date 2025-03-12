@@ -150,10 +150,14 @@ class FileOrganizer:
         """Open the project folder"""
         FileOrganizer.open_folder(self._out_database_dir_proj)
 
-    def get_filepath(self, measure_mods: tuple[str] | list[str], *var_tuple,
-                     tmpfolder: str = None, plot: bool = False, suffix: str = ".csv") -> Path:
+    def get_filepath(self, measure_mods: tuple[str] | list[str],
+                     *var_tuple,
+                     parent_folder: str = "",
+                     tmpfolder: str = "",
+                     plot: bool = False,
+                     suffix: str = ".csv") -> Path:
         """
-        Get the filepath of the measurement file.
+        Get the filepath of the measurement file. suffix would be overwritten by plot (to ".png")
 
         Args:
             measure_mods: tuple[str]
@@ -168,20 +172,17 @@ class FileOrganizer:
                 The suffix of the file, default is ".csv"
         """
         measure_name, name_fstr = FileOrganizer.name_fstr_gen(*measure_mods)
+        if plot:
+            plot_folder = "plot"
+            suffix = ".png"
+        else:
+            plot_folder = ""
+            suffix = suffix
 
         try:
             filename = FileOrganizer.filename_format(name_fstr, *var_tuple)
 
-            if tmpfolder is not None:
-                filepath = self._out_database_dir_proj / measure_name / tmpfolder / filename
-                if plot:
-                    filepath = self._out_database_dir_proj / "plot" / measure_name / tmpfolder / filename
-                    suffix = ".png"
-            else:
-                filepath = self._out_database_dir_proj / measure_name / filename
-                if plot:
-                    filepath = self._out_database_dir_proj / "plot" / measure_name / filename
-                    suffix = ".png"
+            filepath = self._out_database_dir_proj / plot_folder / parent_folder / measure_name / tmpfolder / filename
             return filepath.with_suffix(suffix)
 
         except Exception:

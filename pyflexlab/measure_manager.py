@@ -339,9 +339,13 @@ class MeasureManager(DataPlot):
                         timer_i = 0
                     yield instr.curr_angle()
 
-    def record_init(self, measure_mods: tuple[str], *var_tuple: float | str,
-                    manual_columns: Optional[list[str]] = None, return_df: bool = False,
-                    special_folder: Optional[str] = None, with_timer: bool = True) \
+    def record_init(self, measure_mods: tuple[str],
+                    *var_tuple: float | str,
+                    manual_columns: Optional[list[str]] = None,
+                    return_df: bool = False,
+                    special_folder: str = "",
+                    measure_nickname: str = "",
+                    with_timer: bool = True) \
             -> tuple[Path, int, Path] | tuple[Path, int, pd.DataFrame, Path]:
         """
         initialize the record of the measurement and the csv file;
@@ -359,13 +363,11 @@ class MeasureManager(DataPlot):
             int: the number of columns of the record
         """
         # main_mods, f_str = self.name_fstr_gen(*measure_mods)
-        file_path = self.get_filepath(measure_mods, *var_tuple, tmpfolder=special_folder)
-        if special_folder is not None and special_folder != "":
-            tmp_plot_path = self.get_filepath(measure_mods, *var_tuple,
-                                              tmpfolder=f"{special_folder}/record_plot", plot=True, suffix=".png")
-        else:
-            tmp_plot_path = self.get_filepath(measure_mods, *var_tuple,
-                                              tmpfolder="record_plot", plot=True, suffix=".png")
+        file_path = self.get_filepath(measure_mods, *var_tuple, tmpfolder=special_folder, parent_folder=measure_nickname)
+        tmp_plot_path = self.get_filepath(measure_mods, *var_tuple,
+                                    parent_folder=measure_nickname,
+                                    tmpfolder=f"{special_folder}/record_plot", 
+                                    plot=True, suffix=".png")
         file_path.parent.mkdir(parents=True, exist_ok=True)
         self.add_measurement(*measure_mods)
         print(f"Filename is: {file_path.name}")
@@ -436,12 +438,19 @@ class MeasureManager(DataPlot):
                 #curr_df = pd.DataFrame(columns=curr_df.columns)
 
     @print_help_if_needed
-    def get_measure_dict(self, measure_mods: tuple[str], *var_tuple: float | str,
-                         wrapper_lst: list[Meter | SourceMeter] = None, compliance_lst: list[float | str],
-                         sr830_current_resistor: float = None, if_combine_gen: bool = True,
+    def get_measure_dict(self, measure_mods: tuple[str], 
+                         *var_tuple: float | str,
+                         wrapper_lst: list[Meter | SourceMeter] = None,
+                         compliance_lst: list[float | str],
+                         sr830_current_resistor: float = None,
+                         if_combine_gen: bool = True,
                          sweep_tables: list[list[float | str, ...]] | tuple[tuple[float | str, ...]] = None,
-                         special_name: str = None, with_timer: bool = True, no_start_vary: bool = False,
-                         ramp_intervals: list[float] | tuple[float] = None, vary_criteria: int = 10,
+                         special_name: str = None,
+                         measure_nickname: str = "",
+                         with_timer: bool = True,
+                         no_start_vary: bool = False,
+                         ramp_intervals: list[float] | tuple[float] = None,
+                         vary_criteria: Optional[int | float] = None,
                          field_ramp_rate: float = 0.2,
                          special_mea: Literal["normal", "delta"] = "normal") -> dict:
         """
@@ -520,7 +529,7 @@ class MeasureManager(DataPlot):
         assert len(src_lst) == len(compliance_lst), "The number of sources and compliance should be the same"
 
         # init record dataframe
-        file_path, record_num, record_plot_path = self.record_init(measure_mods, *var_tuple, special_folder = special_name)
+        file_path, record_num, record_plot_path = self.record_init(measure_mods, *var_tuple, special_folder = special_name, measure_nickname = measure_nickname)
         rec_lst = [time_generator()] if with_timer else []
 
         # =============assemble the record generators into one list==============
