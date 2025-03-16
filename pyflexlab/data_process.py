@@ -21,8 +21,13 @@ class DataProcess(FileOrganizer):
         self.dfs = {}
 
     @print_help_if_needed
-    def load_dfs(self, measure_mods: tuple[str], *var_tuple: float | str, tmpfolder: str = None, cached: bool = False,
-                 header: Literal[None, "infer"] = "infer", skiprows: int = None) -> pd.DataFrame:
+    def load_dfs(self, measure_mods: tuple[str], 
+                 *var_tuple: float | str, 
+                 tmpfolder: str = "", 
+                 measure_nickname: str = "",
+                 cached: bool = False,
+                 header: Literal[None, "infer"] = "infer", 
+                 skiprows: int = None) -> pd.DataFrame:
         """
         Load a dataframe from a file, save the dataframe as a member variable and also return it
 
@@ -32,7 +37,7 @@ class DataProcess(FileOrganizer):
         - **kwargs: the arguments for the pd.read_csv function
         - cached: whether to save the df into self.dfs["cache"] instead of self.dfs (overwritten by the next load_dfs call, only with temperary usage)
         """
-        file_path = self.get_filepath(measure_mods, *var_tuple, tmpfolder=tmpfolder)
+        file_path = self.get_filepath(measure_mods, *var_tuple, tmpfolder=tmpfolder, parent_folder=measure_nickname)
         mainname_str, _ = FileOrganizer.name_fstr_gen(*measure_mods)
         if not cached:
             self.dfs[mainname_str] = pd.read_csv(file_path, sep=',', skiprows=skiprows, header=header,

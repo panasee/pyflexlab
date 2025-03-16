@@ -49,7 +49,12 @@ from .drivers.mercuryITC import MercuryITC
 from .drivers.Keithley_6430 import Keithley_6430
 from .drivers.keithley6221 import Keithley6221
 
-from .constants import convert_unit, print_progress_bar, switch_dict
+from .constants import (
+    convert_unit, 
+    print_progress_bar, 
+    switch_dict, 
+    CacheArray
+    )
 
 
 class Meter(ABC):
@@ -252,11 +257,14 @@ class Wrapper6221(ACSourceMeter, DCSourceMeter):
               mode: Literal["ac", "dc"] = "ac", *, offset=0, source_auto_range=True,
               low_grounded=True, 
               wave_function: Literal["sine", "ramp", "square", "arbitrary1", "arbitrary2", "arbitrary3", "arbitrary4"] = "sine", 
-              mea_mode: Literal["normal", "delta", "pulse-delta", "differential"] = "normal") -> None:
+              mea_mode: Literal["normal", "delta", "pulse-delta", "differential"] = "normal",
+              reset: bool = False) -> None:
         """
         set up the Keithley 6221 instruments, overwrite the specific settings here, other settings will all be
         reserved. Note that the waveform will not begin here
         """
+        if reset:
+            self.meter.write("*RST")
         if mea_mode == "normal":
             assert function == "source", "6221 is a source meter, so the function should be source"
         source_6221 = self.meter
@@ -473,8 +481,9 @@ class Wrapper2182(Meter):
                           "channel": 1,
                           "sense_type": "volt"}
 
-    def setup(self, function: Literal["sense"] = "sense", *, channel: Literal[0, 1, 2] = 1) -> None:
-        self.meter.reset()
+    def setup(self, function: Literal["sense"] = "sense", *, channel: Literal[0, 1, 2] = 1, reset: bool = False) -> None:
+        if reset:
+            self.meter.reset()
         self.meter.active_channel = channel
         self.meter.channel_function = "voltage"
         self.meter.voltage_nplc = 5
@@ -513,9 +522,10 @@ class Wrapper6500(Meter):
                           "auto_zero": True,
                           "terminal": "front"}
 
-    def setup(self, function: Literal["source", "sense"]) -> None:
+    def setup(self, function: Literal["source", "sense"], reset: bool = False) -> None:
         """default to measuring voltage"""
-        self.meter.write("*RST")
+        if reset:
+            self.meter.write("*RST")
         self.meter.auto_range()
         if function == "sense":
             self.meter.write(":SENS:VOLT:INP AUTO")  # auto impedance
@@ -590,14 +600,24 @@ class WrapperSR830(ACSourceMeter):
                                "reserve": self.meter.reserve,
                                "filter_synchronous": self.meter.filter_synchronous})
 
-    def setup(self, function: Literal["source", "sense"] = "sense", *, filter_slope=24, time_constant=0.3, input_config="A - B",
-              input_coupling="AC", input_grounding="Float", sine_voltage: float = 0,
+    def setup(self, function: Literal["source", "sense"] = "sense", *, 
+              filter_slope=24, 
+              time_constant=0.3, 
+              input_config="A - B",
+              input_coupling="AC", 
+              input_grounding="Float", 
+              sine_voltage: float = 0,
               input_notch_config="None",
-              reserve="Normal", filter_synchronous=False) -> None:
+              reserve="Normal", 
+              filter_synchronous=False, 
+              reset: bool = False) -> None:
         """
         setup the SR830 instruments using pre-stored setups here, this function will not fully reset the instruments,
         only overwrite the specific settings here, other settings will all be reserved
         """
+        if reset:
+            self.setup()
+            return
         if function == "sense":
             self.meter.filter_slope = filter_slope
             self.meter.time_constant = time_constant
@@ -711,12 +731,16 @@ class Wrapper6430(DCSourceMeter):
             "autozero": self.meter.autozero(),
         })
 
-    def setup(self, function: Literal["sense", "source"] = "sense", *, auto_zero: str = "on"):
+    def setup(self, function: Literal["sense", "source"] = "sense", *, 
+              auto_zero: str = "on", reset: bool = False):
         if function == "source":
-            self.meter.reset()
-            self.meter.output_enabled(False)
+            if reset:
+                self.meter.reset()
+                self.meter.output_enabled(False)
             self.meter.autozero(auto_zero)
         elif function == "sense":
+            if reset:
+                self.meter.reset()
             self.meter.sense_autorange(True)
             self.meter.autozero(auto_zero)
         else:
@@ -791,8 +815,8 @@ class Wrapper6430(DCSourceMeter):
                 else:
                     compliance = abs(value * 100000)
             if compliance != self.meter.source_voltage_compliance():
-                self.meter.source_voltage_range(convert_unit(compliance, "V")[0])
-                self.meter.source_autorange(True)
+                self.meter.sense_voltage_range(convert_unit(compliance, "V")[0])
+                self.meter.sense_autorange(True)
                 self.meter.source_voltage_compliance(convert_unit(compliance, "V")[0])
             self.meter.source_current(value)
 
@@ -809,8 +833,8 @@ class Wrapper6430(DCSourceMeter):
                 else:
                     compliance = abs(value / 1000)
             if compliance != self.meter.source_current_compliance():
-                self.meter.source_current_range(convert_unit(compliance, "A")[0])
-                self.meter.source_autorange(True)
+                self.meter.sense_current_range(convert_unit(compliance, "A")[0])
+                self.meter.sense_autorange(True)
                 self.meter.source_current_compliance(convert_unit(compliance, "A")[0])
             self.meter.source_voltage(value)
 
@@ -972,9 +996,10 @@ class Wrapper2450(DCSourceMeter):
             "sense_autozero": self.meter.sense.auto_zero_enabled(),
         })
 
-    def setup(self, function: Literal["sense", "source"] = "sense"):
-        if function == "source":
+    def setup(self, function: Literal["sense", "source"] = "sense", *, reset: bool = False):
+        if reset:
             self.meter.reset()
+        if function == "source":
             self.meter.source.auto_range(True)
         self.info_sync()
         self.meter.terminals("front")
@@ -1253,14 +1278,45 @@ Wrappers for ITC are following
 class ITC(ABC):
     # parent class to incorporate both two ITCs
     @abstractmethod
-    def __init__(self, address: str):
-        pass
+    def __init__(self, address: str, cache_length: int = 60, var_crit: float = 1E-4):
+        self.cache = CacheArray(cache_length=cache_length, var_crit=var_crit)
+
+    def set_cache(self, *, cache_length: int, var_crit: Optional[float] = None):
+        """
+        set the cache for the ITC
+        """
+        if var_crit is None:
+            self.cache = CacheArray(cache_length=cache_length)
+        else:
+            self.cache = CacheArray(cache_length=cache_length, var_crit=var_crit)
 
     @property
-    @abstractmethod
-    def temperature(self):
+    def temperature(self) -> float:
         """return the precise temperature of the sample"""
-        pass
+        temp: float = self.get_temperature()
+        self.cache.update_cache(temp)
+        return temp
+
+    def add_cache(self) -> None:
+        """add the temperature to the cache without returning"""
+        temp: float = self.get_temperature()
+        self.cache.update_cache(temp)
+
+    @abstractmethod
+    def get_temperature(self) -> float:
+        """get the temperature from the instrument without caching"""
+
+    @property
+    def status(self) -> Literal["VARYING", "HOLD"]:
+        """return the varying status of the ITC"""
+        status_return = self.cache.get_status()
+        if status_return is None:
+            for i in range(self.cache.cache_length):
+                self.cache.update_cache(self.get_temperature())
+                print_progress_bar(i+1, self.cache.cache_length, prefix="loading cache")
+                time.sleep(1)
+            status_return = self.cache.get_status()
+        return "HOLD" if status_return["if_stable"] else "VARYING"
 
     @property
     @abstractmethod
@@ -1305,8 +1361,10 @@ class ITC(ABC):
         """
         pass
 
-    def wait_for_temperature(self, temp, *, check_interval=1, stability_counter=21,
-                             thermalize_counter=17):
+    def wait_for_temperature(self, temp, *,
+                             check_interval=1,
+                             stability_counter=7,
+                             thermalize_counter=11):
         """
         wait for the temperature to stablize for a certain time length
 
@@ -1339,19 +1397,26 @@ class ITC(ABC):
         else:
             trend = "down"
 
+        while self.status == "VARYING":
+            self.add_cache()
+            time.sleep(check_interval)
+
         i = 0
         while i < stability_counter:
+            self.add_cache()
             self.correction_ramping(self.temperature, trend)
-            if abs(self.temperature - temp) < ITC.dynamic_delta(temp):
+            if abs(self.cache.get_status()["mean"] - temp) < ITC.dynamic_delta(temp):
                 i += 1
-            elif i >= 5:
-                i -= 5
-            print_progress_bar(i, stability_counter, prefix="Stablizing",
+            else:
+                i = 0
+            print_progress_bar(i, stability_counter, 
+                               prefix="Stablizing",
                                suffix=f"Temperature: {self.temperature:.2f} K")
             time.sleep(check_interval)
         print("Temperature stablized")
         for i in range(thermalize_counter):
-            print_progress_bar(i + 1, thermalize_counter, prefix="Thermalizing",
+            print_progress_bar(i + 1, thermalize_counter, 
+                               prefix="Thermalizing",
                                suffix=f"Temperature: {self.temperature:.2f} K")
             time.sleep(check_interval)
         print("Thermalizing finished")
@@ -1386,8 +1451,10 @@ class ITCMercury(ITC):
     self.correction_ramping: modify pressure according to the temperature and trend
     self.calculate_vti_temp (in driver): automatically calculate the set VTI temperature
     """
-    def __init__(self, address="TCPIP0::10.97.27.13::7020::SOCKET"):
+    def __init__(self, address="TCPIP0::10.97.27.13::7020::SOCKET",
+                 cache_length: int = 60, var_crit: float = 5E-4):
         self.mercury = MercuryITC("mercury_itc", address)
+        self.cache = CacheArray(cache_length=cache_length, var_crit=var_crit)
 
     @property
     def pres(self):
@@ -1423,8 +1490,7 @@ class ITCMercury(ITC):
     def pid_control(self, control: Literal["ON", "OFF"]):
         self.mercury.temp_PID_control(control)
 
-    @property
-    def temperature(self):
+    def get_temperature(self) -> float:
         return self.mercury.probe_temp()
 
     def set_temperature(self, temp, vti_diff=None):
@@ -1490,19 +1556,19 @@ class ITCMercury(ITC):
             trend (Literal["up","down","up-huge","down-huge"]): the trend of the temperature
         """
         if trend == "up-huge":
-            self.set_pres(8)
+            self.set_flow(2)
         elif trend == "down-huge":
             if temp >= 5:
-                self.set_pres(25)
+                self.set_flow(15)
             elif temp > 2:
-                self.set_pres(8)
+                self.set_flow(8)
             else:
-                self.set_pres(3)
+                self.set_flow(3)
         else:
             if temp <= 2.3:
-                self.set_pres(3)
+                self.set_flow(2)
             else:
-                self.set_pres(8)
+                self.set_flow(5)
 
 
 class ITCs(ITC):
@@ -1511,11 +1577,12 @@ class ITCs(ITC):
     There are two ITC503 incorporated in the setup, named up and down. The up one measures the temperature of the heat switch(up R1), PT2(up R2), leaving R3 no specific meaning. The down one measures the temperature of the sorb(down R1), POT LOW(down R2), POT HIGH(down R3).
     """
 
-    def __init__(self, address_up: str = "GPIB0::23::INSTR", address_down: str = "GPIB0::24::INSTR", clear_buffer=True):
+    def __init__(self, address_up: str = "GPIB0::23::INSTR", address_down: str = "GPIB0::24::INSTR", clear_buffer=True, cache_length: int = 60, var_crit: float = 3E-4):
         self.itc_up = ITC503(address_up, clear_buffer=clear_buffer)
         self.itc_down = ITC503(address_down, clear_buffer=clear_buffer)
         self.itc_up.control_mode = "RU"
         self.itc_down.control_mode = "RU"
+        self.cache = CacheArray(cache_length=cache_length, var_crit=var_crit)
 
     def chg_display(self, itc_name, target):
         """
@@ -1714,8 +1781,7 @@ class ITCs(ITC):
         return {"sw": self.itc_up.temperature_1, "pt2": self.itc_up.temperature_2, "sorb": self.itc_down.temperature_1,
                 "pot_low": self.itc_down.temperature_2, "pot_high": self.itc_down.temperature_3}
 
-    @property
-    def temperature(self):
+    def get_temperature(self):
         """ Returns the precise temperature of the sample """
         if self.temperatures["pot_high"] < 1.9:
             return self.temperatures["pot_low"]
