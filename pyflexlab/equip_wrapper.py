@@ -33,6 +33,7 @@ Actions that can be optimized for quicker operation:
 - switch operation
 - range and compliance setting
 """
+
 import time
 from typing import Literal, Optional, Tuple, Any
 from abc import ABC, abstractmethod
@@ -49,12 +50,7 @@ from .drivers.mercuryITC import MercuryITC
 from .drivers.Keithley_6430 import Keithley_6430
 from .drivers.keithley6221 import Keithley6221
 
-from .constants import (
-    convert_unit, 
-    print_progress_bar, 
-    switch_dict, 
-    CacheArray
-    )
+from .constants import convert_unit, print_progress_bar, switch_dict, CacheArray
 
 
 class Meter(ABC):
@@ -107,18 +103,25 @@ class SourceMeter(Meter):
         super().__init__()
         self.info_dict.update({"output_type": "curr"})
         self.output_target = 0
-        self.safe_step = 1E-6  # step threshold, used for a default ramp
+        self.safe_step = 1e-6  # step threshold, used for a default ramp
 
     @abstractmethod
     def output_switch(self, switch: bool | Literal["on", "off", "ON", "OFF"]):
         """the meter must be returned to 0"""
-        self.info_dict["output_status"] = switch if isinstance(switch, bool) else switch.lower() in ["on", "ON"]
+        self.info_dict["output_status"] = (
+            switch if isinstance(switch, bool) else switch.lower() in ["on", "ON"]
+        )
 
     @abstractmethod
-    def uni_output(self, value: float | str, *, freq: Optional[float | str] = None,
-                   compliance: Optional[float | str] = None, fix_range: Optional[float | str] = None,
-                   type_str: Literal["curr", "volt"]) \
-            -> float:
+    def uni_output(
+        self,
+        value: float | str,
+        *,
+        freq: Optional[float | str] = None,
+        compliance: Optional[float | str] = None,
+        fix_range: Optional[float | str] = None,
+        type_str: Literal["curr", "volt"],
+    ) -> float:
         """
         judge the output type based on if freq is none
         judge if the range and compliance need to be set or modified
@@ -149,8 +152,18 @@ class SourceMeter(Meter):
         self.shutdown()
         self.meter.__del__()
 
-    def ramp_output(self, type_str: Literal["curr", "volt", "V", "I"], value: float | str, *, freq: Optional[float | str] = None,
-                    compliance: Optional[float | str] = None, interval: Optional[float | str] = None, sleep=0.2, from_curr=True, no_progress=False) -> None:
+    def ramp_output(
+        self,
+        type_str: Literal["curr", "volt", "V", "I"],
+        value: float | str,
+        *,
+        freq: Optional[float | str] = None,
+        compliance: Optional[float | str] = None,
+        interval: Optional[float | str] = None,
+        sleep=0.2,
+        from_curr=True,
+        no_progress=False,
+    ) -> None:
         """
         ramp the output to the target value
 
@@ -165,7 +178,9 @@ class SourceMeter(Meter):
             from_curr: whether to ramp from the current value(default) or from 0
             no_progress: whether to suppress the progress bar
         """
-        type_str: Literal["curr", "volt"] = type_str.replace("V", "volt").replace("I", "curr")
+        type_str: Literal["curr", "volt"] = type_str.replace("V", "volt").replace(
+            "I", "curr"
+        )
         value = convert_unit(value, "")[0]
         if not from_curr:
             # reset the output to 0 (ensure it in output_switch method)
@@ -178,7 +193,7 @@ class SourceMeter(Meter):
             return
         if interval is None:
             if abs(curr_val - value) > 20:
-                arr = np.arange(curr_val, value, 0.2*np.sign(value - curr_val))
+                arr = np.arange(curr_val, value, 0.2 * np.sign(value - curr_val))
             else:
                 arr = np.linspace(curr_val, value, 70)
         elif isinstance(interval, (float, str)):
@@ -187,23 +202,32 @@ class SourceMeter(Meter):
             arr = np.arange(curr_val, value, interval)
             arr = np.concatenate((arr, [value]))
         else:
-            raise ValueError("interval should be a float or str or just left as default")
+            raise ValueError(
+                "interval should be a float or str or just left as default"
+            )
 
         for idx, i in enumerate(arr):
             self.uni_output(i, freq=freq, type_str=type_str, compliance=compliance)
             if not no_progress:
-                print_progress_bar((idx + 1) / len(arr) * 100, 100, prefix="Ramping Meter:")
+                print_progress_bar(
+                    (idx + 1) / len(arr) * 100, 100, prefix="Ramping Meter:"
+                )
             time.sleep(sleep)
 
 
 class ACSourceMeter(SourceMeter):
-
     def __init__(self):
         super().__init__()
 
     @abstractmethod
-    def rms_output(self, value: float | str, *, freq: float | str, compliance: float | str,
-                   type_str: Literal["curr", "volt"]):
+    def rms_output(
+        self,
+        value: float | str,
+        *,
+        freq: float | str,
+        compliance: float | str,
+        type_str: Literal["curr", "volt"],
+    ):
         pass
 
 
@@ -213,7 +237,14 @@ class DCSourceMeter(SourceMeter):
         super().__init__()
 
     @abstractmethod
-    def dc_output(self, value: float | str, *, compliance: float | str, type_str: Literal["curr", "volt"], fix_range: Optional[float | str] = None):
+    def dc_output(
+        self,
+        value: float | str,
+        *,
+        compliance: float | str,
+        type_str: Literal["curr", "volt"],
+        fix_range: Optional[float | str] = None,
+    ):
         pass
 
 
@@ -231,34 +262,56 @@ class Wrapper6221(ACSourceMeter, DCSourceMeter):
         super().__init__()
         self.meter = Keithley6221(GPIB)
         self.output_target = 0
-        self.safe_step = 1E-6
-        self.info_dict = {"GPIB": GPIB,
-                          "output_type": "curr",
-                          "ac_dc": "ac",
-                          "output_status": False,
-                          "output_value": 0,
-                          }
+        self.safe_step = 1e-6
+        self.info_dict = {
+            "GPIB": GPIB,
+            "output_type": "curr",
+            "ac_dc": "ac",
+            "output_status": False,
+            "output_value": 0,
+        }
         self.info_sync()
-        self.mea_mode: Literal["normal", "delta", "pulse-delta", "differential"] = "normal"
-        print("note the grounding:")  #TODO: add grounding instruction#
+        self.mea_mode: Literal["normal", "delta", "pulse-delta", "differential"] = (
+            "normal"
+        )
+        print("note the grounding:")  # TODO: add grounding instruction#
 
     def info_sync(self):
-        self.info_dict.update({"source_range": self.meter.source_range,
-                               "output_value": max(self.meter.source_current, self.meter.waveform_amplitude),
-                               "frequency": self.meter.waveform_frequency,
-                               "compliance": self.meter.source_compliance,
-                               "wave_function": self.meter.waveform_function,
-                               "wave_offset": self.meter.waveform_offset,
-                               "wave_phasemarker": self.meter.waveform_phasemarker_phase,
-                               "low_grounded": self.meter.output_low_grounded,
-                               })
+        self.info_dict.update(
+            {
+                "source_range": self.meter.source_range,
+                "output_value": max(
+                    self.meter.source_current, self.meter.waveform_amplitude
+                ),
+                "frequency": self.meter.waveform_frequency,
+                "compliance": self.meter.source_compliance,
+                "wave_function": self.meter.waveform_function,
+                "wave_offset": self.meter.waveform_offset,
+                "wave_phasemarker": self.meter.waveform_phasemarker_phase,
+                "low_grounded": self.meter.output_low_grounded,
+            }
+        )
 
-    def setup(self, function: Literal["source", "sense"] = "source", 
-              mode: Literal["ac", "dc"] = "ac", *, offset=0, source_auto_range=True,
-              low_grounded=True, 
-              wave_function: Literal["sine", "ramp", "square", "arbitrary1", "arbitrary2", "arbitrary3", "arbitrary4"] = "sine", 
-              mea_mode: Literal["normal", "delta", "pulse-delta", "differential"] = "normal",
-              reset: bool = False) -> None:
+    def setup(
+        self,
+        function: Literal["source", "sense"] = "source",
+        mode: Literal["ac", "dc"] = "ac",
+        *,
+        offset=0,
+        source_auto_range=True,
+        low_grounded=True,
+        wave_function: Literal[
+            "sine",
+            "ramp",
+            "square",
+            "arbitrary1",
+            "arbitrary2",
+            "arbitrary3",
+            "arbitrary4",
+        ] = "sine",
+        mea_mode: Literal["normal", "delta", "pulse-delta", "differential"] = "normal",
+        reset: bool = False,
+    ) -> None:
         """
         set up the Keithley 6221 instruments, overwrite the specific settings here, other settings will all be
         reserved. Note that the waveform will not begin here
@@ -266,13 +319,17 @@ class Wrapper6221(ACSourceMeter, DCSourceMeter):
         if reset:
             self.meter.write("*RST")
         if mea_mode == "normal":
-            assert function == "source", "6221 is a source meter, so the function should be source"
+            assert function == "source", (
+                "6221 is a source meter, so the function should be source"
+            )
         source_6221 = self.meter
         # first must close the output to do setup
         self.output_switch("off")
         source_6221.clear()
         if mea_mode == "delta":
-            print("delta mode is selected, please set the specific parameters using delta_setup method")
+            print(
+                "delta mode is selected, please set the specific parameters using delta_setup method"
+            )
             self.delta_setup()
             mode = "dc"
         self.mea_mode = mea_mode
@@ -286,14 +343,30 @@ class Wrapper6221(ACSourceMeter, DCSourceMeter):
             source_6221.waveform_phasemarker_line = 3
             source_6221.waveform_duration_set_infinity()
             source_6221.waveform_phasemarker_phase = 0
-            self.info_dict.update({"wave_function": wave_function, "wave_offset": offset, "wave_phasemarker": 0})
+            self.info_dict.update(
+                {
+                    "wave_function": wave_function,
+                    "wave_offset": offset,
+                    "wave_phasemarker": 0,
+                }
+            )
         elif mode == "dc":
             self.info_dict["ac_dc"] = "dc"
         source_6221.source_auto_range = source_auto_range
         source_6221.output_low_grounded = low_grounded
         self.info_dict.update({"low_grounded": low_grounded})
-    
-    def delta_setup(self, *, delta_unit: Literal["V", "Ohms", "W", "Siemens"] = "V", delta_delay = 0.02, delta_cycles: int | Literal["INF"] = "INF", delta_mea_sets: int | Literal["INF"] = 1, delta_compliance_abort: bool = True, delta_cold_switch: bool = False, trace_pts: int = 10):
+
+    def delta_setup(
+        self,
+        *,
+        delta_unit: Literal["V", "Ohms", "W", "Siemens"] = "V",
+        delta_delay=0.02,
+        delta_cycles: int | Literal["INF"] = "INF",
+        delta_mea_sets: int | Literal["INF"] = 1,
+        delta_compliance_abort: bool = True,
+        delta_cold_switch: bool = False,
+        trace_pts: int = 10,
+    ):
         """
         set the specific parameters for delta mode
         """
@@ -343,15 +416,28 @@ class Wrapper6221(ACSourceMeter, DCSourceMeter):
         """
         if self.info_dict["ac_dc"] == "ac":
             # amplitude for 6221 is peak to peak
-            return self.meter.waveform_amplitude / np.sqrt(2), self.output_target, self.meter.source_range
+            return (
+                self.meter.waveform_amplitude / np.sqrt(2),
+                self.output_target,
+                self.meter.source_range,
+            )
         elif self.info_dict["ac_dc"] == "dc":
-            return self.meter.source_current, self.output_target, self.meter.source_range
+            return (
+                self.meter.source_current,
+                self.output_target,
+                self.meter.source_range,
+            )
         else:
             raise ValueError("ac_dc term in info_dict should be either ac or dc")
 
-    def uni_output(self, value: float | str, *, freq: Optional[float | str] = None,
-                   compliance: Optional[float | str] = None, type_str: Literal["curr", "volt"] = "curr") -> float:
-
+    def uni_output(
+        self,
+        value: float | str,
+        *,
+        freq: Optional[float | str] = None,
+        compliance: Optional[float | str] = None,
+        type_str: Literal["curr", "volt"] = "curr",
+    ) -> float:
         # judge if the output exceeds the range first
         # since 6221 use the same source_range for both ac and dc
         # so the range could be treated in this unified method
@@ -360,15 +446,22 @@ class Wrapper6221(ACSourceMeter, DCSourceMeter):
             if abs(value) > 0.105:
                 raise ValueError("6221 output should be less than 0.105A")
             range_curr = self.meter.source_range
-            if (abs(range_curr) * 1.05 <= abs(value) or abs(value) <= abs(range_curr) / 100) and value != 0:
+            if (
+                abs(range_curr) * 1.05 <= abs(value)
+                or abs(value) <= abs(range_curr) / 100
+            ) and value != 0:
                 if freq is not None:
-                    self.output_switch("off")  # turn off the output before changing the range for ac mode
+                    self.output_switch(
+                        "off"
+                    )  # turn off the output before changing the range for ac mode
                 self.meter.source_range = value
             # directly call corresponding output method if desired output type is matched
             # call setup first if desired output type is not matched
             if self.info_dict["ac_dc"] == "ac":
                 if freq is not None:
-                    self.rms_output(value, freq=freq, compliance=compliance, type_str=type_str)
+                    self.rms_output(
+                        value, freq=freq, compliance=compliance, type_str=type_str
+                    )
                 else:
                     self.setup("source", "dc")
                     self.dc_output(value, compliance=compliance, type_str=type_str)
@@ -377,7 +470,9 @@ class Wrapper6221(ACSourceMeter, DCSourceMeter):
                     self.dc_output(value, compliance=compliance, type_str=type_str)
                 elif freq is not None:
                     self.setup("source", "ac")
-                    self.rms_output(value, freq=freq, compliance=compliance, type_str=type_str)
+                    self.rms_output(
+                        value, freq=freq, compliance=compliance, type_str=type_str
+                    )
 
             self.output_target = convert_unit(value, "A")[0]
             return self.get_output_status()[0]
@@ -391,15 +486,23 @@ class Wrapper6221(ACSourceMeter, DCSourceMeter):
             self.meter.delta_start()
             return self.meter.delta_high_source
 
-    def rms_output(self, value: float | str, *, freq: Optional[float | str] = None, compliance: Optional[float | str] = None,
-                   type_str: Literal["curr"] = "curr"):
+    def rms_output(
+        self,
+        value: float | str,
+        *,
+        freq: Optional[float | str] = None,
+        compliance: Optional[float | str] = None,
+        type_str: Literal["curr"] = "curr",
+    ):
         """
         6221 is a current source, so the output is always current
         set the output to a certain value
         if current config is dc, then call setup to reset to ac default settings
         set config manually before calling this method if special params are needed
         """
-        assert type_str == "curr", "6221 is a current source, so the output is always current"
+        assert type_str == "curr", (
+            "6221 is a current source, so the output is always current"
+        )
 
         if self.info_dict["ac_dc"] == "dc":
             self.setup("source", "ac")
@@ -428,12 +531,21 @@ class Wrapper6221(ACSourceMeter, DCSourceMeter):
         else:
             self.meter.waveform_amplitude = value_p2p
 
-    def dc_output(self, value: float | str, *, compliance: Optional[float | str] = None, type_str: Literal["curr"] = "curr", fix_range: Optional[float | str] = None):
+    def dc_output(
+        self,
+        value: float | str,
+        *,
+        compliance: Optional[float | str] = None,
+        type_str: Literal["curr"] = "curr",
+        fix_range: Optional[float | str] = None,
+    ):
         """
         6221 is a current source, so the output is always current
         set the output to a certain value
         """
-        assert type_str == "curr", "6221 is a current source, so the output is always current"
+        assert type_str == "curr", (
+            "6221 is a current source, so the output is always current"
+        )
 
         value = convert_unit(value, "")[0]
         # create a shortcut for turning output to 0
@@ -445,7 +557,9 @@ class Wrapper6221(ACSourceMeter, DCSourceMeter):
         if compliance is not None:
             compliance = convert_unit(compliance, "")[0]
         else:
-            compliance = abs(value * 100000)  # 6221 will automatically switch to lowest compliance if too low
+            compliance = abs(
+                value * 100000
+            )  # 6221 will automatically switch to lowest compliance if too low
 
         if fix_range is not None:
             self.meter.source_range = fix_range
@@ -477,11 +591,15 @@ class Wrapper2182(Meter):
         super().__init__()
         self.meter = Keithley2182(GPIB, read_termination="\n")
         self.setup()
-        self.info_dict = {"GPIB": GPIB,
-                          "channel": 1,
-                          "sense_type": "volt"}
+        self.info_dict = {"GPIB": GPIB, "channel": 1, "sense_type": "volt"}
 
-    def setup(self, function: Literal["sense"] = "sense", *, channel: Literal[0, 1, 2] = 1, reset: bool = False) -> None:
+    def setup(
+        self,
+        function: Literal["sense"] = "sense",
+        *,
+        channel: Literal[0, 1, 2] = 1,
+        reset: bool = False,
+    ) -> None:
         if reset:
             self.meter.reset()
         self.meter.active_channel = channel
@@ -515,12 +633,14 @@ class Wrapper6500(Meter):
         super().__init__()
         self.meter = KeithleyDMM6500(GPIB)
         self.setup("sense")
-        self.info_dict = {"GPIB": GPIB,
-                          "channel": 1,
-                          "sense_type": "volt",
-                          "auto_range": True,
-                          "auto_zero": True,
-                          "terminal": "front"}
+        self.info_dict = {
+            "GPIB": GPIB,
+            "channel": 1,
+            "sense_type": "volt",
+            "auto_range": True,
+            "auto_zero": True,
+            "terminal": "front",
+        }
 
     def setup(self, function: Literal["source", "sense"], reset: bool = False) -> None:
         """default to measuring voltage"""
@@ -539,13 +659,21 @@ class Wrapper6500(Meter):
         """
         no parameters to sync for 2182
         """
-        self.info_dict.update({"auto_range": self.meter.auto_range_status(),
-                               "sense_type": self.meter.mode,
-                               "auto_zero": self.meter.autozero_enabled,
-                               "terminal": self.meter.terminals_used})
+        self.info_dict.update(
+            {
+                "auto_range": self.meter.auto_range_status(),
+                "sense_type": self.meter.mode,
+                "auto_zero": self.meter.autozero_enabled,
+                "terminal": self.meter.terminals_used,
+            }
+        )
 
-    def sense(self, type_str: Literal["volt", "curr", "freq"] = "volt", max_val: Optional[float | str] = None,
-              ac_dc: Literal["ac", "dc"] = "dc") -> float:
+    def sense(
+        self,
+        type_str: Literal["volt", "curr", "freq"] = "volt",
+        max_val: Optional[float | str] = None,
+        ac_dc: Literal["ac", "dc"] = "dc",
+    ) -> float:
         """
         sense the voltage or current or frequency
 
@@ -558,11 +686,17 @@ class Wrapper6500(Meter):
             max_val = convert_unit(max_val, "")[0]
         match type_str:
             case "volt":
-                self.meter.measure_voltage(max_voltage=(max_val if max_val is not None else 1), ac=(ac_dc == "ac"))
+                self.meter.measure_voltage(
+                    max_voltage=(max_val if max_val is not None else 1),
+                    ac=(ac_dc == "ac"),
+                )
                 self.meter.auto_range()
                 return self.meter.voltage
             case "curr":
-                self.meter.measure_current(max_current=(max_val if max_val is not None else 1E-2), ac=(ac_dc == "ac"))
+                self.meter.measure_current(
+                    max_current=(max_val if max_val is not None else 1e-2),
+                    ac=(ac_dc == "ac"),
+                )
                 self.meter.auto_range()
                 return self.meter.current
             case "freq":
@@ -577,40 +711,48 @@ class WrapperSR830(ACSourceMeter):
         self.meter = SR830(GPIB)
         self.output_target = 0
         self.info_dict = {"GPIB": GPIB}
-        self.safe_step = 2E-3
+        self.safe_step = 2e-3
         self.if_source = False  # if the meter has been declared as source (as source initialization is earlier)
         if reset:
             self.setup()
         self.info_sync()
 
     def info_sync(self):
-        self.info_dict.update({"sensitivity": self.meter.sensitivity,
-                               "ref_source_trigger": self.meter.reference_source_trigger,
-                               "reference_source": self.meter.reference_source,
-                               "harmonic": self.meter.harmonic,
-                               "output_value": self.meter.sine_voltage,
-                               "output_status": self.meter.sine_voltage > 0.004,
-                               "frequency": self.meter.frequency,
-                               "filter_slope": self.meter.filter_slope,
-                               "time_constant": self.meter.time_constant,
-                               "input_config": self.meter.input_config,
-                               "input_coupling": self.meter.input_coupling,
-                               "input_grounding": self.meter.input_grounding,
-                               "input_notch_config": self.meter.input_notch_config,
-                               "reserve": self.meter.reserve,
-                               "filter_synchronous": self.meter.filter_synchronous})
+        self.info_dict.update(
+            {
+                "sensitivity": self.meter.sensitivity,
+                "ref_source_trigger": self.meter.reference_source_trigger,
+                "reference_source": self.meter.reference_source,
+                "harmonic": self.meter.harmonic,
+                "output_value": self.meter.sine_voltage,
+                "output_status": self.meter.sine_voltage > 0.004,
+                "frequency": self.meter.frequency,
+                "filter_slope": self.meter.filter_slope,
+                "time_constant": self.meter.time_constant,
+                "input_config": self.meter.input_config,
+                "input_coupling": self.meter.input_coupling,
+                "input_grounding": self.meter.input_grounding,
+                "input_notch_config": self.meter.input_notch_config,
+                "reserve": self.meter.reserve,
+                "filter_synchronous": self.meter.filter_synchronous,
+            }
+        )
 
-    def setup(self, function: Literal["source", "sense"] = "sense", *, 
-              filter_slope=24, 
-              time_constant=0.3, 
-              input_config="A - B",
-              input_coupling="AC", 
-              input_grounding="Float", 
-              sine_voltage: float = 0,
-              input_notch_config="None",
-              reserve="Normal", 
-              filter_synchronous=False, 
-              reset: bool = False) -> None:
+    def setup(
+        self,
+        function: Literal["source", "sense"] = "sense",
+        *,
+        filter_slope=24,
+        time_constant=0.3,
+        input_config="A - B",
+        input_coupling="AC",
+        input_grounding="Float",
+        sine_voltage: float = 0,
+        input_notch_config="None",
+        reserve="Normal",
+        filter_synchronous=False,
+        reset: bool = False,
+    ) -> None:
         """
         setup the SR830 instruments using pre-stored setups here, this function will not fully reset the instruments,
         only overwrite the specific settings here, other settings will all be reserved
@@ -626,27 +768,42 @@ class WrapperSR830(ACSourceMeter):
             self.meter.input_grounding = input_grounding
             self.meter.input_notch_config = input_notch_config
             if not self.if_source:
-                self.meter.reference_source = "External" 
+                self.meter.reference_source = "External"
             else:
                 self.if_source = False  # restore the if_source to False for the next initialization, would cause unexpected behavior if called twice in one measurement
             self.meter.reserve = reserve
             self.meter.filter_synchronous = filter_synchronous
-            self.info_dict.update({"filter_slope": filter_slope, "time_constant": time_constant,
-                                   "input_config": input_config, "input_coupling": input_coupling,
-                                   "input_grounding": input_grounding,
-                                   "input_notch_config": input_notch_config, "reference_source": "External",
-                                   "reserve": reserve, "filter_synchronous": filter_synchronous})
+            self.info_dict.update(
+                {
+                    "filter_slope": filter_slope,
+                    "time_constant": time_constant,
+                    "input_config": input_config,
+                    "input_coupling": input_coupling,
+                    "input_grounding": input_grounding,
+                    "input_notch_config": input_notch_config,
+                    "reference_source": "External",
+                    "reserve": reserve,
+                    "filter_synchronous": filter_synchronous,
+                }
+            )
         elif function == "source":
             self.meter.sine_voltage = sine_voltage
             self.meter.reference_source = "Internal"
             self.if_source = True
-            self.info_dict.update({"sine_voltage": sine_voltage,
-                                   "reference_source": "Internal"})
+            self.info_dict.update(
+                {"sine_voltage": sine_voltage, "reference_source": "Internal"}
+            )
         else:
             raise ValueError("function should be either source or sense")
 
-    def reference_set(self, *, freq: Optional[float | str] = None, source: Optional[Literal["Internal", "External"]] = None,
-                      trigger: Optional[Literal["SINE", "POS EDGE", "NEG EDGE"]] = None, harmonic: Optional[int] = None):
+    def reference_set(
+        self,
+        *,
+        freq: Optional[float | str] = None,
+        source: Optional[Literal["Internal", "External"]] = None,
+        trigger: Optional[Literal["SINE", "POS EDGE", "NEG EDGE"]] = None,
+        harmonic: Optional[int] = None,
+    ):
         """
         set the reference frequency and source
         """
@@ -681,16 +838,31 @@ class WrapperSR830(ACSourceMeter):
             self.meter.sine_voltage = 0
             self.info_dict["output_status"] = False
 
-    def uni_output(self, value: float | str, *, freq: Optional[float | str] = None, compliance: Optional[float | str] = None,
-                   type_str: Literal["volt"] = "volt", fix_range: Optional[float | str] = None) -> float:
+    def uni_output(
+        self,
+        value: float | str,
+        *,
+        freq: Optional[float | str] = None,
+        compliance: Optional[float | str] = None,
+        type_str: Literal["volt"] = "volt",
+        fix_range: Optional[float | str] = None,
+    ) -> float:
         """fix_range is not used for sr830"""
         self.rms_output(value, freq=freq, compliance=compliance, type_str=type_str)
         self.output_target = convert_unit(value, "V")[0]
         return self.get_output_status()[0]
 
-    def rms_output(self, value: float | str, *, freq: Optional[float | str] = None, compliance: Optional[float | str] = None,
-                   type_str: Literal["volt"] = "volt"):
-        assert type_str == "volt", "SR830 is a voltage source, so the output is always voltage"
+    def rms_output(
+        self,
+        value: float | str,
+        *,
+        freq: Optional[float | str] = None,
+        compliance: Optional[float | str] = None,
+        type_str: Literal["volt"] = "volt",
+    ):
+        assert type_str == "volt", (
+            "SR830 is a voltage source, so the output is always voltage"
+        )
         value = convert_unit(value, "V")[0]
         self.meter.sine_voltage = value
         self.info_dict["output_value"] = value
@@ -710,29 +882,39 @@ class Wrapper6430(DCSourceMeter):
         self.meter = Keithley_6430("Keithley6430", GPIB)
         self.info_dict = {}
         self.output_target = 0
-        self.safe_step = {"volt": 2E-1, "curr": 5E-6}
+        self.safe_step = {"volt": 2e-1, "curr": 5e-6}
         self.info_sync()
 
     def info_sync(self):
-        self.info_dict.update({
-            "output_status": self.meter.output_enabled(),
-            "output_type": self.meter.source_mode().lower().replace("current", "curr").replace("voltage", "volt"),
-            "curr_compliance": self.meter.source_current_compliance(),
-            "volt_compliance": self.meter.source_voltage_compliance(),
-            "source_curr_range": self.meter.source_current_range(),
-            "source_volt_range": self.meter.source_voltage_range(),
-            "source_delay": self.meter.source_delay(),
-            "sense_type": self.meter.sense_mode().lower(),
-            "sense_auto_range": self.meter.sense_autorange(),
-            "sense_curr_range": self.meter.sense_current_range(),
-            "sense_volt_range": self.meter.sense_voltage_range(),
-            "sense_resist_range": self.meter.sense_resistance_range(),
-            "sense_resist_offset_comp": self.meter.sense_resistance_offset_comp_enabled(),
-            "autozero": self.meter.autozero(),
-        })
+        self.info_dict.update(
+            {
+                "output_status": self.meter.output_enabled(),
+                "output_type": self.meter.source_mode()
+                .lower()
+                .replace("current", "curr")
+                .replace("voltage", "volt"),
+                "curr_compliance": self.meter.source_current_compliance(),
+                "volt_compliance": self.meter.source_voltage_compliance(),
+                "source_curr_range": self.meter.source_current_range(),
+                "source_volt_range": self.meter.source_voltage_range(),
+                "source_delay": self.meter.source_delay(),
+                "sense_type": self.meter.sense_mode().lower(),
+                "sense_auto_range": self.meter.sense_autorange(),
+                "sense_curr_range": self.meter.sense_current_range(),
+                "sense_volt_range": self.meter.sense_voltage_range(),
+                "sense_resist_range": self.meter.sense_resistance_range(),
+                "sense_resist_offset_comp": self.meter.sense_resistance_offset_comp_enabled(),
+                "autozero": self.meter.autozero(),
+            }
+        )
 
-    def setup(self, function: Literal["sense", "source"] = "sense", *, 
-              auto_zero: str = "on", reset: bool = False):
+    def setup(
+        self,
+        function: Literal["sense", "source"] = "sense",
+        *,
+        auto_zero: str = "on",
+        reset: bool = False,
+    ):
         if function == "source":
             if reset:
                 self.meter.reset()
@@ -776,18 +958,41 @@ class Wrapper6430(DCSourceMeter):
             tuple[float, float]: the output value and the target value
         """
         if self.meter.source_mode().lower() == "curr":
-            return self.meter.source_current(), self.output_target, self.meter.source_current_range()
+            return (
+                self.meter.source_current(),
+                self.output_target,
+                self.meter.source_current_range(),
+            )
         elif self.meter.source_mode().lower() == "volt":
-            return self.meter.source_voltage(), self.output_target, self.meter.source_voltage_range()
+            return (
+                self.meter.source_voltage(),
+                self.output_target,
+                self.meter.source_voltage_range(),
+            )
 
-    def uni_output(self, value: float | str, *, freq=None, fix_range: Optional[float | str] = None,
-                   compliance: Optional[float | str] = None, type_str: Literal["curr", "volt"]) -> float:
-        self.dc_output(value, compliance=compliance, type_str=type_str, fix_range=fix_range)
+    def uni_output(
+        self,
+        value: float | str,
+        *,
+        freq=None,
+        fix_range: Optional[float | str] = None,
+        compliance: Optional[float | str] = None,
+        type_str: Literal["curr", "volt"],
+    ) -> float:
+        self.dc_output(
+            value, compliance=compliance, type_str=type_str, fix_range=fix_range
+        )
         self.output_target = convert_unit(value, "")[0]
         return self.get_output_status()[0]
 
-    def dc_output(self, value: float | str, *, compliance: Optional[float | str] = None,
-                  fix_range: Optional[float | str] = None, type_str: Literal["curr", "volt"]):
+    def dc_output(
+        self,
+        value: float | str,
+        *,
+        compliance: Optional[float | str] = None,
+        fix_range: Optional[float | str] = None,
+        type_str: Literal["curr", "volt"],
+    ):
         value = convert_unit(value, "")[0]
         # add shortcut for zero output (no need to care about output type, just set current output to 0)
         if value == 0:
@@ -806,12 +1011,17 @@ class Wrapper6430(DCSourceMeter):
             if fix_range is not None:
                 self.meter.source_current_range(convert_unit(fix_range, "A")[0])
             else:
-                if abs(value) <= self.meter.source_current_range() / 100 or abs(value) >= self.meter.source_current_range():
-                    new_range = abs(value) if abs(value) > 1E-12 else 1E-12
+                if (
+                    abs(value) <= self.meter.source_current_range() / 100
+                    or abs(value) >= self.meter.source_current_range()
+                ):
+                    new_range = abs(value) if abs(value) > 1e-12 else 1e-12
                     self.meter.source_current_range(new_range)
             if compliance is None:
-                if abs(value * 100000) < 1E-3:  # this limit is only for 2400 (compliancev > 1E-3)
-                    compliance = 1E-3
+                if (
+                    abs(value * 100000) < 1e-3
+                ):  # this limit is only for 2400 (compliancev > 1E-3)
+                    compliance = 1e-3
                 else:
                     compliance = abs(value * 100000)
             if compliance != self.meter.source_voltage_compliance():
@@ -824,12 +1034,15 @@ class Wrapper6430(DCSourceMeter):
             if fix_range is not None:
                 self.meter.source_voltage_range(convert_unit(fix_range, "V")[0])
             else:
-                if abs(value) <= self.meter.source_voltage_range() / 100 or abs(value) >= self.meter.source_voltage_range():
+                if (
+                    abs(value) <= self.meter.source_voltage_range() / 100
+                    or abs(value) >= self.meter.source_voltage_range()
+                ):
                     new_range = abs(value) if abs(value) > 0.2 else 0.2
                     self.meter.source_voltage_range(new_range)
             if compliance is None:
-                if abs(value / 1000) < 1E-6:
-                    compliance = 1E-6
+                if abs(value / 1000) < 1e-6:
+                    compliance = 1e-6
                 else:
                     compliance = abs(value / 1000)
             if compliance != self.meter.source_current_compliance():
@@ -851,23 +1064,30 @@ class Wrapper2400(DCSourceMeter):
         self.meter = Keithley2400("Keithley2401", GPIB)
         self.info_dict = {}
         self.output_target = 0
-        self.safe_step = {"volt": 1E-2, "curr": 2E-6}
+        self.safe_step = {"volt": 1e-2, "curr": 2e-6}
         self.info_sync()
 
     def info_sync(self):
-        self.info_dict.update({
-            "output_status": self.meter.output(),
-            "output_type": self.meter.mode().lower().replace("current", "curr").replace("voltage", "volt"),
-            "curr_compliance": self.meter.compliancei(),
-            "volt_compliance": self.meter.compliancev(),
-            "source_curr_range": self.meter.rangei(),
-            "source_volt_range": self.meter.rangev(),
-            "sense_curr_range": self.meter.rangei(),
-            "sense_volt_range": self.meter.rangev(),
-            "sense_type": self.meter.sense().lower(),
-        })
+        self.info_dict.update(
+            {
+                "output_status": self.meter.output(),
+                "output_type": self.meter.mode()
+                .lower()
+                .replace("current", "curr")
+                .replace("voltage", "volt"),
+                "curr_compliance": self.meter.compliancei(),
+                "volt_compliance": self.meter.compliancev(),
+                "source_curr_range": self.meter.rangei(),
+                "source_volt_range": self.meter.rangev(),
+                "sense_curr_range": self.meter.rangei(),
+                "sense_volt_range": self.meter.rangev(),
+                "sense_type": self.meter.sense().lower(),
+            }
+        )
 
-    def setup(self, function: Literal["sense", "source"] = "sense", reset: bool = False):
+    def setup(
+        self, function: Literal["sense", "source"] = "sense", reset: bool = False
+    ):
         self.meter.write("*CLS")
         self.meter.write(":TRAC:FEED:CONT NEV")  # disables data buffer
         self.meter.write(":RES:MODE MAN")  # disables auto resistance
@@ -910,14 +1130,29 @@ class Wrapper2400(DCSourceMeter):
         self.meter.output(switch)
         self.info_dict["output_status"] = switch
 
-    def uni_output(self, value: float | str, *, freq=None, fix_range: Optional[float | str] = None,
-                   compliance: Optional[float | str] = None, type_str: Literal["curr", "volt"]) -> float:
-        self.dc_output(value, compliance=compliance, type_str=type_str, fix_range=fix_range)
+    def uni_output(
+        self,
+        value: float | str,
+        *,
+        freq=None,
+        fix_range: Optional[float | str] = None,
+        compliance: Optional[float | str] = None,
+        type_str: Literal["curr", "volt"],
+    ) -> float:
+        self.dc_output(
+            value, compliance=compliance, type_str=type_str, fix_range=fix_range
+        )
         self.output_target = convert_unit(value, "")[0]
         return self.get_output_status()[0]
 
-    def dc_output(self, value: float | str, *, fix_range: Optional[float | str] = None,
-                  compliance: Optional[float | str] = None, type_str: Literal["curr", "volt"]):
+    def dc_output(
+        self,
+        value: float | str,
+        *,
+        fix_range: Optional[float | str] = None,
+        compliance: Optional[float | str] = None,
+        type_str: Literal["curr", "volt"],
+    ):
         value = convert_unit(value, "")[0]
         # add shortcut for zero output (no need to care about output type, just set current output to 0)
         if value == 0:
@@ -936,12 +1171,17 @@ class Wrapper2400(DCSourceMeter):
             if fix_range is not None:
                 self.meter.rangei(convert_unit(fix_range, "A")[0])
             else:
-                if abs(value) <= self.meter.rangei() / 100 or abs(value) >= self.meter.rangei():
-                    new_range = value if abs(value) > 1E-6 else 1E-6
+                if (
+                    abs(value) <= self.meter.rangei() / 100
+                    or abs(value) >= self.meter.rangei()
+                ):
+                    new_range = value if abs(value) > 1e-6 else 1e-6
                     self.meter.rangei(new_range)
             if compliance is None:
-                if abs(value * 1000) < 1E-3:  # this limit is only for 2400 (compliancev > 1E-3)
-                    compliance = 1E-3
+                if (
+                    abs(value * 1000) < 1e-3
+                ):  # this limit is only for 2400 (compliancev > 1E-3)
+                    compliance = 1e-3
                 else:
                     compliance = abs(value * 100000)
             if compliance != self.meter.compliancev():
@@ -952,12 +1192,15 @@ class Wrapper2400(DCSourceMeter):
             if fix_range is not None:
                 self.meter.rangev(convert_unit(fix_range, "V")[0])
             else:
-                if abs(value) <= self.meter.rangev() / 100 or abs(value) >= self.meter.rangev():
+                if (
+                    abs(value) <= self.meter.rangev() / 100
+                    or abs(value) >= self.meter.rangev()
+                ):
                     new_range = value if abs(value) > 0.2 else 0.2
                     self.meter.rangev(new_range)
             if compliance is None:
-                if abs(value / 1000) < 1E-6:
-                    compliance = 1E-6
+                if abs(value / 1000) < 1e-6:
+                    compliance = 1e-6
                 else:
                     compliance = abs(value / 1000)
             self.meter.compliancei(convert_unit(compliance, "A")[0])
@@ -982,21 +1225,32 @@ class Wrapper2450(DCSourceMeter):
             self.meter = Keithley2450("Keithley2450_2", GPIB)
         self.info_dict = {}
         self.output_target = 0
-        self.safe_step = {"volt": 1E-2, "curr": 2E-6}
+        self.safe_step = {"volt": 1e-2, "curr": 2e-6}
         self.info_sync()
 
     def info_sync(self):
-        self.info_dict.update({
-            "output_status": self.meter.output_enabled(),
-            "output_type": self.meter.source_function().lower().replace("current", "curr").replace("voltage", "volt"),
-            "compliance": self.meter.source.limit(),
-            "source_range": self.meter.source.range(),
-            "sense_range": self.meter.sense.range(),
-            "sense_type": self.meter.sense_function().lower().replace("current", "curr").replace("voltage", "volt").replace("resistance", "resist"),
-            "sense_autozero": self.meter.sense.auto_zero_enabled(),
-        })
+        self.info_dict.update(
+            {
+                "output_status": self.meter.output_enabled(),
+                "output_type": self.meter.source_function()
+                .lower()
+                .replace("current", "curr")
+                .replace("voltage", "volt"),
+                "compliance": self.meter.source.limit(),
+                "source_range": self.meter.source.range(),
+                "sense_range": self.meter.sense.range(),
+                "sense_type": self.meter.sense_function()
+                .lower()
+                .replace("current", "curr")
+                .replace("voltage", "volt")
+                .replace("resistance", "resist"),
+                "sense_autozero": self.meter.sense.auto_zero_enabled(),
+            }
+        )
 
-    def setup(self, function: Literal["sense", "source"] = "sense", *, reset: bool = False):
+    def setup(
+        self, function: Literal["sense", "source"] = "sense", *, reset: bool = False
+    ):
         if reset:
             self.meter.reset()
         if function == "source":
@@ -1009,7 +1263,11 @@ class Wrapper2450(DCSourceMeter):
         if self.info_dict["sense_type"] == type_str:
             pass
         else:
-            self.meter.sense.function(type_str.replace("curr", "current").replace("volt", "voltage").replace("resist", "resistance"))
+            self.meter.sense.function(
+                type_str.replace("curr", "current")
+                .replace("volt", "voltage")
+                .replace("resist", "resistance")
+            )
             self.info_dict["sense_type"] = type_str
         return self.meter.sense._measure()
 
@@ -1036,14 +1294,29 @@ class Wrapper2450(DCSourceMeter):
         self.meter.output_enabled(switch)
         self.info_dict["output_status"] = switch
 
-    def uni_output(self, value: float | str, *, freq=None, fix_range: Optional[float | str] = None,
-                   compliance: float | str = None, type_str: Literal["curr", "volt"]) -> float:
-        self.dc_output(value, compliance=compliance, type_str=type_str, fix_range=fix_range)
+    def uni_output(
+        self,
+        value: float | str,
+        *,
+        freq=None,
+        fix_range: Optional[float | str] = None,
+        compliance: float | str = None,
+        type_str: Literal["curr", "volt"],
+    ) -> float:
+        self.dc_output(
+            value, compliance=compliance, type_str=type_str, fix_range=fix_range
+        )
         self.output_target = convert_unit(value, "")[0]
         return self.get_output_status()[0]
 
-    def dc_output(self, value: float | str, *, fix_range: Optional[float | str] = None,
-                  compliance: Optional[float | str] = None, type_str: Literal["curr", "volt"]):
+    def dc_output(
+        self,
+        value: float | str,
+        *,
+        fix_range: Optional[float | str] = None,
+        compliance: Optional[float | str] = None,
+        type_str: Literal["curr", "volt"],
+    ):
         value = convert_unit(value, "")[0]
         # add shortcut for zero output (no need to care about output type, just set current output to 0)
         if value == 0:
@@ -1057,26 +1330,37 @@ class Wrapper2450(DCSourceMeter):
         # close and reopen the source meter to avoid error when switching source type
         if self.info_dict["output_type"] != type_str:
             self.output_switch("off")
-            self.meter.source.function(type_str.replace("curr", "current").replace("volt", "voltage"))
+            self.meter.source.function(
+                type_str.replace("curr", "current").replace("volt", "voltage")
+            )
 
-        range_limit_dict = {"curr": 1E-8, "volt": 0.02}
+        range_limit_dict = {"curr": 1e-8, "volt": 0.02}
         if fix_range is not None:
             self.meter.source.range(convert_unit(fix_range, "")[0])
         else:
-            if abs(value) <= self.meter.source.range() / 100 or abs(value) >= self.meter.source.range():
-                new_range = value if abs(value) > range_limit_dict[type_str] else range_limit_dict[type_str]
+            if (
+                abs(value) <= self.meter.source.range() / 100
+                or abs(value) >= self.meter.source.range()
+            ):
+                new_range = (
+                    value
+                    if abs(value) > range_limit_dict[type_str]
+                    else range_limit_dict[type_str]
+                )
                 self.meter.source.range(new_range)
 
         if type_str == "curr":
             if compliance is None:
-                compliance = abs(value * 100000) if abs(value * 100000) >= 0.02 else 0.02
+                compliance = (
+                    abs(value * 100000) if abs(value * 100000) >= 0.02 else 0.02
+                )
             if compliance != self.meter.source.limit():
                 self.meter.source.limit(convert_unit(compliance, "V")[0])
             self.meter.source.current(value)
 
         elif type_str == "volt":
             if compliance is None:
-                compliance = abs(value / 1000) if abs(value / 1000) >= 1E-8 else 1E-8
+                compliance = abs(value / 1000) if abs(value / 1000) >= 1e-8 else 1e-8
             if compliance != self.meter.source.limit():
                 self.meter.source.limit(convert_unit(compliance, "A")[0])
             self.meter.source.voltage(value)
@@ -1118,10 +1402,12 @@ class Magnet(ABC):
         pass
 
     @abstractmethod
-    def ramp_to_field(self, field: float, *, rate: float, stability: float, check_interval: float):
+    def ramp_to_field(
+        self, field: float, *, rate: float, stability: float, check_interval: float
+    ):
         pass
 
-    def if_reach_target(self, tolerance: float = 3E-3):
+    def if_reach_target(self, tolerance: float = 3e-3):
         """
         check if the magnet has reached the target field
 
@@ -1135,8 +1421,13 @@ class WrapperIPS(Magnet):
     """
     Wrapper for MercuryIPS (only z axis magnetic field is considered)
     """
-    def __init__(self, address: str = "TCPIP0::10.97.24.237::7020::SOCKET",
-                 if_print: bool = False, limit_sphere: float = 11) -> None:
+
+    def __init__(
+        self,
+        address: str = "TCPIP0::10.97.24.237::7020::SOCKET",
+        if_print: bool = False,
+        limit_sphere: float = 11,
+    ) -> None:
         """
         load Mercury iPS instrument according to the address, store it in self.instrs["ips"]
 
@@ -1150,7 +1441,7 @@ class WrapperIPS(Magnet):
             self.ips.print_readable_snapshot(update=True)
 
         def spherical_limit(x, y, z) -> bool:
-            return np.sqrt(x ** 2 + y ** 2 + z ** 2) <= limit_sphere
+            return np.sqrt(x**2 + y**2 + z**2) <= limit_sphere
 
         self.ips.set_new_field_limits(spherical_limit)
 
@@ -1173,16 +1464,22 @@ class WrapperIPS(Magnet):
         """
         set the target field (only z direction considered)
         """
-        assert isinstance(field, (float, int, tuple, list)), "The field should be a float or a tuple of 3 floats"
+        assert isinstance(field, (float, int, tuple, list)), (
+            "The field should be a float or a tuple of 3 floats"
+        )
         fieldz_target = field if isinstance(field, (float, int)) else field[2]
         self.ips.z_target(fieldz_target)
 
-    def sw_heater(self, switch: Optional[bool | Literal["on", "off", "ON", "OFF"]] = None) -> Optional[bool]:
+    def sw_heater(
+        self, switch: Optional[bool | Literal["on", "off", "ON", "OFF"]] = None
+    ) -> Optional[bool]:
         """
         switch the heater of the magnet
         """
         if switch is not None:
-            switch = switch_dict.get(switch, False) if isinstance(switch, str) else switch
+            switch = (
+                switch_dict.get(switch, False) if isinstance(switch, str) else switch
+            )
             if switch:
                 self.ips.GRPZ.sw_heater("ON")
             else:
@@ -1197,7 +1494,7 @@ class WrapperIPS(Magnet):
                 case _:
                     raise ValueError("The heater status is not recognized")
 
-    #=======suitable for Z-axis only ips========
+    # =======suitable for Z-axis only ips========
     @property
     def status(self) -> Literal["HOLD", "TO SET", "CLAMP", "TO ZERO"]:
         """
@@ -1210,12 +1507,19 @@ class WrapperIPS(Magnet):
         """
         set the status of the magnet
         """
-        assert status in ["HOLD", "TO SET", "CLAMP", "TO ZERO"], "The status is not recognized"
+        assert status in ["HOLD", "TO SET", "CLAMP", "TO ZERO"], (
+            "The status is not recognized"
+        )
         self.ips.GRPZ.ramp_status(status)
 
-    def ramp_to_field(self, field: float | int | tuple[float] | list[float], *,
-                      rate: float | tuple[float] = (0.2,) * 3, wait: bool = True,
-                      tolerance: float = 1e-3) -> None:
+    def ramp_to_field(
+        self,
+        field: float | int | tuple[float] | list[float],
+        *,
+        rate: float | tuple[float] = (0.2,) * 3,
+        wait: bool = True,
+        tolerance: float = 1e-3,
+    ) -> None:
         """
         ramp the magnetic field to the target value with the rate, current the field is only in Z direction limited by the actual instrument setting
         (currently only B_z can be ramped)
@@ -1236,14 +1540,16 @@ class WrapperIPS(Magnet):
 
         if abs(self.field_set - field) < tolerance:
             return
-        if isinstance(rate, (float,int)):
+        if isinstance(rate, (float, int)):
             assert rate <= 0.2, "The rate is too high, the maximum rate is 0.2 T/min"
-            self.ips.GRPZ.field_ramp_rate(rate/60)
+            self.ips.GRPZ.field_ramp_rate(rate / 60)
         else:
-            assert max(rate) <= 0.2, "The rate is too high, the maximum rate is 0.2 T/min"
-            self.ips.GRPZ.field_ramp_rate(rate[2]/60)
-        #self.ips.GRPX.field_ramp_rate(rate[0]/60)
-        #self.ips.GRPY.field_ramp_rate(rate[1]/60)
+            assert max(rate) <= 0.2, (
+                "The rate is too high, the maximum rate is 0.2 T/min"
+            )
+            self.ips.GRPZ.field_ramp_rate(rate[2] / 60)
+        # self.ips.GRPX.field_ramp_rate(rate[0]/60)
+        # self.ips.GRPY.field_ramp_rate(rate[1]/60)
         # no x and y field for now (see the setter method for details)
         self.field_set = field
 
@@ -1263,8 +1569,12 @@ class WrapperIPS(Magnet):
                     count += 1
                 else:
                     count = 0
-                print_progress_bar(count, stability_counter, prefix="Stablizing",
-                                   suffix=f"B: {self.field} T")
+                print_progress_bar(
+                    count,
+                    stability_counter,
+                    prefix="Stablizing",
+                    suffix=f"B: {self.field} T",
+                )
                 time.sleep(1)
                 step_count += 1
             print("ramping finished")
@@ -1278,7 +1588,7 @@ Wrappers for ITC are following
 class ITC(ABC):
     # parent class to incorporate both two ITCs
     @abstractmethod
-    def __init__(self, address: str, cache_length: int = 60, var_crit: float = 1E-4):
+    def __init__(self, address: str, cache_length: int = 60, var_crit: float = 1e-4):
         self.cache = CacheArray(cache_length=cache_length, var_crit=var_crit)
 
     def set_cache(self, *, cache_length: int, var_crit: Optional[float] = None):
@@ -1313,7 +1623,9 @@ class ITC(ABC):
         if status_return is None:
             for i in range(self.cache.cache_length):
                 self.cache.update_cache(self.get_temperature())
-                print_progress_bar(i+1, self.cache.cache_length, prefix="loading cache")
+                print_progress_bar(
+                    i + 1, self.cache.cache_length, prefix="loading cache"
+                )
                 time.sleep(1)
             status_return = self.cache.get_status()
         return "HOLD" if status_return["if_stable"] else "VARYING"
@@ -1351,7 +1663,9 @@ class ITC(ABC):
         pass
 
     @abstractmethod
-    def correction_ramping(self, temp: float, trend: Literal["up", "down", "up-huge", "down-huge"]):
+    def correction_ramping(
+        self, temp: float, trend: Literal["up", "down", "up-huge", "down-huge"]
+    ):
         """
         Correct the sensor choosing or pressure when ramping through the temperature threshold
 
@@ -1361,10 +1675,9 @@ class ITC(ABC):
         """
         pass
 
-    def wait_for_temperature(self, temp, *,
-                             check_interval=1,
-                             stability_counter=7,
-                             thermalize_counter=11):
+    def wait_for_temperature(
+        self, temp, *, check_interval=1, stability_counter=7, thermalize_counter=11
+    ):
         """
         wait for the temperature to stablize for a certain time length
 
@@ -1409,28 +1722,47 @@ class ITC(ABC):
                 i += 1
             else:
                 i = 0
-            print_progress_bar(i, stability_counter, 
-                               prefix="Stablizing",
-                               suffix=f"Temperature: {self.temperature:.2f} K")
+            print_progress_bar(
+                i,
+                stability_counter,
+                prefix="Stablizing",
+                suffix=f"Temperature: {self.temperature:.2f} K",
+            )
             time.sleep(check_interval)
         print("Temperature stablized")
         for i in range(thermalize_counter):
-            print_progress_bar(i + 1, thermalize_counter, 
-                               prefix="Thermalizing",
-                               suffix=f"Temperature: {self.temperature:.2f} K")
+            print_progress_bar(
+                i + 1,
+                thermalize_counter,
+                prefix="Thermalizing",
+                suffix=f"Temperature: {self.temperature:.2f} K",
+            )
             time.sleep(check_interval)
         print("Thermalizing finished")
 
-    def ramp_to_temperature(self, temp, *, delta=0.02, check_interval=1, stability_counter=21, thermalize_counter=17,
-                            pid: Optional[dict] = None, ramp_rate=None, wait=True):
+    def ramp_to_temperature(
+        self,
+        temp,
+        *,
+        delta=0.02,
+        check_interval=1,
+        stability_counter=21,
+        thermalize_counter=17,
+        pid: Optional[dict] = None,
+        ramp_rate=None,
+        wait=True,
+    ):
         """ramp temperature to the target value (not necessary sample temperature)"""
         self.temperature_set = temp
         if pid is not None:
             self.set_pid(pid)
         if wait:
-            self.wait_for_temperature(temp, check_interval=check_interval,
-                                      stability_counter=stability_counter,
-                                      thermalize_counter=thermalize_counter)
+            self.wait_for_temperature(
+                temp,
+                check_interval=check_interval,
+                stability_counter=stability_counter,
+                thermalize_counter=thermalize_counter,
+            )
 
     @staticmethod
     def dynamic_delta(temp) -> float:
@@ -1442,7 +1774,9 @@ class ITC(ABC):
         t_high = 300
         delta_lowt = 0.02
         t_low = 1.5
-        return (delta_hight - delta_lowt) * (temp - t_low) / (t_high - t_low) + delta_lowt
+        return (delta_hight - delta_lowt) * (temp - t_low) / (
+            t_high - t_low
+        ) + delta_lowt
 
 
 class ITCMercury(ITC):
@@ -1451,8 +1785,13 @@ class ITCMercury(ITC):
     self.correction_ramping: modify pressure according to the temperature and trend
     self.calculate_vti_temp (in driver): automatically calculate the set VTI temperature
     """
-    def __init__(self, address="TCPIP0::10.97.27.13::7020::SOCKET",
-                 cache_length: int = 60, var_crit: float = 5E-4):
+
+    def __init__(
+        self,
+        address="TCPIP0::10.97.27.13::7020::SOCKET",
+        cache_length: int = 60,
+        var_crit: float = 5e-4,
+    ):
         self.mercury = MercuryITC("mercury_itc", address)
         self.cache = CacheArray(cache_length=cache_length, var_crit=var_crit)
 
@@ -1477,8 +1816,11 @@ class ITCMercury(ITC):
 
     @property
     def pid(self):
-        return {"P": self.mercury.temp_loop_P(), "I": self.mercury.temp_loop_I(),
-                "D": self.mercury.temp_loop_D()}
+        return {
+            "P": self.mercury.temp_loop_P(),
+            "I": self.mercury.temp_loop_I(),
+            "D": self.mercury.temp_loop_D(),
+        }
 
     def set_pid(self, pid: dict):
         """
@@ -1497,7 +1839,7 @@ class ITCMercury(ITC):
         """set the target temperature for sample"""
         self.mercury.temp_setpoint(temp)
         if vti_diff is not None:
-            self.mercury.vti_temp_setpoint(temp-vti_diff)
+            self.mercury.vti_temp_setpoint(temp - vti_diff)
         else:
             self.mercury.vti_temp_setpoint(self.mercury.calculate_vti_temp(temp))
 
@@ -1516,8 +1858,19 @@ class ITCMercury(ITC):
     def set_vti_temperature(self, temp):
         self.mercury.vti_temp_setpoint(temp)
 
-    def ramp_to_temperature(self, temp, *, delta=0.01, check_interval=1, stability_counter=10, thermalize_counter=7,
-                            pid=None, ramp_rate=None, wait=True, vti_diff: Optional[float] = 5):
+    def ramp_to_temperature(
+        self,
+        temp,
+        *,
+        delta=0.01,
+        check_interval=1,
+        stability_counter=10,
+        thermalize_counter=7,
+        pid=None,
+        ramp_rate=None,
+        wait=True,
+        vti_diff: Optional[float] = 5,
+    ):
         """ramp temperature to the target value (not necessary sample temperature)
 
         Args:
@@ -1539,15 +1892,22 @@ class ITCMercury(ITC):
         if ramp_rate is not None:
             self.mercury.probe_ramp_rate(ramp_rate)
             # self.mercury.vti_heater_rate(ramp_rate)
-            self.mercury.probe_temp_ramp_mode("ON")  # ramp_mode means limited ramping rate mode
+            self.mercury.probe_temp_ramp_mode(
+                "ON"
+            )  # ramp_mode means limited ramping rate mode
         else:
             self.mercury.probe_temp_ramp_mode("OFF")
         if wait:
-            self.wait_for_temperature(temp, check_interval=check_interval,
-                                      stability_counter=stability_counter,
-                                      thermalize_counter=thermalize_counter)
+            self.wait_for_temperature(
+                temp,
+                check_interval=check_interval,
+                stability_counter=stability_counter,
+                thermalize_counter=thermalize_counter,
+            )
 
-    def correction_ramping(self, temp: float, trend: Literal["up", "down", "up-huge", "down-huge"]):
+    def correction_ramping(
+        self, temp: float, trend: Literal["up", "down", "up-huge", "down-huge"]
+    ):
         """
         Correct the sensor choosing or pressure when ramping through the temperature threshold
 
@@ -1572,12 +1932,19 @@ class ITCMercury(ITC):
 
 
 class ITCs(ITC):
-    """ Represents the ITC503 Temperature Controllers and provides a high-level interface for interacting with the instruments.
+    """Represents the ITC503 Temperature Controllers and provides a high-level interface for interacting with the instruments.
 
     There are two ITC503 incorporated in the setup, named up and down. The up one measures the temperature of the heat switch(up R1), PT2(up R2), leaving R3 no specific meaning. The down one measures the temperature of the sorb(down R1), POT LOW(down R2), POT HIGH(down R3).
     """
 
-    def __init__(self, address_up: str = "GPIB0::23::INSTR", address_down: str = "GPIB0::24::INSTR", clear_buffer=True, cache_length: int = 60, var_crit: float = 3E-4):
+    def __init__(
+        self,
+        address_up: str = "GPIB0::23::INSTR",
+        address_down: str = "GPIB0::24::INSTR",
+        clear_buffer=True,
+        cache_length: int = 60,
+        var_crit: float = 3e-4,
+    ):
         self.itc_up = ITC503(address_up, clear_buffer=clear_buffer)
         self.itc_down = ITC503(address_down, clear_buffer=clear_buffer)
         self.itc_up.control_mode = "RU"
@@ -1619,7 +1986,9 @@ class ITCs(ITC):
         """
         self.itc_down.temperature_setpoint = temp
 
-    def ramp_to_temperature_selective(self, temp, itc_name: Literal["up", "down"], P=None, I=None, D=None):
+    def ramp_to_temperature_selective(
+        self, temp, itc_name: Literal["up", "down"], P=None, I=None, D=None
+    ):
         """
         used to ramp the temperature of the ITCs, this method will wait for the temperature to stablize and thermalize for a certain time length
         """
@@ -1644,17 +2013,19 @@ class ITCs(ITC):
 
     @property
     def version(self):
-        """ Returns the version of the ITC503. """
+        """Returns the version of the ITC503."""
         return [self.itc_up.version, self.itc_down.version]
 
     @property
     def control_mode(self):
-        """ Returns the control mode of the ITC503. """
+        """Returns the control mode of the ITC503."""
         return [self.itc_up.control_mode, self.itc_down.control_mode]
 
     @control_mode.setter
-    def control_mode(self, mode: tuple[Literal["LU", "RU", "LL", "RL"], Literal["all", "up", "down"]]):
-        """ Sets the control mode of the ITC503. A two-element list is required. The second elecment is "all" or "up"
+    def control_mode(
+        self, mode: tuple[Literal["LU", "RU", "LL", "RL"], Literal["all", "up", "down"]]
+    ):
+        """Sets the control mode of the ITC503. A two-element list is required. The second elecment is "all" or "up"
         or "down" to specify which ITC503 to set."""
         if mode[1] == "all":
             self.itc_up.control_mode = mode[0]
@@ -1666,12 +2037,17 @@ class ITCs(ITC):
 
     @property
     def heater_gas_mode(self):
-        """ Returns the heater gas mode of the ITC503. """
+        """Returns the heater gas mode of the ITC503."""
         return [self.itc_up.heater_gas_mode, self.itc_down.heater_gas_mode]
 
     @heater_gas_mode.setter
-    def heater_gas_mode(self, mode: tuple[Literal["MANUAL", "AM", "MA", "AUTO"], Literal["all", "up", "down"]]):
-        """ Sets the heater gas mode of the ITC503. A two-element list is required. The second elecment is "all" or
+    def heater_gas_mode(
+        self,
+        mode: tuple[
+            Literal["MANUAL", "AM", "MA", "AUTO"], Literal["all", "up", "down"]
+        ],
+    ):
+        """Sets the heater gas mode of the ITC503. A two-element list is required. The second elecment is "all" or
         "up" or "down" to specify which ITC503 to set."""
         if mode[1] == "all":
             self.itc_up.heater_gas_mode = mode[0]
@@ -1683,41 +2059,50 @@ class ITCs(ITC):
 
     @property
     def heater_power(self):
-        """ Returns the heater power of the ITC503. """
+        """Returns the heater power of the ITC503."""
         return [self.itc_up.heater, self.itc_down.heater]
 
     @property
     def heater_voltage(self):
-        """ Returns the heater voltage of the ITC503. """
+        """Returns the heater voltage of the ITC503."""
         return [self.itc_up.heater_voltage, self.itc_down.heater_voltage]
 
     @property
     def gas_flow(self):
-        """ Returns the gasflow of the ITC503. """
+        """Returns the gasflow of the ITC503."""
         return [self.itc_up.gasflow, self.itc_down.gasflow]
 
     @property
     def proportional_band(self):
-        """ Returns the proportional band of the ITC503. """
+        """Returns the proportional band of the ITC503."""
         return [self.itc_up.proportional_band, self.itc_down.proportional_band]
 
     @property
     def integral_action_time(self):
-        """ Returns the integral action time of the ITC503. """
+        """Returns the integral action time of the ITC503."""
         return [self.itc_up.integral_action_time, self.itc_down.integral_action_time]
 
     @property
     def derivative_action_time(self):
-        """ Returns the derivative action time of the ITC503. """
-        return [self.itc_up.derivative_action_time, self.itc_down.derivative_action_time]
+        """Returns the derivative action time of the ITC503."""
+        return [
+            self.itc_up.derivative_action_time,
+            self.itc_down.derivative_action_time,
+        ]
 
     @property
     def pid(self):
-        """ Returns the PID of the ITC503. """
-        return tuple(zip(self.proportional_band, self.integral_action_time, self.derivative_action_time))
+        """Returns the PID of the ITC503."""
+        return tuple(
+            zip(
+                self.proportional_band,
+                self.integral_action_time,
+                self.derivative_action_time,
+            )
+        )
 
     def set_pid(self, pid: dict, mode: Literal["all", "up", "down"] = "down"):
-        """ Sets the PID of the ITC503. A three-element list is required. The second elecment is "all" or "up" or "down" to specify which ITC503 to set.
+        """Sets the PID of the ITC503. A three-element list is required. The second elecment is "all" or "up" or "down" to specify which ITC503 to set.
         The P,I,D here are the proportional band (K), integral action time (min), and derivative action time(min), respectively.
         """
         self.control_mode = ("RU", mode)
@@ -1743,12 +2128,12 @@ class ITCs(ITC):
 
     @property
     def auto_pid(self):
-        """ Returns the auto pid of the ITC503. """
+        """Returns the auto pid of the ITC503."""
         return [self.itc_up.auto_pid, self.itc_down.auto_pid]
 
     @auto_pid.setter
     def auto_pid(self, mode):
-        """ Sets the auto pid of the ITC503. A two-element list is required. The second elecment is "all" or "up" or
+        """Sets the auto pid of the ITC503. A two-element list is required. The second elecment is "all" or "up" or
         "down" to specify which ITC503 to set."""
         if mode[1] == "all":
             self.itc_up.auto_pid = mode[0]
@@ -1760,12 +2145,12 @@ class ITCs(ITC):
 
     @property
     def temperature_setpoint(self):
-        """ Returns the temperature setpoint of the ITC503. """
+        """Returns the temperature setpoint of the ITC503."""
         return [self.itc_up.temperature_setpoint, self.itc_down.temperature_setpoint]
 
     @temperature_setpoint.setter
     def temperature_setpoint(self, temperature):
-        """ Sets the temperature setpoint of the ITC503. A two-element list is required. The second elecment is "all"
+        """Sets the temperature setpoint of the ITC503. A two-element list is required. The second elecment is "all"
         or "up" or "down" to specify which ITC503 to set."""
         if temperature[1] == "all":
             self.itc_up.temperature_setpoint = temperature[0]
@@ -1777,17 +2162,23 @@ class ITCs(ITC):
 
     @property
     def temperatures(self):
-        """ Returns the temperatures of the whole device as a dict. """
-        return {"sw": self.itc_up.temperature_1, "pt2": self.itc_up.temperature_2, "sorb": self.itc_down.temperature_1,
-                "pot_low": self.itc_down.temperature_2, "pot_high": self.itc_down.temperature_3}
+        """Returns the temperatures of the whole device as a dict."""
+        return {
+            "sw": self.itc_up.temperature_1,
+            "pt2": self.itc_up.temperature_2,
+            "sorb": self.itc_down.temperature_1,
+            "pot_low": self.itc_down.temperature_2,
+            "pot_high": self.itc_down.temperature_3,
+        }
 
     def get_temperature(self):
-        """ Returns the precise temperature of the sample """
+        """Returns the precise temperature of the sample"""
         if self.temperatures["pot_high"] < 1.9:
             return self.temperatures["pot_low"]
         elif self.temperatures["pot_high"] >= 1.9:
             return self.temperatures["pot_high"]
 
-    def correction_ramping(self, temp: float, trend: Literal["up", "down", "up-huge", "down-huge"]):
+    def correction_ramping(
+        self, temp: float, trend: Literal["up", "down", "up-huge", "down-huge"]
+    ):
         pass
-

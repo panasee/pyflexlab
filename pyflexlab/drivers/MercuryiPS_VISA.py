@@ -58,7 +58,7 @@ def _signal_parser(our_scaling: float, response: str) -> float:
 
     response = _response_preparser(response)
     digits = "".join(d for d in response if d in numchars)
-    scale_and_unit = response[len(digits):]
+    scale_and_unit = response[len(digits) :]
     if scale_and_unit == "":
         their_scaling: float = 1
     elif scale_and_unit[0] in scale_to_factor.keys():
@@ -107,8 +107,8 @@ class OxfordMercuryWorkerPS(InstrumentChannel):
             self.psu_string = "PSU"
 
         self.sw_heater: Parameter = self.add_parameter(
-            'sw_heater',
-            label='Switch heater status/set',
+            "sw_heater",
+            label="Switch heater status/set",
             get_cmd=partial(self._param_getter, "SIG:SWHT"),
             set_cmd=partial(self._param_setter, "SIG:SWHT"),
             get_parser=_response_preparser,
@@ -348,35 +348,35 @@ class OxfordMercuryiPS(VisaInstrument):
             x=self.GRPX.field(), y=self.GRPY.field(), z=self.GRPZ.field()
         )
 
-        self.magnet_temp_addr = 'DEV:MB1.T1:TEMP'
-        self.pt1_temp_addr = 'DEV:DB8.T1:TEMP'
-        self.pt2_temp_addr = 'DEV:DB7.T1:TEMP'
+        self.magnet_temp_addr = "DEV:MB1.T1:TEMP"
+        self.pt1_temp_addr = "DEV:DB8.T1:TEMP"
+        self.pt2_temp_addr = "DEV:DB7.T1:TEMP"
 
         self.magnet_temp: Parameter = self.add_parameter(
-                           name='magnet_temp',
-                           label='Magnet Temperature',
-                           unit='K',
-                           docstring='Temperature of the magnet sensor',
-                           get_cmd="READ:" + self.magnet_temp_addr + ":SIG:TEMP?",
-                           get_parser=self._temp_parser
-                           )
+            name="magnet_temp",
+            label="Magnet Temperature",
+            unit="K",
+            docstring="Temperature of the magnet sensor",
+            get_cmd="READ:" + self.magnet_temp_addr + ":SIG:TEMP?",
+            get_parser=self._temp_parser,
+        )
 
         self.pt1_temp: Parameter = self.add_parameter(
-                           name='pt1_temp',
-                           label='pt1 Temperature',
-                           unit='K',
-                           docstring='Temperature of the pt1',
-                           get_cmd="READ:" + self.pt1_temp_addr + ":SIG:TEMP?",
-                           get_parser=self._temp_parser
-                           )
+            name="pt1_temp",
+            label="pt1 Temperature",
+            unit="K",
+            docstring="Temperature of the pt1",
+            get_cmd="READ:" + self.pt1_temp_addr + ":SIG:TEMP?",
+            get_parser=self._temp_parser,
+        )
 
         self.pt2_temp: Parameter = self.add_parameter(
-            name='pt2_temp',
-            label='pt2 Temperature',
-            unit='K',
-            docstring='Temperature of the pt2',
+            name="pt2_temp",
+            label="pt2 Temperature",
+            unit="K",
+            docstring="Temperature of the pt2",
             get_cmd="READ:" + self.pt2_temp_addr + ":SIG:TEMP?",
-            get_parser=self._temp_parser
+            get_parser=self._temp_parser,
         )
 
         for coord, unit in zip(
@@ -605,11 +605,11 @@ class OxfordMercuryiPS(VisaInstrument):
         #NOTE: here x and y are screened out
         """
         ramping_statuus = ["TO SET", "TO ZERO"]
-        #is_x_ramping = self.GRPX.ramp_status() in ramping_statuus
-        #is_y_ramping = self.GRPY.ramp_status() in ramping_statuus
+        # is_x_ramping = self.GRPX.ramp_status() in ramping_statuus
+        # is_y_ramping = self.GRPY.ramp_status() in ramping_statuus
         is_z_ramping = self.GRPZ.ramp_status() in ramping_statuus
 
-        #return is_x_ramping or is_y_ramping or is_z_ramping
+        # return is_x_ramping or is_y_ramping or is_z_ramping
         return is_z_ramping
 
     def set_new_field_limits(
