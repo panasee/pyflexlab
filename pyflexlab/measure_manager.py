@@ -389,7 +389,7 @@ class MeasureManager(DataPlot):
         *,
         if_during_vary=False,
         vary_criteria: Optional[int | float] = None,
-        trigger: Optional[tuple[float, Callable]] = None,
+        trigger: Optional[tuple[float, Callable] | float] = None,
     ) -> Generator[float, None, None]:
         """
         sense the current using the source meter, initializations will be done for volt/curr meters
@@ -401,16 +401,24 @@ class MeasureManager(DataPlot):
             if_during_vary (bool): whether the sense is bonded with a varying temp/field, this will limit the generator,
                 and the sense will be stopped when the temp/field is stable (not available for meters and rotator)
             vary_criteria (int | float): the criteria (cache variance | no of steps) to judge if the temperature/angle is stable
-            trigger (tuple[float, Callable]): the tuple of the trigger value and the function to trigger when the sense value is stable AND reach the trigger value, the function will be called. Before the trigger, the sense will not be stopped.
+            trigger (tuple[float, Callable] | float): only applicable when if_during_vary is True, determine the stopping point for varying process. If it's a float, then no trigger function will be applied. If it's a tuple, then the Callable function will be applied when the sense value is stable AND reach the trigger value, the function will be called. Before the trigger, the sense will not be stopped.
         Returns:
             float | tuple[float]: the sensed value (tuple for sr830 ac sense)
         """
-        if trigger is not None:
-            trigger_val, trigger_func = trigger
-            if_trigger = False
+        if not if_during_vary:
+            if trigger is not None:
+                logger.warning("trigger is not applicable when if_during_vary is False")
+                trigger = None
         else:
-            trigger_val, trigger_func = None, None
-            if_trigger = True
+            logger.validate(trigger is not None, "trigger must be provided when if_during_vary is True")
+            if isinstance(trigger, tuple):
+                trigger_val, trigger_func = trigger
+                if_trigger = False
+            elif isinstance(trigger, float | int):
+                trigger_val = trigger
+                if_trigger = True
+            else:
+                raise ValueError("trigger must be a tuple or a float")
 
         sense_type = (
             sense_type.replace("V", "volt")
@@ -421,18 +429,6 @@ class MeasureManager(DataPlot):
             .replace("Theta", "angle")
         )
         logger.info("Sense Type: %s", sense_type)
-        if sense_type in ["volt", "curr"] and meter is not None:
-            instr = self.extract_meter_info(meter)
-            logger.info("Sense Meter/Instr: %s", instr.meter)
-            instr.setup(function="sense")
-            if isinstance(meter, WrapperSR830) and sense_type == "curr":
-                instr.setup(
-                    function="sense",
-                    input_config="I (1 MOhm)",
-                    input_grounding="Ground",
-                )
-            while True:
-                yield instr.sense_delay(type_str=sense_type)
 
         if vary_criteria is not None:
             if vary_criteria < 1:
@@ -446,6 +442,20 @@ class MeasureManager(DataPlot):
                 )
                 if sense_type != "angle":
                     vary_criteria = None
+
+        if sense_type in ["volt", "curr"] and meter is not None:
+            instr = self.extract_meter_info(meter)
+            logger.info("Sense Meter/Instr: %s", instr.meter)
+            instr.setup(function="sense")
+            if isinstance(meter, WrapperSR830) and sense_type == "curr":
+                instr.setup(
+                    function="sense",
+                    input_config="I (1 MOhm)",
+                    input_grounding="Ground",
+                )
+            while True:
+                yield instr.sense_delay(type_str=sense_type)
+
 
         elif sense_type == "temp":
             instr = self.instrs["itc"]
@@ -464,14 +474,14 @@ class MeasureManager(DataPlot):
                     instr.set_cache(var_crit=vary_criteria)
                     for _ in range(instr.cache.cache_length):
                         yield instr.temperature
-                while instr.status == "VARYING" or not if_trigger:
+                while instr.status == "VARYING" or not if_trigger \
+                    or abs(instr.temperature - trigger_val) > 0.03:
                     yield instr.temperature
-                    if trigger_val is not None:
-                        if not if_trigger and (
-                            abs(trigger_val - instr.temperature) < trigger_val / 100
-                        ) and (instr.status == "HOLD"):
-                            trigger_func()
-                            if_trigger = True
+                    if not if_trigger and (
+                        abs(trigger_val - instr.temperature) < 0.03
+                    ) and (instr.status == "HOLD"):
+                        trigger_func()
+                        if_trigger = True
         elif sense_type == "mag":
             instr = self.instrs["ips"]
             logger.info("Sense Meter/Instr: %s", instr)
@@ -479,15 +489,15 @@ class MeasureManager(DataPlot):
                 while True:
                     yield instr.field
             else:
-                while instr.status == "TO SET" or not if_trigger:
+                while instr.status == "TO SET" or not if_trigger \
+                    or abs(instr.field - trigger_val) > 0.01:
                     # only z field is considered
                     yield instr.field
-                    if trigger_val is not None:
-                        if not if_trigger and (
-                            abs(trigger_val - instr.field) < trigger_val / 100
-                        ) and (instr.status == "HOLD"):
-                            trigger_func()
-                            if_trigger = True
+                    if not if_trigger and (
+                        abs(trigger_val - instr.field) < 0.01
+                    ) and (instr.status == "HOLD"):
+                        trigger_func()
+                        if_trigger = True
         elif sense_type == "angle":
             instr = self.instrs["rotator"]
             logger.info("Sense Meter/Instr: %s", instr)
@@ -645,7 +655,7 @@ class MeasureManager(DataPlot):
         if_combine_gen: bool = True,
         sweep_tables: list[list[float | str, ...]]
         | tuple[tuple[float | str, ...]] = None,
-        special_name: str = None,
+        special_name: str = "",
         measure_nickname: str = "",
         with_timer: bool = True,
         no_start_vary: bool = False,
@@ -869,7 +879,7 @@ class MeasureManager(DataPlot):
                     if vary_loop:
                         trigger_tuple = (oth_mod["stop"], partial(temp_vary, reverse=True))
                     else:
-                        trigger_tuple = None
+                        trigger_tuple = oth_mod["stop"]
 
                 elif oth_mod["name"] == "B":
                     vary_mod.append("B")
@@ -887,7 +897,7 @@ class MeasureManager(DataPlot):
                     if vary_loop:
                         trigger_tuple = (oth_mod["stop"], partial(mag_vary, reverse=True))
                     else:
-                        trigger_tuple = None
+                        trigger_tuple = oth_mod["stop"]
 
                 elif oth_mod["name"] == "Theta":
                     vary_mod.append("Theta")
@@ -903,7 +913,7 @@ class MeasureManager(DataPlot):
                     if vary_loop:
                         trigger_tuple = (oth_mod["stop"], partial(angle_vary, reverse=True))
                     else:
-                        trigger_tuple = None
+                        trigger_tuple = oth_mod["stop"]
 
                 else:
                     raise ValueError("Vary module not recognized")

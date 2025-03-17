@@ -1530,7 +1530,7 @@ class WrapperIPS(Magnet):
             wait (bool): whether to wait for the ramping to finish
             tolerance (float): the tolerance of the field (T)
         """
-        if not self.sw_heater():
+        if not self.sw_heater() and field != 0:
             self.sw_heater("on")
             for i in range(310):
                 print_progress_bar(i, 310, prefix="waiting for heater")
@@ -1616,18 +1616,21 @@ class ITC(ABC):
     def get_temperature(self) -> float:
         """get the temperature from the instrument without caching"""
 
+    def load_cache(self, load_length: int = 30) -> None:
+        """load the cache from the instrument"""
+        for i in range(load_length):
+            self.add_cache()
+            print_progress_bar(
+                i + 1, load_length, prefix="loading cache"
+            )
+            time.sleep(1)
+
     @property
     def status(self) -> Literal["VARYING", "HOLD"]:
         """return the varying status of the ITC"""
         status_return = self.cache.get_status()
         if status_return is None:
-            for i in range(self.cache.cache_length):
-                self.cache.update_cache(self.get_temperature())
-                print_progress_bar(
-                    i + 1, self.cache.cache_length, prefix="loading cache"
-                )
-                time.sleep(1)
-            status_return = self.cache.get_status()
+            return "VARYING"
         return "HOLD" if status_return["if_stable"] else "VARYING"
 
     @property

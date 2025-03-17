@@ -2,6 +2,7 @@ import time
 import numpy as np
 from typing import Sequence, Callable
 from prefect import Flow, task
+from prefect.cache_policies import NO_CACHE
 from .measure_manager import MeasureManager
 from .equip_wrapper import Meter
 from pyomnix.omnix_logger import get_logger
@@ -14,7 +15,7 @@ class MeasureFlow(MeasureManager):
     This class is a subclass of MeasureManager and is responsible for managing the measure-related folders and data
     """
 
-    @task(name="vi-curve-simple")
+    @task(name="vi-curve-simple", cache_policy=NO_CACHE)
     def measure_Vswp_I_vicurve(
         self,
         *,
@@ -73,7 +74,7 @@ class MeasureFlow(MeasureManager):
         if individual_plot:
             self.stop_saving()
 
-    @task(name="rt")
+    @task(name="rt", cache_policy=NO_CACHE)
     def measure_VV_II_BTvary_rt(
         self,
         *,
@@ -168,7 +169,7 @@ class MeasureFlow(MeasureManager):
         if individual_plot:
             self.stop_saving()
 
-    @task(name="swp-gate")
+    @task(name="swp-gate", cache_policy=NO_CACHE)
     def measure_VVswp_II_BT_gateswp(
         self,
         *,
@@ -194,7 +195,10 @@ class MeasureFlow(MeasureManager):
         measure the Vg-I curve using TWO DC source meters, with other info (B, T, etc.) NOTE the vg_swp_lst will override the vg_step, vg_max and vg_swpmode
         """
         if vg_swp_lst is not None:
-            vg_swp_lst = "manual"
+            vg_swpmode = "manual"
+            swp_lst = [vg_swp_lst]
+        else:
+            swp_lst = None
 
         mea_dict = self.get_measure_dict(
             (
@@ -225,7 +229,7 @@ class MeasureFlow(MeasureManager):
             compliance_lst=[ds_compliance, vg_compliance],
             if_combine_gen=True,  # False for coexistence of vary and mapping
             special_name=folder_name,
-            sweep_tables=[vg_swp_lst],
+            sweep_tables=swp_lst,
             measure_nickname="swp-gate",
         )
 
@@ -254,7 +258,7 @@ class MeasureFlow(MeasureManager):
         if individual_plot:
             self.stop_saving()
 
-    @task(name="vi-curve")
+    @task(name="vi-curve", cache_policy=NO_CACHE)
     def measure_VswpV_II_BT_vicurve(
         self,
         *,
@@ -345,7 +349,7 @@ class MeasureFlow(MeasureManager):
         if individual_plot:
             self.stop_saving()
 
-    @task(name="rh-loop")
+    @task(name="rh-loop", cache_policy=NO_CACHE)
     def measure_VV_II_BvaryT_rhloop(
         self,
         *,
@@ -440,7 +444,7 @@ class MeasureFlow(MeasureManager):
         if individual_plot:
             self.stop_saving()
 
-    @task(name="ds-gate-mapping")
+    @task(name="ds-gate-mapping", cache_policy=NO_CACHE)
     def measure_VswpVswp_II_BT_dsgatemapping(
         self,
         *,
