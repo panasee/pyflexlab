@@ -14,18 +14,18 @@ import pandas as pd
 from pathlib import Path
 import re
 from functools import partial
-from .drivers.probe_rotator import RotatorProbe
-from .file_organizer import print_help_if_needed, FileOrganizer
-from .data_plot import DataPlot
-from .constants import (
+from pyomnix.data_process import DataManipulator
+from pyomnix.utils import (
     convert_unit,
-    print_progress_bar,
     gen_seq,
     constant_generator,
     combined_generator_list,
     rename_duplicates,
     time_generator,
 )
+from pyomnix.omnix_logger import get_logger
+from .drivers.probe_rotator import RotatorProbe
+from .file_organizer import print_help_if_needed, FileOrganizer
 from .equip_wrapper import (
     ITCs,
     ITCMercury,
@@ -39,12 +39,11 @@ from .equip_wrapper import (
     SourceMeter,
     WrapperIPS,
 )
-from pyomnix.omnix_logger import get_logger
 
 logger = get_logger(__name__)
 
 
-class MeasureManager(DataPlot):
+class MeasureManager(FileOrganizer):
     """This class is a subclass of FileOrganizer and is responsible for managing the measure-related folders and data
     During the measurement, the data will be recorded in self.dfs["curr_measure"], which will be overwritten after
     """
@@ -63,7 +62,8 @@ class MeasureManager(DataPlot):
         }
         self.instrs: dict[str, list[Meter] | ITCs | WrapperIPS | RotatorProbe] = {}
         # load params for plotting in measurement
-        DataPlot.load_settings(False, False)
+        DataManipulator.load_settings(False, False)
+        self.dfs: dict[str, pd.DataFrame] = {}
 
     @property
     def proj_path(self) -> Path:
@@ -200,14 +200,14 @@ class MeasureManager(DataPlot):
         compliance = convert_unit(compliance, "")[0]
         if freq is not None:
             freq = convert_unit(freq, "Hz")[0]
-        print(f"Source Meter: {instr.meter}")
-        print(f"Source Type: {source_type}")
-        print(f"AC/DC: {ac_dc}")
-        print(f"Max Value: {max_value} {'A' if source_type == 'curr' else 'V'}")
-        print(f"Step Value: {step_value} {'A' if source_type == 'curr' else 'V'}")
-        print(f"Compliance: {compliance} {'V' if source_type == 'curr' else 'A'}")
-        print(f"Freq: {freq} Hz")
-        print(f"Sweep Mode: {sweepmode}")
+        logger.info(f"Source Meter: {instr.meter}")
+        logger.info(f"Source Type: {source_type}")
+        logger.info(f"AC/DC: {ac_dc}")
+        logger.info(f"Max Value: {max_value} {'A' if source_type == 'curr' else 'V'}")
+        logger.info(f"Step Value: {step_value} {'A' if source_type == 'curr' else 'V'}")
+        logger.info(f"Compliance: {compliance} {'V' if source_type == 'curr' else 'A'}")
+        logger.info(f"Freq: {freq} Hz")
+        logger.info(f"Sweep Mode: {sweepmode}")
         instr.setup(function="source")
         safe_step: dict | float = instr.safe_step
         if isinstance(safe_step, dict):
@@ -343,8 +343,8 @@ class MeasureManager(DataPlot):
             instr = self.instrs["rotator"]
         else:
             raise ValueError("ext_type not recognized")
-        print(f"DISCRETE sweeping mode: {sweepmode}")
-        print(f"INSTR: {instr}")
+        logger.info(f"DISCRETE sweeping mode: {sweepmode}")
+        logger.info(f"INSTR: {instr}")
         max_value = convert_unit(max_value, "")[0]
         step_value = convert_unit(step_value, "")[0]
         if min_value is not None:
@@ -410,7 +410,10 @@ class MeasureManager(DataPlot):
                 logger.warning("trigger is not applicable when if_during_vary is False")
                 trigger = None
         else:
-            logger.validate(trigger is not None, "trigger must be provided when if_during_vary is True")
+            logger.validate(
+                trigger is not None,
+                "trigger must be provided when if_during_vary is True",
+            )
             if isinstance(trigger, tuple):
                 trigger_val, trigger_func = trigger
                 if_trigger = False
@@ -456,7 +459,6 @@ class MeasureManager(DataPlot):
             while True:
                 yield instr.sense_delay(type_str=sense_type)
 
-
         elif sense_type == "temp":
             instr = self.instrs["itc"]
             logger.info("Sense Meter/Instr: %s", instr)
@@ -474,12 +476,17 @@ class MeasureManager(DataPlot):
                     instr.set_cache(var_crit=vary_criteria)
                     for _ in range(instr.cache.cache_length):
                         yield instr.temperature
-                while instr.status == "VARYING" or not if_trigger \
-                    or abs(instr.temperature - trigger_val) > 0.03:
+                while (
+                    instr.status == "VARYING"
+                    or not if_trigger
+                    or abs(instr.temperature - trigger_val) > 0.03
+                ):
                     yield instr.temperature
-                    if not if_trigger and (
-                        abs(trigger_val - instr.temperature) < 0.03
-                    ) and (instr.status == "HOLD"):
+                    if (
+                        not if_trigger
+                        and (abs(trigger_val - instr.temperature) < 0.03)
+                        and (instr.status == "HOLD")
+                    ):
                         trigger_func()
                         if_trigger = True
         elif sense_type == "mag":
@@ -489,13 +496,18 @@ class MeasureManager(DataPlot):
                 while True:
                     yield instr.field
             else:
-                while instr.status == "TO SET" or not if_trigger \
-                    or abs(instr.field - trigger_val) > 0.01:
+                while (
+                    instr.status == "TO SET"
+                    or not if_trigger
+                    or abs(instr.field - trigger_val) > 0.01
+                ):
                     # only z field is considered
                     yield instr.field
-                    if not if_trigger and (
-                        abs(trigger_val - instr.field) < 0.01
-                    ) and (instr.status == "HOLD"):
+                    if (
+                        not if_trigger
+                        and (abs(trigger_val - instr.field) < 0.01)
+                        and (instr.status == "HOLD")
+                    ):
                         trigger_func()
                         if_trigger = True
         elif sense_type == "angle":
@@ -557,7 +569,7 @@ class MeasureManager(DataPlot):
         )
         file_path.parent.mkdir(parents=True, exist_ok=True)
         self.add_measurement(*measure_mods)
-        print(f"Filename is: {file_path.name}")
+        logger.info(f"Filename is: {file_path.name}")
 
         mainname_str, _, mod_detail_lst = FileOrganizer.name_fstr_gen(
             *measure_mods, require_detail=True
@@ -707,10 +719,10 @@ class MeasureManager(DataPlot):
                     add reverse=True to reverse the varying direction, used to do circular varying)
         """
         if special_mea == "delta":
-            print(
+            logger.info(
                 "use instance.instrs['6221'][0].delta_setup(**kwargs) to set customized parameters if needed AFTER this method"
             )
-            print(
+            logger.info(
                 "delta measurement should use a fixed current, make sure the 6221 source is fixed"
             )
 
@@ -867,7 +879,7 @@ class MeasureManager(DataPlot):
                             while abs(self.instrs["itc"].temperature - ini) > 0.1:
                                 self.instrs["itc"].ramp_to_temperature(ini, wait=True)
                             self.instrs["itc"].ramp_to_temperature(target, wait=False)
-                        
+
                     # define a function instead of directly calling the ramp_to_temperature method
                     # to avoid possible interruption or delay
                     else:
@@ -877,7 +889,10 @@ class MeasureManager(DataPlot):
                             self.instrs["itc"].ramp_to_temperature(target, wait=False)
 
                     if vary_loop:
-                        trigger_tuple = (oth_mod["stop"], partial(temp_vary, reverse=True))
+                        trigger_tuple = (
+                            oth_mod["stop"],
+                            partial(temp_vary, reverse=True),
+                        )
                     else:
                         trigger_tuple = oth_mod["stop"]
 
@@ -894,8 +909,12 @@ class MeasureManager(DataPlot):
                         self.instrs["ips"].ramp_to_field(
                             target, rate=field_ramp_rate, wait=False
                         )
+
                     if vary_loop:
-                        trigger_tuple = (oth_mod["stop"], partial(mag_vary, reverse=True))
+                        trigger_tuple = (
+                            oth_mod["stop"],
+                            partial(mag_vary, reverse=True),
+                        )
                     else:
                         trigger_tuple = oth_mod["stop"]
 
@@ -910,8 +929,12 @@ class MeasureManager(DataPlot):
                         while abs(self.instrs["rotator"].curr_angle() - ini) > 0.3:
                             self.instrs["rotator"].ramp_angle(ini, wait=True)
                         self.instrs["rotator"].ramp_angle(target, wait=False)
+
                     if vary_loop:
-                        trigger_tuple = (oth_mod["stop"], partial(angle_vary, reverse=True))
+                        trigger_tuple = (
+                            oth_mod["stop"],
+                            partial(angle_vary, reverse=True),
+                        )
                     else:
                         trigger_tuple = oth_mod["stop"]
 

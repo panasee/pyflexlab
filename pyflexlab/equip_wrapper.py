@@ -35,7 +35,7 @@ Actions that can be optimized for quicker operation:
 """
 
 import time
-from typing import Literal, Optional, Tuple, Any
+from typing import Literal, Optional
 from abc import ABC, abstractmethod
 
 import numpy as np
@@ -44,13 +44,12 @@ from pymeasure.instruments.oxfordinstruments import ITC503
 from pymeasure.instruments.keithley import KeithleyDMM6500
 from pymeasure.instruments.keithley import Keithley2182
 from qcodes.instrument_drivers.Keithley import Keithley2400, Keithley2450
+from pyomnix.utils import convert_unit, print_progress_bar, SWITCH_DICT, CacheArray
 
 from .drivers.MercuryiPS_VISA import OxfordMercuryiPS
 from .drivers.mercuryITC import MercuryITC
 from .drivers.Keithley_6430 import Keithley_6430
 from .drivers.keithley6221 import Keithley6221
-
-from .constants import convert_unit, print_progress_bar, switch_dict, CacheArray
 
 
 class Meter(ABC):
@@ -384,7 +383,7 @@ class Wrapper6221(ACSourceMeter, DCSourceMeter):
         """
         switch the output on or off (not suitable for special modes)
         """
-        switch = switch_dict.get(switch, False) if isinstance(switch, str) else switch
+        switch = SWITCH_DICT.get(switch, False) if isinstance(switch, str) else switch
 
         if self.info_dict["output_status"] == switch:
             return
@@ -830,7 +829,7 @@ class WrapperSR830(ACSourceMeter):
         return self.meter.sine_voltage, self.output_target
 
     def output_switch(self, switch: bool | Literal["on", "off", "ON", "OFF"]):
-        switch = switch_dict.get(switch, False) if isinstance(switch, str) else switch
+        switch = SWITCH_DICT.get(switch, False) if isinstance(switch, str) else switch
         if switch:
             # no actual switch of SR830
             self.info_dict["output_status"] = True
@@ -944,7 +943,7 @@ class Wrapper6430(DCSourceMeter):
             return self.meter.sense_resistance()
 
     def output_switch(self, switch: bool | Literal["on", "off", "ON", "OFF"]):
-        switch = switch_dict.get(switch, False) if isinstance(switch, str) else switch
+        switch = SWITCH_DICT.get(switch, False) if isinstance(switch, str) else switch
         if not switch:
             self.uni_output(0, type_str=self.info_dict["output_type"])
         self.meter.output_enabled(switch)
@@ -1124,7 +1123,7 @@ class Wrapper2400(DCSourceMeter):
             return self.meter.volt(), self.output_target, self.meter.rangev()
 
     def output_switch(self, switch: bool | Literal["on", "off", "ON", "OFF"]):
-        switch = switch_dict.get(switch, False) if isinstance(switch, str) else switch
+        switch = SWITCH_DICT.get(switch, False) if isinstance(switch, str) else switch
         if not switch:
             self.uni_output(0, type_str=self.info_dict["output_type"])
         self.meter.output(switch)
@@ -1286,7 +1285,7 @@ class Wrapper2450(DCSourceMeter):
             return self.sense("volt"), self.output_target, self.meter.source.range()
 
     def output_switch(self, switch: bool | Literal["on", "off", "ON", "OFF"]):
-        switch = switch_dict.get(switch, False) if isinstance(switch, str) else switch
+        switch = SWITCH_DICT.get(switch, False) if isinstance(switch, str) else switch
         if self.info_dict["output_status"] == switch:
             return
         if not switch:
@@ -1478,7 +1477,7 @@ class WrapperIPS(Magnet):
         """
         if switch is not None:
             switch = (
-                switch_dict.get(switch, False) if isinstance(switch, str) else switch
+                SWITCH_DICT.get(switch, False) if isinstance(switch, str) else switch
             )
             if switch:
                 self.ips.GRPZ.sw_heater("ON")
@@ -1620,9 +1619,7 @@ class ITC(ABC):
         """load the cache from the instrument"""
         for i in range(load_length):
             self.add_cache()
-            print_progress_bar(
-                i + 1, load_length, prefix="loading cache"
-            )
+            print_progress_bar(i + 1, load_length, prefix="loading cache")
             time.sleep(1)
 
     @property

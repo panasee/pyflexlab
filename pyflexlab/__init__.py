@@ -6,10 +6,7 @@ set_envs()
 set_paths()
 
 from .file_organizer import FileOrganizer
-from .data_process import DataProcess
-from .data_plot import DataPlot
 from .measure_manager import MeasureManager
-from .pltconfig import color_preset
 
 
 def initialize_with_templates():
