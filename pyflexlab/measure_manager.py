@@ -38,6 +38,8 @@ from .equip_wrapper import (
     Meter,
     SourceMeter,
     WrapperIPS,
+    WrapperB2902Bchannel,
+    ITCLakeshore,
 )
 
 logger = get_logger(__name__)
@@ -59,6 +61,7 @@ class MeasureManager(FileOrganizer):
             "2450": Wrapper2450,
             "6221": Wrapper6221,
             "sr830": WrapperSR830,
+            "b2902ch": WrapperB2902Bchannel,
         }
         self.instrs: dict[str, list[Meter] | ITCs | WrapperIPS | RotatorProbe] = {}
         # load params for plotting in measurement
@@ -75,9 +78,10 @@ class MeasureManager(FileOrganizer):
     def load_meter(
         self,
         meter_no: Literal[
-            "sr830", "6221", "2182", "2182a", "2400", "2401", "6430", "2450"
+            "sr830", "6221", "2182", "2182a", "2400", "2401", "6430", "2450", "b2902ch"
         ],
         *address: str,
+        channel: int | str = 1,
     ) -> None:
         """
         load the instrument according to the address, store it in self.instrs[meter]
@@ -90,12 +94,15 @@ class MeasureManager(FileOrganizer):
         meter_no = meter_no.lower()
         meter_no.replace("2401", "2400").replace("2182a", "2182")
         if meter_no in self.instrs:
-            del self.instrs["meter_no"]
+            del self.instrs[meter_no]
             gc.collect()
 
         self.instrs[meter_no] = []
         for addr in address:
-            self.instrs[meter_no].append(self.meter_wrapper_dict[meter_no](addr))
+            if meter_no == "b2902ch":
+                self.instrs[meter_no].append(self.meter_wrapper_dict[meter_no](addr, channel=channel))
+            else:
+                self.instrs[meter_no].append(self.meter_wrapper_dict[meter_no](addr))
             try:
                 self.instrs[meter_no][-1].setup(function="source", reset=True)
             except:
@@ -140,15 +147,24 @@ class MeasureManager(FileOrganizer):
         )
 
     def load_mercury_itc(
-        self, address: str = "TCPIP0::10.101.28.24::7020::SOCKET"
+        self, address: str = "TCPIP0::10.101.28.24::7020::SOCKET",
+        cache_length: int = 60,
+        var_crit: float = 5e-4,
     ) -> None:
         """
         load Mercury iPS instrument according to the address, store it in self.instrs["ips"]
         """
         # self.instrs["mercury_itc"] = MercuryITC(address)
-        self.instrs["mercury_itc"] = ITCMercury(address)
+        self.instrs["mercury_itc"] = ITCMercury(address, cache_length=cache_length, var_crit=var_crit)
         self.instrs["itc"] = self.instrs["mercury_itc"]
         # print(self.instrs["mercury_itc"].modules)
+
+    def load_lakeshore(self, address: str = "GPIB0::12::INSTR", cache_length: int = 60, var_crit: float = 5e-4) -> None:
+        """
+        load Lakeshore instrument according to the address, store it in self.instrs["lakeshore"]
+        """
+        self.instrs["lakeshore"] = ITCLakeshore(address, cache_length=cache_length, var_crit=var_crit)
+        self.instrs["itc"] = self.instrs["lakeshore"]
 
     def source_sweep_apply(
         self,

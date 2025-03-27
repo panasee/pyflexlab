@@ -44,12 +44,14 @@ from pymeasure.instruments.oxfordinstruments import ITC503
 from pymeasure.instruments.keithley import KeithleyDMM6500
 from pymeasure.instruments.keithley import Keithley2182
 from qcodes.instrument_drivers.Keithley import Keithley2400, Keithley2450
+from qcodes.instrument_drivers.Lakeshore import LakeshoreModel325
 from pyomnix.utils import convert_unit, print_progress_bar, SWITCH_DICT, CacheArray
 
 from .drivers.MercuryiPS_VISA import OxfordMercuryiPS
 from .drivers.mercuryITC import MercuryITC
 from .drivers.Keithley_6430 import Keithley_6430
 from .drivers.keithley6221 import Keithley6221
+from .drivers.keysight_b2902b import Keysight_B2902B, KeysightB2902BChannel
 
 
 class Meter(ABC):
@@ -878,6 +880,7 @@ class WrapperSR830(ACSourceMeter):
 class Wrapper6430(DCSourceMeter):
     def __init__(self, GPIB: str = "GPIB0::26::INSTR"):
         super().__init__()
+        self.meter: Keithley_6430
         self.meter = Keithley_6430("Keithley6430", GPIB)
         self.info_dict = {}
         self.output_target = 0
@@ -1047,6 +1050,180 @@ class Wrapper6430(DCSourceMeter):
             if compliance != self.meter.source_current_compliance():
                 self.meter.sense_current_range(convert_unit(compliance, "A")[0])
                 self.meter.sense_autorange(True)
+                self.meter.source_current_compliance(convert_unit(compliance, "A")[0])
+            self.meter.source_voltage(value)
+
+        self.info_dict["output_type"] = type_str
+        self.output_switch("on")
+
+    def shutdown(self):
+        self.output_switch("off")
+
+
+class WrapperB2902Bchannel(DCSourceMeter):
+    def __init__(self, GPIB: str = "GPIB0::25::INSTR", channel: int | str = 1):
+        super().__init__()
+        self.meter_all = Keysight_B2902B("KeysightB2902B", GPIB)
+        self.meter: KeysightB2902BChannel
+        self.meter = self.meter_all.ch1 if int(channel) == 1 else self.meter_all.ch2
+        self.info_dict = {}
+        self.output_target = 0
+        self.safe_step = {"volt": 1e-2, "curr": 2e-6}
+        self.info_sync()
+
+    def info_sync(self):
+        self.info_dict.update(
+            {
+                "output_status": self.meter.output(),
+                "output_type": self.meter.source_mode()
+                .lower()
+                .replace("current", "curr")
+                .replace("voltage", "volt"),
+                "curr_compliance": self.meter.source_current_compliance(),
+                "volt_compliance": self.meter.source_voltage_compliance(),
+                "source_curr_range": self.meter.source_current_range(),
+                "source_volt_range": self.meter.source_voltage_range(),
+                "sense_curr_autorange": self.meter.sense_current_autorange(),
+                "sense_volt_autorange": self.meter.sense_voltage_autorange(),
+                "sense_resist_autorange": self.meter.sense_resistance_autorange(),
+                "sense_curr_range": self.meter.sense_current_range(),
+                "sense_volt_range": self.meter.sense_voltage_range(),
+                "sense_resist_range": self.meter.sense_resistance_range(),
+            }
+        )
+
+    def setup(
+        self, function: Literal["sense", "source"] = "sense", reset: bool = False
+    ):
+        if reset:
+            self.meter_all.reset()
+        if function == "sense":
+            self.meter.sense_current_autorange(True)
+            self.meter.sense_voltage_autorange(True)
+            self.meter.sense_resistance_autorange(True)
+        elif function == "source":
+            if reset:
+                self.meter.output(False)
+            self.meter.source_current_autorange(True)
+            self.meter.source_voltage_autorange(True)
+        self.info_sync()
+
+    def sense(self, type_str: Literal["curr", "volt", "resist"]) -> float:
+        # if self.info_dict["output_status"] is False:
+        #    self.output_switch("on")
+
+        if type_str == "curr":
+            return self.meter.sense_current()
+        elif type_str == "volt":
+            return self.meter.sense_voltage()
+        elif type_str == "resist":
+            return self.meter.sense_resistance()
+
+    def output_switch(self, switch: bool | Literal["on", "off", "ON", "OFF"]):
+        switch = SWITCH_DICT.get(switch, False) if isinstance(switch, str) else switch
+        if not switch:
+            self.uni_output(0, type_str=self.info_dict["output_type"])
+        self.meter.output(switch)
+        self.info_dict["output_status"] = switch
+
+    def get_output_status(self) -> tuple[float, float, float]:
+        """
+        return the output value from device and also the target value set by output methods
+
+        Returns:
+            tuple[float, float]: the output value and the target value
+        """
+        if self.meter.source_mode().lower() == "curr":
+            return (
+                self.meter.source_current(),
+                self.output_target,
+                self.meter.source_current_range(),
+            )
+        elif self.meter.source_mode().lower() == "volt":
+            return (
+                self.meter.source_voltage(),
+                self.output_target,
+                self.meter.source_voltage_range(),
+            )
+
+    def uni_output(
+        self,
+        value: float | str,
+        *,
+        freq=None,
+        fix_range: Optional[float | str] = None,
+        compliance: Optional[float | str] = None,
+        type_str: Literal["curr", "volt"],
+    ) -> float:
+        self.dc_output(
+            value, compliance=compliance, type_str=type_str, fix_range=fix_range
+        )
+        self.output_target = convert_unit(value, "")[0]
+        return self.get_output_status()[0]
+
+    def dc_output(
+        self,
+        value: float | str,
+        *,
+        compliance: Optional[float | str] = None,
+        fix_range: Optional[float | str] = None,
+        type_str: Literal["curr", "volt"],
+    ):
+        value = convert_unit(value, "")[0]
+        # add shortcut for zero output (no need to care about output type, just set current output to 0)
+        if value == 0:
+            if self.info_dict["output_type"] == "curr":
+                self.meter.source_current(0)
+            elif self.info_dict["output_type"] == "volt":
+                self.meter.source_voltage(0)
+            self.output_switch("on")
+            return
+        # close and reopen the source meter to avoid error when switching source type
+        if self.info_dict["output_type"] != type_str:
+            self.output_switch("off")
+            self.meter.source_mode(type_str.upper())
+
+        if type_str == "curr":
+            if fix_range is not None:
+                self.meter.source_current_range(convert_unit(fix_range, "A")[0])
+            else:
+                if (
+                    abs(value) <= self.meter.source_current_range() / 100
+                    or abs(value) >= self.meter.source_current_range()
+                ):
+                    new_range = abs(value) if abs(value) > 1e-12 else 1e-12
+                    self.meter.source_current_range(new_range)
+            if compliance is None:
+                if (
+                    abs(value * 100000) < 1e-3
+                ):  # this limit is only for 2400 (compliancev > 1E-3)
+                    compliance = 1e-3
+                else:
+                    compliance = abs(value * 100000)
+            if compliance != self.meter.source_voltage_compliance():
+                self.meter.sense_voltage_range(convert_unit(compliance, "V")[0])
+                self.meter.sense_voltage_autorange(True)
+                self.meter.source_voltage_compliance(convert_unit(compliance, "V")[0])
+            self.meter.source_current(value)
+
+        elif type_str == "volt":
+            if fix_range is not None:
+                self.meter.source_voltage_range(convert_unit(fix_range, "V")[0])
+            else:
+                if (
+                    abs(value) <= self.meter.source_voltage_range() / 100
+                    or abs(value) >= self.meter.source_voltage_range()
+                ):
+                    new_range = abs(value) if abs(value) > 0.2 else 0.2
+                    self.meter.source_voltage_range(new_range)
+            if compliance is None:
+                if abs(value / 1000) < 1e-6:
+                    compliance = 1e-6
+                else:
+                    compliance = abs(value / 1000)
+            if compliance != self.meter.source_current_compliance():
+                self.meter.sense_current_range(convert_unit(compliance, "A")[0])
+                self.meter.sense_current_autorange(True)
                 self.meter.source_current_compliance(convert_unit(compliance, "A")[0])
             self.meter.source_voltage(value)
 
@@ -1779,6 +1956,42 @@ class ITC(ABC):
         ) + delta_lowt
 
 
+class ITCLakeshore(ITC):
+    def __init__(
+        self,
+        address: str = "GPIB0::12::INSTR",
+        cache_length: int = 60,
+        var_crit: float = 5e-4,
+    ):
+        self.lake = LakeshoreModel325("Lakeshore325", address)
+        self.cache = CacheArray(cache_length=cache_length, var_crit=var_crit)
+
+    def get_temperature(self) -> float:
+        #TODO: implement this
+        pass
+
+    @property
+    def temperature_set(self, temp: float) -> None:
+        #TODO: implement this
+        pass
+
+    @temperature_set.setter
+    def temperature_set(self, temp: float) -> None:
+        #TODO: implement this
+        pass
+
+    @property
+    def pid(self) -> dict:
+        #TODO: implement this
+        pass
+
+    def set_pid(self, pid_dict: dict) -> None:
+        #TODO: implement this
+        pass
+
+    def correction_ramping(self, temp: float, trend: Literal['up'] | Literal['down'] | Literal['up-huge'] | Literal['down-huge']):
+        pass
+
 class ITCMercury(ITC):
     """
     Variable Params:
@@ -1822,11 +2035,11 @@ class ITCMercury(ITC):
             "D": self.mercury.temp_loop_D(),
         }
 
-    def set_pid(self, pid: dict):
+    def set_pid(self, pid_dict: dict):
         """
         set the pid of probe temp loop
         """
-        self.mercury.temp_PID = (pid["P"], pid["I"], pid["D"])
+        self.mercury.temp_PID = (pid_dict["P"], pid_dict["I"], pid_dict["D"])
         self.pid_control("ON")
 
     def pid_control(self, control: Literal["ON", "OFF"]):
