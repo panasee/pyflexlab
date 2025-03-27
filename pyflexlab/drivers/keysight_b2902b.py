@@ -38,12 +38,11 @@ class KeysightB2902BChannel(InstrumentChannel):
         parent: VisaInstrument,
         name: str,
         channel: int | str,
-        terminator: str = "\n",
         **kwargs: Unpack[InstrumentBaseKWArgs],
     ) -> None:
         if str(channel) not in ["1", "2"]:
             raise ValueError(f"channel must be 1 or 2, got {channel}")
-        super().__init__(parent, name, terminator=terminator, **kwargs)
+        super().__init__(parent, name, **kwargs)
         self.channel = str(channel)
         self.function_name_mapping = {"measurement": "ACQ", "output": "TRAN", "all": "ALL"}
 

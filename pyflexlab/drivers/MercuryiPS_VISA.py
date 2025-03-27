@@ -1,6 +1,7 @@
 """
 Added temperature reading parameters
 based on the Oxford MercuryiPS driver Qcodes 0.45.0
+(already merged into the main branch)
 """
 
 from __future__ import annotations

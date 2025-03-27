@@ -1,8 +1,6 @@
 # Qcodes driver Keithley 6430 SMU
 # Based on QtLab legacy driver
 # https://github.com/qdev-dk/qtlab/blob/master/instrument_plugins/Keithley_6430.py
-from typing import List, Tuple
-
 from qcodes.instrument.visa import VisaInstrument
 from qcodes.utils.validators import Ints, Numbers, Bool, Strings, Enum
 from qcodes.utils.helpers import create_on_off_val_mapping

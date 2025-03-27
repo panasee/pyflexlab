@@ -45,6 +45,7 @@ from pymeasure.instruments.keithley import KeithleyDMM6500
 from pymeasure.instruments.keithley import Keithley2182
 from qcodes.instrument_drivers.Keithley import Keithley2400, Keithley2450
 from qcodes.instrument_drivers.Lakeshore import LakeshoreModel325
+from qcodes.instrument import find_or_create_instrument
 from pyomnix.utils import convert_unit, print_progress_bar, SWITCH_DICT, CacheArray
 
 from .drivers.MercuryiPS_VISA import OxfordMercuryiPS
@@ -1063,7 +1064,7 @@ class Wrapper6430(DCSourceMeter):
 class WrapperB2902Bchannel(DCSourceMeter):
     def __init__(self, GPIB: str = "GPIB0::25::INSTR", channel: int | str = 1):
         super().__init__()
-        self.meter_all = Keysight_B2902B("KeysightB2902B", GPIB)
+        self.meter_all = find_or_create_instrument(Keysight_B2902B, "KeysightB2902B", address=GPIB)
         self.meter: KeysightB2902BChannel
         self.meter = self.meter_all.ch1 if int(channel) == 1 else self.meter_all.ch2
         self.info_dict = {}
