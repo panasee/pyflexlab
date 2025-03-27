@@ -3,10 +3,12 @@ import os
 from pathlib import Path
 from functools import wraps
 
-
+from pyomnix.omnix_logger import get_logger
 from pyomnix.utils import (
     is_notebook,
 )
+
+logger = get_logger(__name__)
 
 LOCAL_DB_PATH: Path | None = None
 OUT_DB_PATH: Path | None = None
@@ -22,10 +24,10 @@ def set_envs() -> None:
             for key in os.environ:
                 if key.startswith(env_var):
                     os.environ[env_var] = os.environ[key]
-                    print(f"set with {key}")
+                    logger.info(f"set with {key}")
                     break
             else:
-                print(f"{env_var} not found in environment variables")
+                logger.warning(f"{env_var} not found in environment variables")
 
 
 def set_paths(
@@ -41,19 +43,19 @@ def set_paths(
         LOCAL_DB_PATH = Path(local_db_path)
     else:
         if os.getenv("PYLAB_DB_LOCAL") is None:
-            print("PYLAB_DB_LOCAL not set")
+            logger.warning("PYLAB_DB_LOCAL not set")
         else:
             LOCAL_DB_PATH = Path(os.getenv("PYLAB_DB_LOCAL"))
-            print(f"read from PYLAB_DB_LOCAL:{LOCAL_DB_PATH}")
+            logger.info(f"read from PYLAB_DB_LOCAL:{LOCAL_DB_PATH}")
 
     if out_db_path is not None:
         OUT_DB_PATH = Path(out_db_path)
     else:
         if os.getenv("PYLAB_DB_OUT") is None:
-            print("PYLAB_DB_OUT not set")
+            logger.warning("PYLAB_DB_OUT not set")
         else:
             OUT_DB_PATH = Path(os.getenv("PYLAB_DB_OUT"))
-            print(f"read from PYLAB_DB_OUT:{OUT_DB_PATH}")
+            logger.info(f"read from PYLAB_DB_OUT:{OUT_DB_PATH}")
 
 
 # define constants
@@ -68,7 +70,7 @@ def handle_keyboard_interrupt(func):
         try:
             return func(*args, **kwargs)
         except KeyboardInterrupt:
-            print("KeyboardInterrupt caught. Cleaning up...")
+            logger.warning("KeyboardInterrupt caught. Cleaning up...")
             # Perform any necessary cleanup here
             return None
 
@@ -77,6 +79,6 @@ def handle_keyboard_interrupt(func):
 
 if "__name__" == "__main__":
     if is_notebook():
-        print("This is a notebook")
+        logger.info("This is a notebook")
     else:
-        print("This is not a notebook")
+        logger.info("This is not a notebook")

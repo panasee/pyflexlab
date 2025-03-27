@@ -10,7 +10,7 @@ from typing import Optional
 from pathlib import Path
 import ctypes
 from .. import constants
-from ..constants import print_progress_bar
+from pyomnix.utils import print_progress_bar
 
 
 def avoid_running(method):

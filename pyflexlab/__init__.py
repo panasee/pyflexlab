@@ -1,5 +1,6 @@
 """Python package for flexible laboratory data analysis and visualization."""
 
+from pyomnix.omnix_logger import get_logger
 from .constants import set_envs, set_paths
 
 set_envs()
@@ -8,6 +9,7 @@ set_paths()
 from .file_organizer import FileOrganizer
 from .measure_manager import MeasureManager
 
+logger = get_logger(__name__)
 
 def initialize_with_templates():
     """
@@ -19,7 +21,7 @@ def initialize_with_templates():
     from .constants import LOCAL_DB_PATH
 
     if LOCAL_DB_PATH is None:
-        print("LOCAL_DB_PATH is not set. Cannot copy templates.")
+        logger.warning("LOCAL_DB_PATH is not set. Cannot copy templates.")
         return
 
     local_db_dir = Path(LOCAL_DB_PATH)
@@ -39,4 +41,4 @@ def initialize_with_templates():
             # Copy only if the file doesn't exist
             if not target_path.exists():
                 shutil.copy2(template_file, target_path)
-                print(f"Copied template: {rel_path}")
+                logger.info(f"Copied template: {rel_path}")
