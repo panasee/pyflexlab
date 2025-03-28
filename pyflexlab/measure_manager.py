@@ -93,7 +93,8 @@ class MeasureManager(FileOrganizer):
         meter_no = meter_no.lower()
         meter_no.replace("2401", "2400").replace("2182a", "2182").replace("b2902", "b2902ch").replace("b2902b", "b2902ch")
 
-        self.instrs[meter_no] = []
+        if meter_no not in self.instrs:
+            self.instrs[meter_no] = []
         for addr in address:
             if meter_no == "b2902ch":
                 self.instrs[meter_no].append(

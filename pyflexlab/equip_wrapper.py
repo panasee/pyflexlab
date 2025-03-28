@@ -152,7 +152,10 @@ class SourceMeter(Meter):
 
     def __del__(self):
         self.shutdown()
-        self.meter.__del__()
+        try:
+            self.meter.__del__()
+        except AttributeError:
+            del self.meter
 
     def ramp_output(
         self,

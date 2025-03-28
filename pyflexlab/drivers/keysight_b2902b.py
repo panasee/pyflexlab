@@ -136,6 +136,7 @@ class KeysightB2902BChannel(InstrumentChannel):
         self.source_current_range = self.add_parameter(
             "source_current_range",
             get_cmd=f"SOUR{self.channel}:CURR:RANG?",
+            set_cmd=f"SOUR{self.channel}:CURR:RANG {{}}",
             docstring="Source current range.",
             unit="A",
             get_parser=float,
@@ -146,6 +147,7 @@ class KeysightB2902BChannel(InstrumentChannel):
         self.source_current_autorange = self.add_parameter(
             "source_current_autorange",
             get_cmd=f"SOUR{self.channel}:CURR:RANG:AUTO?",
+            set_cmd=f"SOUR{self.channel}:CURR:RANG:AUTO {{}}",
             docstring="Source current autorange.",
             val_mapping=on_off_vals,
         )
@@ -184,6 +186,7 @@ class KeysightB2902BChannel(InstrumentChannel):
         self.source_voltage_range = self.add_parameter(
             "source_voltage_range",
             get_cmd=f"SOUR{self.channel}:VOLT:RANG?",
+            set_cmd=f"SOUR{self.channel}:VOLT:RANG {{}}",
             docstring="Source voltage range.",
             unit="V",
             get_parser=float,
@@ -194,6 +197,7 @@ class KeysightB2902BChannel(InstrumentChannel):
         self.source_voltage_autorange = self.add_parameter(
             "source_voltage_autorange",
             get_cmd=f"SOUR{self.channel}:VOLT:RANG:AUTO?",
+            set_cmd=f"SOUR{self.channel}:VOLT:RANG:AUTO {{}}",
             docstring="Source voltage autorange.",
             val_mapping=on_off_vals,
         )
