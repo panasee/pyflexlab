@@ -39,13 +39,14 @@ from typing import Literal, Optional
 from abc import ABC, abstractmethod
 
 import numpy as np
-from pymeasure.instruments.srs import SR830
+from pymeasure.instruments.srs import SR830 
 from pymeasure.instruments.oxfordinstruments import ITC503
 from pymeasure.instruments.keithley import KeithleyDMM6500
 from pymeasure.instruments.keithley import Keithley2182
 from qcodes.instrument_drivers.Keithley import Keithley2400, Keithley2450
 from qcodes.instrument_drivers.Lakeshore import LakeshoreModel325
 from qcodes.instrument import find_or_create_instrument
+from pyomnix.omnix_logger import get_logger
 from pyomnix.utils import convert_unit, print_progress_bar, SWITCH_DICT, CacheArray
 
 from .drivers.MercuryiPS_VISA import OxfordMercuryiPS
@@ -53,7 +54,9 @@ from .drivers.mercuryITC import MercuryITC
 from .drivers.Keithley_6430 import Keithley_6430
 from .drivers.keithley6221 import Keithley6221
 from .drivers.keysight_b2902b import Keysight_B2902B, KeysightB2902BChannel
+from .drivers.SR860 import SR860
 
+logger = get_logger(__name__)
 
 class Meter(ABC):
     """
@@ -279,7 +282,7 @@ class Wrapper6221(ACSourceMeter, DCSourceMeter):
         self.mea_mode: Literal["normal", "delta", "pulse-delta", "differential"] = (
             "normal"
         )
-        print("note the grounding:")  # TODO: add grounding instruction#
+        logger.info("note the grounding:")  # TODO: add grounding instruction#
 
     def info_sync(self):
         self.info_dict.update(
@@ -332,7 +335,7 @@ class Wrapper6221(ACSourceMeter, DCSourceMeter):
         self.output_switch("off")
         source_6221.clear()
         if mea_mode == "delta":
-            print(
+            logger.info(
                 "delta mode is selected, please set the specific parameters using delta_setup method"
             )
             self.delta_setup()
@@ -574,7 +577,7 @@ class Wrapper6221(ACSourceMeter, DCSourceMeter):
 
     def sense(self, type_str: Literal["volt"] = "volt"):
         if self.mea_mode == "normal":
-            print("6221 is a source meter, no sense function")
+            logger.info("6221 is a source meter, no sense function")
         elif self.mea_mode == "delta":
             return self.meter.delta_sense
 
@@ -880,6 +883,171 @@ class WrapperSR830(ACSourceMeter):
         if self.info_dict["output_status"]:
             self.output_switch("off")
 
+class WrapperSR860(ACSourceMeter):
+    def __init__(self, GPIB: str = "GPIB0::8::INSTR", reset=True):
+        super().__init__()
+        self.meter = SR860(GPIB)
+        self.output_target = 0
+        self.info_dict = {"GPIB": GPIB}
+        self.safe_step = 2e-3
+        self.if_source = False  # if the meter has been declared as source (as source initialization is earlier)
+        if reset:
+            self.setup()
+        self.info_sync()
+
+    def info_sync(self):
+        self.info_dict.update(
+            {
+                "sensitivity": self.meter.sensitivity,
+                "ref_source_trigger": self.meter.reference_source_trigger,
+                "reference_source": self.meter.reference_source,
+                "harmonic": self.meter.harmonic,
+                "output_value": self.meter.sine_voltage,
+                "output_status": self.meter.sine_voltage > 0.004,
+                "frequency": self.meter.frequency,
+                "filter_slope": self.meter.filter_slope,
+                "time_constant": self.meter.time_constant,
+                "input_config": self.meter.input_config,
+                "input_coupling": self.meter.input_coupling,
+                "input_grounding": self.meter.input_shields,
+                "filter_synchronous": self.meter.filter_synchronous,
+            }
+        )
+
+    def setup(
+        self,
+        function: Literal["source", "sense"] = "sense",
+        *,
+        filter_slope=3,
+        time_constant=0.3,
+        input_config="A-B",
+        input_coupling="AC",
+        input_grounding="Float",
+        sine_voltage: float = 0,
+        filter_synchronous=False,
+        reset: bool = False,
+    ) -> None:
+        """
+        setup the SR830 instruments using pre-stored setups here, this function will not fully reset the instruments,
+        only overwrite the specific settings here, other settings will all be reserved
+        """
+        if reset:
+            self.setup()
+            return
+        if function == "sense":
+            self.meter.filter_slope = filter_slope
+            self.meter.time_constant = time_constant
+            self.meter.input_config = input_config
+            self.meter.input_coupling = input_coupling
+            self.meter.input_grounding = input_grounding
+            if not self.if_source:
+                self.meter.reference_source = "EXT"
+            else:
+                self.if_source = False  # restore the if_source to False for the next initialization, would cause unexpected behavior if called twice in one measurement
+            self.meter.filter_synchronous = filter_synchronous
+            self.info_dict.update(
+                {
+                    "filter_slope": filter_slope,
+                    "time_constant": time_constant,
+                    "input_config": input_config,
+                    "input_coupling": input_coupling,
+                    "input_grounding": input_grounding,
+                    "reference_source": "EXT",
+                    "filter_synchronous": filter_synchronous,
+                }
+            )
+        elif function == "source":
+            self.meter.sine_voltage = sine_voltage
+            self.meter.reference_source = "INT"
+            self.if_source = True
+            self.info_dict.update(
+                {"sine_voltage": sine_voltage, "reference_source": "INT"}
+            )
+        else:
+            raise ValueError("function should be either source or sense")
+
+    def reference_set(
+        self,
+        *,
+        freq: Optional[float | str] = None,
+        source: Optional[Literal["Internal", "External"]] = None,
+        trigger: Optional[Literal["SINE", "POS EDGE", "NEG EDGE"]] = None,
+        harmonic: Optional[int] = None,
+    ):
+        """
+        set the reference frequency and source
+        """
+        if freq is not None:
+            self.meter.frequency = convert_unit(freq, "Hz")[0]
+        if source is not None:
+            self.meter.reference_source = source
+        if trigger is not None:
+            self.meter.reference_source_trigger = trigger
+        if harmonic is not None:
+            self.meter.harmonic = harmonic
+        self.info_sync()
+
+    def sense(self, type_str: Literal["volt", "curr"] = "volt") -> tuple[float, float, float, float]:
+        """snap X Y and THETA from the meter and calculate the R, for compatibility with the SR830"""
+        x, y, theta = self.meter.snap("X", "Y", "THeta")
+        logger.debug("R is calculated from X and Y, not directly from the meter")
+        r = np.sqrt(x**2 + y**2)
+        return x, y, r, theta
+
+    def get_output_status(self) -> tuple[float, float]:
+        """
+        return the output value from device and also the target value set by output methods
+
+        Returns:
+            tuple[float, float]: the output value and the target value
+        """
+        return self.meter.sine_voltage, self.output_target
+
+    def output_switch(self, switch: bool | Literal["on", "off", "ON", "OFF"]):
+        switch = SWITCH_DICT.get(switch, False) if isinstance(switch, str) else switch
+        if switch:
+            # no actual switch of SR830
+            self.info_dict["output_status"] = True
+        else:
+            self.meter.sine_voltage = 0
+            self.info_dict["output_status"] = False
+
+    def uni_output(
+        self,
+        value: float | str,
+        *,
+        freq: Optional[float | str] = None,
+        compliance: Optional[float | str] = None,
+        type_str: Literal["volt"] = "volt",
+        fix_range: Optional[float | str] = None,
+    ) -> float:
+        """fix_range is not used for sr830"""
+        self.rms_output(value, freq=freq, compliance=compliance, type_str=type_str)
+        self.output_target = convert_unit(value, "V")[0]
+        return self.get_output_status()[0]
+
+    def rms_output(
+        self,
+        value: float | str,
+        *,
+        freq: Optional[float | str] = None,
+        compliance: Optional[float | str] = None,
+        type_str: Literal["volt"] = "volt",
+    ):
+        assert type_str == "volt", (
+            "SR830 is a voltage source, so the output is always voltage"
+        )
+        value = convert_unit(value, "V")[0]
+        self.meter.sine_voltage = value
+        self.info_dict["output_value"] = value
+        self.info_dict["output_status"] = True
+        if freq is not None and freq != self.info_dict["frequency"]:
+            self.meter.frequency = convert_unit(freq, "Hz")[0]
+            self.info_dict["frequency"] = freq
+
+    def shutdown(self):
+        if self.info_dict["output_status"]:
+            self.output_switch("off")
 
 class Wrapper6430(DCSourceMeter):
     def __init__(self, GPIB: str = "GPIB0::26::INSTR"):
@@ -1278,11 +1446,11 @@ class Wrapper2400(DCSourceMeter):
     def sense(self, type_str: Literal["curr", "volt", "resist"]) -> float:
         if type_str == "curr":
             if self.info_dict["output_type"] == "curr":
-                print("in curr mode, print the set point")
+                logger.info("in curr mode, print the set point")
             return self.meter.curr()
         elif type_str == "volt":
             if self.info_dict["output_type"] == "volt":
-                print("in curr mode, print the set point")
+                logger.info("in curr mode, print the set point")
             return self.meter.volt()
         elif type_str == "resist":
             return self.meter.resistance()
@@ -1664,7 +1832,7 @@ class WrapperIPS(Magnet):
                 self.ips.GRPZ.sw_heater("ON")
             else:
                 self.ips.GRPZ.sw_heater("OFF")
-            print("Heater switched", "on" if switch else "off")
+            logger.info("Heater switched", "on" if switch else "off")
         else:
             match self.ips.GRPZ.sw_heater():
                 case "ON" | "on" | True:
@@ -1718,7 +1886,7 @@ class WrapperIPS(Magnet):
         else:
             pass
 
-        if abs(self.field_set - field) < tolerance:
+        if abs(self.field - field) < tolerance:
             return
         if isinstance(rate, (float, int)):
             assert rate <= 0.2, "The rate is too high, the maximum rate is 0.2 T/min"
@@ -1731,33 +1899,22 @@ class WrapperIPS(Magnet):
         # self.ips.GRPX.field_ramp_rate(rate[0]/60)
         # self.ips.GRPY.field_ramp_rate(rate[1]/60)
         # no x and y field for now (see the setter method for details)
+        ini_field = self.field
         self.field_set = field
 
         self.ips.ramp(mode="simul")
         if wait:
             # the is_ramping() method is not working properly, so we use the following method to wait for the ramping
             # to finish
-            time_arr = [0]
-            field_arr = [self.field]
-            count = 0
-            step_count = 1
-            stability_counter = 13  # [s]
-            while count < stability_counter:
-                time_arr.append(step_count)
-                field_arr.append(self.field)
-                if self.if_reach_target(tolerance):
-                    count += 1
-                else:
-                    count = 0
+            while self.status == "TO SET" or abs(self.field - self.field_set) > tolerance:
                 print_progress_bar(
-                    count,
-                    stability_counter,
+                    self.field - ini_field,
+                    field - ini_field,
                     prefix="Stablizing",
                     suffix=f"B: {self.field} T",
                 )
                 time.sleep(1)
-                step_count += 1
-            print("ramping finished")
+            logger.info("ramping finished")
 
 
 """
@@ -1910,7 +2067,7 @@ class ITC(ABC):
                 suffix=f"Temperature: {self.temperature:.2f} K",
             )
             time.sleep(check_interval)
-        print("Temperature stablized")
+        logger.info("Temperature stablized")
         for i in range(thermalize_counter):
             print_progress_bar(
                 i + 1,
@@ -1919,7 +2076,7 @@ class ITC(ABC):
                 suffix=f"Temperature: {self.temperature:.2f} K",
             )
             time.sleep(check_interval)
-        print("Thermalizing finished")
+        logger.info("Thermalizing finished")
 
     def ramp_to_temperature(
         self,
@@ -2215,7 +2372,7 @@ class ITCs(ITC):
         elif itc_name == "down":
             itc_here = self.itc_down
         else:
-            print("Please specify the ITC to set")
+            logger.error("Please specify the ITC to set")
             return
         itc_here.temperature_setpoint = temp
         if P is not None and I is not None and D is not None:
@@ -2226,7 +2383,7 @@ class ITCs(ITC):
         else:
             itc_here.auto_pid = True
         itc_here.heater_gas_mode = "AM"
-        print(f"temperature setted to {temp}")
+        logger.info(f"temperature setted to {temp}")
 
     @property
     def version(self):
