@@ -1964,8 +1964,6 @@ class ITC(ABC):
     def status(self) -> Literal["VARYING", "HOLD"]:
         """return the varying status of the ITC"""
         status_return = self.cache.get_status()
-        if status_return is None:
-            return "VARYING"
         return "HOLD" if status_return["if_stable"] else "VARYING"
 
     @property
@@ -2014,7 +2012,7 @@ class ITC(ABC):
         pass
 
     def wait_for_temperature(
-        self, temp, *, check_interval=1, stability_counter=7, thermalize_counter=11
+        self, temp, *, check_interval=1, stability_counter=1, thermalize_counter=7
     ):
         """
         wait for the temperature to stablize for a certain time length
@@ -2037,34 +2035,31 @@ class ITC(ABC):
                 return 0.007
 
         trend: Literal["up", "down", "up-huge", "down-huge"]
-        if abs(self.temperature - temp) < tolerance_T(temp):
+        initial_temp = self.temperature
+        if abs(initial_temp - temp) < tolerance_T(temp):
             return
-        elif self.temperature < temp - 100:
+        elif initial_temp < temp - 100:
             trend = "up-huge"
-        elif self.temperature > temp + 100:
+        elif initial_temp > temp + 100:
             trend = "down-huge"
-        elif self.temperature < temp:
+        elif initial_temp < temp:
             trend = "up"
         else:
             trend = "down"
 
-        while self.status == "VARYING":
-            self.add_cache()
-            time.sleep(check_interval)
-
         i = 0
         while i < stability_counter:
-            self.add_cache()
+            #self.add_cache()
             self.correction_ramping(self.temperature, trend)
-            if abs(self.cache.get_status()["mean"] - temp) < ITC.dynamic_delta(temp):
+            if abs(self.cache.get_status()["mean"] - temp) < ITC.dynamic_delta(temp) and self.cache.get_status()["if_stable"]:
                 i += 1
             else:
                 i = 0
             print_progress_bar(
-                i,
-                stability_counter,
+                self.temperature - initial_temp,
+                temp - initial_temp,
                 prefix="Stablizing",
-                suffix=f"Temperature: {self.temperature:.2f} K",
+                suffix=f"Temperature: {self.temperature:.3f} K",
             )
             time.sleep(check_interval)
         logger.info("Temperature stablized")
@@ -2073,7 +2068,7 @@ class ITC(ABC):
                 i + 1,
                 thermalize_counter,
                 prefix="Thermalizing",
-                suffix=f"Temperature: {self.temperature:.2f} K",
+                suffix=f"Temperature: {self.temperature:.3f} K",
             )
             time.sleep(check_interval)
         logger.info("Thermalizing finished")
@@ -2084,8 +2079,8 @@ class ITC(ABC):
         *,
         delta=0.02,
         check_interval=1,
-        stability_counter=21,
-        thermalize_counter=17,
+        stability_counter=1,
+        thermalize_counter=7,
         pid: Optional[dict] = None,
         ramp_rate=None,
         wait=True,

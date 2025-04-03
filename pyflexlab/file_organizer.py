@@ -8,16 +8,17 @@ This file should be called when create new files or directories
 import os
 import platform
 from functools import wraps
-from pathlib import Path
 import json
 import datetime
 from typing import Literal
 from itertools import islice
 import shutil
 import re
+from pyomnix.omnix_logger import get_logger
 from . import constants
-from .constants import set_paths
+from .constants import set_paths, SafePath
 
+logger = get_logger(__name__)
 
 def print_help_if_needed(func: callable) -> callable:
     """decorator used to print the help message if the first argument is '-h'"""
@@ -25,7 +26,7 @@ def print_help_if_needed(func: callable) -> callable:
     @wraps(func)
     def wrapper(self, measure_mods: tuple[str], *var_tuple, **kwargs):
         if var_tuple[0] == "-h":
-            print(FileOrganizer.name_fstr_gen(*measure_mods)[-1])
+            logger.info(FileOrganizer.name_fstr_gen(*measure_mods)[-1])
             return None
         return func(self, measure_mods, *var_tuple, **kwargs)
 
@@ -39,10 +40,10 @@ class FileOrganizer:
     # the value must be set before the class is used
     # in all methods and properties, they are assumed to be SET and not None
     _local_database_dir = (
-        Path(constants.LOCAL_DB_PATH) if constants.LOCAL_DB_PATH is not None else None
+        SafePath(constants.LOCAL_DB_PATH) if constants.LOCAL_DB_PATH is not None else None
     )
     _out_database_dir = (
-        Path(constants.OUT_DB_PATH) if constants.OUT_DB_PATH is not None else None
+        SafePath(constants.OUT_DB_PATH) if constants.OUT_DB_PATH is not None else None
     )
     _trash_dir = _out_database_dir / "trash" if _out_database_dir is not None else None
 
@@ -64,17 +65,17 @@ class FileOrganizer:
 
     @staticmethod
     def reload_paths(
-        *, local_db_path: str | Path = None, out_db_path: str | Path = None
+        *, local_db_path: str | SafePath = None, out_db_path: str | SafePath = None
     ) -> None:
         """reload the paths from the environment variables"""
         set_paths(local_db_path=local_db_path, out_db_path=out_db_path)
         FileOrganizer._local_database_dir = (
-            Path(constants.LOCAL_DB_PATH)
+            SafePath(constants.LOCAL_DB_PATH)
             if constants.LOCAL_DB_PATH is not None
             else None
         )
         FileOrganizer._out_database_dir = (
-            Path(constants.OUT_DB_PATH) if constants.OUT_DB_PATH is not None else None
+            SafePath(constants.OUT_DB_PATH) if constants.OUT_DB_PATH is not None else None
         )
         FileOrganizer._trash_dir = (
             FileOrganizer._out_database_dir / "trash"
@@ -147,13 +148,13 @@ class FileOrganizer:
                 "measurements": [],
                 "plan": {},
             }
-            print(
+            logger.info(
                 f"{proj_name} is not found in the project record file, a new item has been added."
             )
             # not dump the json file here, but in the sync method, to avoid the file being dumped multiple times
         elif proj_name not in FileOrganizer.proj_rec_json and copy_from is not None:
             if copy_from not in FileOrganizer.proj_rec_json:
-                print(
+                logger.error(
                     f"{copy_from} is not found in the project record file, please check the name."
                 )
                 return
@@ -166,7 +167,7 @@ class FileOrganizer:
             FileOrganizer.proj_rec_json[proj_name]["last_modified"] = (
                 self.today.strftime("%Y-%m-%d")
             )
-            print(f"{proj_name} has been copied from {copy_from}.")
+            logger.info(f"{proj_name} has been copied from {copy_from}.")
 
         # create project folder in the out database for storing main data
         self._out_database_dir_proj.mkdir(exist_ok=True)
@@ -184,14 +185,14 @@ class FileOrganizer:
                     self._out_database_dir_proj / "assist_measure.ipynb",
                 )
         else:
-            print(
+            logger.warning(
                 f"assist_measure.ipynb or assist_post.ipynb not found @ {FileOrganizer._local_database_dir}, nothing copied to proj"
             )
         # sync the project record file at the end of the function
         FileOrganizer._sync_json("proj_rec")
 
     @property
-    def proj_path(self) -> Path:
+    def proj_path(self) -> SafePath:
         """Get the project path"""
         return self._out_database_dir_proj
 
@@ -207,7 +208,7 @@ class FileOrganizer:
         tmpfolder: str = "",
         plot: bool = False,
         suffix: str = ".csv",
-    ) -> Path:
+    ) -> SafePath:
         """
         Get the filepath of the measurement file. suffix would be overwritten by plot (to ".png")
 
@@ -244,9 +245,8 @@ class FileOrganizer:
             )
             return filepath.with_suffix(suffix)
 
-        except Exception:
-            print("Wrong parameters, please ensure the parameters are correct.")
-            print(name_fstr)
+        except NotImplementedError:
+            logger.error("Error when compositing Paths")
 
     @staticmethod
     def name_fstr_gen(
@@ -360,13 +360,14 @@ class FileOrganizer:
             name_str = re.sub(r"{\w+}", str(value), name_str, count=1)
         # the method needs to throw an error if there are still {} in the name_str
         if re.search(r"{\w+}", name_str):
-            raise ValueError(
-                "The name_str still contains {}, please check the variables."
+            logger.raise_error(
+                "The name_str still contains {}, please check the variables.",
+                ValueError,
             )
         return name_str + ".csv"
 
     @staticmethod
-    def open_folder(path: str | Path) -> None:
+    def open_folder(path: str | SafePath) -> None:
         """
         Open the Windows explorer to the given path
         For non-win systems, print the path
@@ -374,7 +375,7 @@ class FileOrganizer:
         if platform.system().lower() == "windows":
             os.system(f"start explorer {path}")
         else:
-            print(f"Use terminal: {path}")
+            logger.info(f"Use terminal: {path}")
 
     @staticmethod
     def _sync_json(which_file: str) -> None:
@@ -448,7 +449,7 @@ class FileOrganizer:
             measurename_main
             in FileOrganizer.proj_rec_json[self.proj_name]["measurements"]
         ):
-            print(f"{measurename_main} is already in the project record file.")
+            logger.warning(f"{measurename_main} is already in the project record file.")
             return
         FileOrganizer.proj_rec_json[self.proj_name]["measurements"].append(
             measurename_main
@@ -456,11 +457,11 @@ class FileOrganizer:
         FileOrganizer.proj_rec_json[self.proj_name]["last_modified"] = (
             self.today.strftime("%Y-%m-%d")
         )
-        print(f"{measurename_main} has been added to the project record file.")
+        logger.info(f"{measurename_main} has been added to the project record file.")
 
         # add the measurement folder if not exists
         self.create_folder(measurename_main)
-        print(f"{measurename_main} folder has been created in the project folder.")
+        logger.info(f"{measurename_main} folder has been created in the project folder.")
         # sync the project record file
         FileOrganizer._sync_json("proj_rec")
 
@@ -482,14 +483,14 @@ class FileOrganizer:
                 FileOrganizer.proj_rec_json[self.proj_name]["plan"][plan_title].append(
                     plan_item
                 )
-                print(f"plan is added to {plan_title}")
+                logger.info(f"plan is added to {plan_title}")
             else:
-                print(f"{plan_item} is already in the plan.")
+                logger.warning(f"{plan_item} is already in the plan.")
         else:
             FileOrganizer.proj_rec_json[self.proj_name]["plan"][plan_title] = [
                 plan_item
             ]
-            print(f"{plan_title} has been added to the project record file.")
+            logger.info(f"{plan_title} has been added to the project record file.")
         # sync the measure type file
         FileOrganizer._sync_json("proj_rec")
 
@@ -525,14 +526,14 @@ class FileOrganizer:
                     + "Usually because the depth is not consistent"
                 )
             if deepest_sub in higher_dict and not if_overwrite:
-                print(f"{already_strr}{higher_dict[deepest_sub]}")
+                logger.warning(f"{already_strr}{higher_dict[deepest_sub]}")
             elif deepest_sub not in higher_dict:
                 higher_dict[deepest_sub] = name_strr
-                print(added_strr)
+                logger.info(added_strr)
             else:  # in and overwrite
                 if isinstance(higher_dict[deepest_sub], str):
                     higher_dict[deepest_sub] = name_strr
-                    print(f"{deepest_sub} has been overwritten.")
+                    logger.info(f"{deepest_sub} has been overwritten.")
                 else:
                     raise TypeError(
                         "The deepest sub is not a string, please check.\n"
@@ -556,7 +557,7 @@ class FileOrganizer:
                 )
             else:
                 FileOrganizer.measure_types_json[measure_name] = {measure_sub: name_str}
-                print(added_str)
+                logger.info(added_str)
 
         elif len(measure_decom) == 3:
             measure_name, measure_sub, measure_sub_sub = measure_decom
@@ -574,12 +575,12 @@ class FileOrganizer:
                     FileOrganizer.measure_types_json[measure_name][measure_sub] = {
                         measure_sub_sub: name_str
                     }
-                    print(added_str)
+                    logger.info(added_str)
             else:
                 FileOrganizer.measure_types_json[measure_name] = {
                     measure_sub: {measure_sub_sub: name_str}
                 }
-                print(added_str)
+                logger.info(added_str)
 
         elif len(measure_decom) == 4:
             measure_name, measure_sub, measure_sub_sub, measure_sub_sub_sub = (
@@ -605,17 +606,17 @@ class FileOrganizer:
                         FileOrganizer.measure_types_json[measure_name][measure_sub][
                             measure_sub_sub
                         ] = {measure_sub_sub_sub: name_str}
-                        print(added_str)
+                        logger.info(added_str)
                 else:
                     FileOrganizer.measure_types_json[measure_name][measure_sub] = {
                         measure_sub_sub: name_str
                     }
-                    print(added_str)
+                    logger.info(added_str)
             else:
                 FileOrganizer.measure_types_json[measure_name] = {
                     measure_sub: {measure_sub_sub: name_str}
                 }
-                print(added_str)
+                logger.info(added_str)
 
         else:
             raise ValueError(
@@ -649,7 +650,7 @@ class FileOrganizer:
             FileOrganizer._out_database_dir / proj_name,
             FileOrganizer._trash_dir / proj_name,
         )
-        print(f"{proj_name} has been moved to the trash bin.")
+        logger.info(f"{proj_name} has been moved to the trash bin.")
 
     def tree(
         self,
@@ -672,7 +673,7 @@ class FileOrganizer:
         files = 0
         directories = 0
 
-        def inner(dir_path: Path, prefix: str = "", level=-1):
+        def inner(dir_path: SafePath, prefix: str = "", level=-1):
             nonlocal files, directories
             if not level:
                 return  # 0, stop iterating
@@ -704,7 +705,7 @@ class FileOrganizer:
         third_party_name: str,
         location: Literal["local", "out"] = "out",
         overwrite: bool = False,
-    ) -> Path | None:
+    ) -> SafePath | None:
         """
         Load the third party json file to the third_party_json variable
         if overwrite is True, then the existing third party json will be overwritten WITHOUT SAVING
@@ -714,7 +715,7 @@ class FileOrganizer:
             and FileOrganizer.third_party_location is not None
             and not overwrite
         ):
-            print(
+            logger.warning(
                 f"already loaded one third party json @{FileOrganizer.third_party_location}, could choose overwrite."
             )
             return

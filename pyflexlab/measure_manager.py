@@ -10,7 +10,6 @@ from typing import Literal, Generator, Optional, Sequence, Callable
 import numpy as np
 import pyvisa
 import pandas as pd
-from pathlib import Path
 import re
 from functools import partial
 from pyomnix.data_process import DataManipulator
@@ -40,6 +39,8 @@ from .equip_wrapper import (
     WrapperB2902Bchannel,
     ITCLakeshore,
 )
+from .simulated import SimMeter, SimMag, SimITC
+from .constants import SafePath, BoundedCounter
 
 logger = get_logger(__name__)
 
@@ -61,6 +62,7 @@ class MeasureManager(FileOrganizer):
             "6221": Wrapper6221,
             "sr830": WrapperSR830,
             "b2902ch": WrapperB2902Bchannel,
+            "tests": SimMeter
         }
         self.instrs: dict[str, list[Meter] | ITCs | WrapperIPS | RotatorProbe] = {}
         # load params for plotting in measurement
@@ -68,7 +70,7 @@ class MeasureManager(FileOrganizer):
         self.dfs: dict[str, pd.DataFrame] = {}
 
     @property
-    def proj_path(self) -> Path:
+    def proj_path(self) -> SafePath:
         """
         return the project path for manual use
         """
@@ -77,13 +79,14 @@ class MeasureManager(FileOrganizer):
     def load_meter(
         self,
         meter_no: Literal[
-            "sr830", "6221", "2182", "2182a", "2400", "2401", "6430", "2450", "b2902ch", "b2902", "b2902b"
+            "sr830", "6221", "2182", "2182a", "2400", "2401", "6430", "2450", "b2902ch", "b2902", "b2902b", "tests"
         ],
         *address: str,
         channel: int | str = 1,
     ) -> None:
         """
         load the instrument according to the address, store it in self.instrs[meter]
+        for tests, use "tests" will load test meters as well as ITC and Magnet
 
         Args:
             meter_no (str): the name of the instrument
@@ -106,6 +109,10 @@ class MeasureManager(FileOrganizer):
                 self.instrs[meter_no][-1].setup(function="source", reset=True)
             except:
                 self.instrs[meter_no][-1].setup(function="sense", reset=True)
+        
+        if meter_no == "tests":
+            self.instrs["itc"] = SimITC()
+            self.instrs["ips"] = SimMag()
 
     def load_rotator(self) -> None:
         """
@@ -225,14 +232,14 @@ class MeasureManager(FileOrganizer):
         compliance = convert_unit(compliance, "")[0]
         if freq is not None:
             freq = convert_unit(freq, "Hz")[0]
-        logger.info(f"Source Meter: {instr.meter}")
-        logger.info(f"Source Type: {source_type}")
-        logger.info(f"AC/DC: {ac_dc}")
-        logger.info(f"Max Value: {max_value} {'A' if source_type == 'curr' else 'V'}")
-        logger.info(f"Step Value: {step_value} {'A' if source_type == 'curr' else 'V'}")
-        logger.info(f"Compliance: {compliance} {'V' if source_type == 'curr' else 'A'}")
-        logger.info(f"Freq: {freq} Hz")
-        logger.info(f"Sweep Mode: {sweepmode}")
+        logger.info("Source Meter: %s", instr.meter)
+        logger.info("Source Type: %s", source_type)
+        logger.info("AC/DC: %s", ac_dc)
+        logger.info("Max Value: %s %s", max_value, "A" if source_type == "curr" else "V")
+        logger.info("Step Value: %s %s", step_value, "A" if source_type == "curr" else "V")
+        logger.info("Compliance: %s %s", compliance, "V" if source_type == "curr" else "A")
+        logger.info("Freq: %s Hz", freq)
+        logger.info("Sweep Mode: %s", sweepmode)
         instr.setup(function="source")
         safe_step: dict | float = instr.safe_step
         if isinstance(safe_step, dict):
@@ -415,6 +422,7 @@ class MeasureManager(FileOrganizer):
         if_during_vary=False,
         vary_criteria: Optional[int | float] = None,
         trigger: Optional[tuple[float, Callable] | float] = None,
+        wait_before_vary: int = 7,
     ) -> Generator[float, None, None]:
         """
         sense the current using the source meter, initializations will be done for volt/curr meters
@@ -430,6 +438,9 @@ class MeasureManager(FileOrganizer):
         Returns:
             float | tuple[float]: the sensed value (tuple for sr830 ac sense)
         """
+        LEAST_TIME_AFTER_TRIGGER = wait_before_vary # s, used to avoid misjudging right after the trigger
+        timer_from_trigger = BoundedCounter(0, min_val=0, max_val=LEAST_TIME_AFTER_TRIGGER) # s, used to avoid misjudging right after the trigger
+        timer_before_vary = BoundedCounter(wait_before_vary, min_val=0, max_val=wait_before_vary) # s, used to avoid misjudging before the vary
         if not if_during_vary:
             if trigger is not None:
                 logger.warning("trigger is not applicable when if_during_vary is False")
@@ -465,7 +476,7 @@ class MeasureManager(FileOrganizer):
                     vary_criteria,
                 )
             else:
-                logger.info(
+                logger.warning(
                     "step criteria is deprecated, please use variance criteria instead"
                 )
                 if sense_type != "angle":
@@ -491,12 +502,6 @@ class MeasureManager(FileOrganizer):
                 while True:
                     yield instr.temperature
             else:
-                #                timer_i = 0
-                #                while timer_i < vary_criteria:
-                #                    if abs(instr.temperature - instr.temperature_set) < instr.dynamic_delta(instr.temperature_set):
-                #                        timer_i += 1
-                #                    else:
-                #                        timer_i = 0
                 if vary_criteria is not None:
                     instr.set_cache(var_crit=vary_criteria)
                     for _ in range(instr.cache.cache_length):
@@ -504,7 +509,9 @@ class MeasureManager(FileOrganizer):
                 while (
                     instr.status == "VARYING"
                     or not if_trigger
-                    or abs(instr.temperature - trigger_val) > 0.03
+                    #or abs(instr.temperature - trigger_val) > 0.03
+                    or timer_from_trigger.count_down()
+                    or timer_before_vary.count_down()
                 ):
                     yield instr.temperature
                     if (
@@ -514,6 +521,7 @@ class MeasureManager(FileOrganizer):
                     ):
                         trigger_func()
                         if_trigger = True
+                        timer_from_trigger.reset_to_max()
         elif sense_type == "mag":
             instr = self.instrs["ips"]
             logger.info("Sense Meter/Instr: %s", instr)
@@ -524,7 +532,9 @@ class MeasureManager(FileOrganizer):
                 while (
                     instr.status == "TO SET"
                     or not if_trigger
-                    or abs(instr.field - trigger_val) > 0.01
+                    #or abs(instr.field - trigger_val) > 0.01
+                    or timer_from_trigger.count_down()
+                    or timer_before_vary.count_down()
                 ):
                     # only z field is considered
                     yield instr.field
@@ -535,6 +545,7 @@ class MeasureManager(FileOrganizer):
                     ):
                         trigger_func()
                         if_trigger = True
+                        timer_from_trigger.reset_to_max()
         elif sense_type == "angle":
             instr = self.instrs["rotator"]
             logger.info("Sense Meter/Instr: %s", instr)
@@ -561,7 +572,7 @@ class MeasureManager(FileOrganizer):
         special_folder: str = "",
         measure_nickname: str = "",
         with_timer: bool = True,
-    ) -> tuple[Path, int, Path] | tuple[Path, int, pd.DataFrame, Path]:
+    ) -> tuple[SafePath, int, SafePath] | tuple[SafePath, int, pd.DataFrame, SafePath]:
         """
         initialize the record of the measurement and the csv file;
         note the file will be overwritten with an empty dataframe
@@ -634,7 +645,7 @@ class MeasureManager(FileOrganizer):
 
     def record_update(
         self,
-        file_path: Path,
+        file_path: SafePath,
         record_num: int,
         record_tuple: tuple[float],
         target_df: Optional[pd.DataFrame] = None,
@@ -646,7 +657,7 @@ class MeasureManager(FileOrganizer):
         when the length of current_measure dataframe is larger than 7,
 
         Args:
-            file_path (Path): the file path
+            file_path (SafePath): the file path
             record_num (int): the number of columns of the record
             record_tuple (tuple): tuple of the records, with no time column, so length is 1 shorter
             target_df (pd.DataFrame): dataframe to be updated (default using the self.dfs['current_measure'])
@@ -701,6 +712,7 @@ class MeasureManager(FileOrganizer):
         field_ramp_rate: float = 0.2,
         special_mea: Literal["normal", "delta"] = "normal",
         vary_loop: bool = False,
+        wait_before_vary: int = 7,
     ) -> dict:
         """
         do the preset of measurements and return the generators, filepath and related info
@@ -759,6 +771,8 @@ class MeasureManager(FileOrganizer):
                     sweep_tables = [i.tolist() for i in sweep_tables]
                 elif isinstance(sweep_tables[0], tuple):
                     sweep_tables = [list(i) for i in sweep_tables]
+                elif sweep_tables[0] is None:
+                    sweep_tables = None
                 else:
                     raise TypeError("unsupported sweep_tables type")
             elif isinstance(sweep_tables, tuple):
@@ -972,6 +986,7 @@ class MeasureManager(FileOrganizer):
                         if_during_vary=True,
                         vary_criteria=vary_criteria,
                         trigger=trigger_tuple,
+                        wait_before_vary=wait_before_vary,
                     )
                 )
             elif oth_mod["sweep_fix"] == "sweep":
@@ -1035,9 +1050,9 @@ class MeasureManager(FileOrganizer):
         sense_mods: tuple[str],
         time_len: Optional[int] = None,
         time_step: int = 1,
-        filename: str | Path = "tmp",
+        filename: str | SafePath = "tmp",
         wrapper_lst: list[Meter] = None,
-    ) -> tuple[Path, int, Generator[tuple[float], None, None], list[str]]:
+    ) -> tuple[SafePath, int, Generator[tuple[float], None, None], list[str]]:
         """
         watch the sense values with time and record them into the csv file
         this function is basically a special case of get_measure_dict method
@@ -1140,7 +1155,7 @@ class MeasureManager(FileOrganizer):
         return pyvisa.ResourceManager().list_resources()
 
     @staticmethod
-    def write_header(file_path: Path, header: str) -> None:
+    def write_header(file_path: SafePath, header: str) -> None:
         """
         write the header to the file
 

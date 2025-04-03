@@ -1,3 +1,7 @@
+"""
+The non-individual plot options have not been written yet
+"""
+
 import time
 import numpy as np
 from typing import Sequence, Callable
@@ -43,8 +47,7 @@ class MeasureFlow(MeasureManager):
             step_time=step_time,
             individual_plot=individual_plot,
         )
-    
-    
+
     def measure_Vswp_I_vicurve(
         self,
         *,
@@ -55,7 +58,7 @@ class MeasureFlow(MeasureManager):
         swpmode: str,
         meter: Meter,
         compliance: float,
-        folder_name: str = None,
+        folder_name: str = "",
         step_time: float = 0.5,
         individual_plot: bool = True,
     ) -> None:
@@ -93,8 +96,15 @@ class MeasureFlow(MeasureManager):
         logger.info("no of columns(with time column): %d", mea_dict["record_num"])
 
         if individual_plot:
-            plotobj.live_plot_init(1, 1, 1, titles=[[r"$V I$"]])
-            plotobj.start_saving(mea_dict["plot_record_path"], 3)
+            plotobj.live_plot_init(
+                1,
+                1,
+                1,
+                titles=[[r"$V-I Curve$"]],
+                axes_labels=[[[r"$V$", r"$I$"]]],
+                line_labels=[[["V-I"]]],
+            )
+            plotobj.start_saving(mea_dict["plot_record_path"], 7)
 
         for i in mea_dict["gen_lst"]:
             self.record_update(mea_dict["file_path"], mea_dict["record_num"], i)
@@ -120,7 +130,7 @@ class MeasureFlow(MeasureManager):
         field: float,
         temperature_start: float,
         temperature_end: float,
-        folder_name: str = None,
+        folder_name: str = "",
         step_time: float = 0.7,
         wait_before_vary: float = 13,
         vary_loop: bool = False,
@@ -145,8 +155,7 @@ class MeasureFlow(MeasureManager):
             vary_loop=vary_loop,
             individual_plot=individual_plot,
         )
-    
-    
+
     def measure_VV_II_BTvary_rt(
         self,
         *,
@@ -162,7 +171,7 @@ class MeasureFlow(MeasureManager):
         field: float,
         temperature_start: float,
         temperature_end: float,
-        folder_name: str = None,
+        folder_name: str = "",
         step_time: float = 0.7,
         wait_before_vary: float = 13,
         vary_loop: bool = False,
@@ -171,7 +180,7 @@ class MeasureFlow(MeasureManager):
         """
         measure the V-V and I-I curve using TWO DC source meters, with other info (B, T, etc.)
         """
-        
+
         plotobj = DataManipulator(1)
         mea_dict = self.get_measure_dict(
             (
@@ -264,7 +273,7 @@ class MeasureFlow(MeasureManager):
         vg_compliance: float | str,
         field: float = 0,
         temperature: float,
-        folder_name: str = None,
+        folder_name: str = "",
         step_time: float = 0.5,
         individual_plot: bool = True,
     ):
@@ -287,8 +296,7 @@ class MeasureFlow(MeasureManager):
             step_time=step_time,
             individual_plot=individual_plot,
         )
-    
-    
+
     def measure_VVswp_II_BT_gateswp(
         self,
         *,
@@ -419,7 +427,7 @@ class MeasureFlow(MeasureManager):
             step_time=step_time,
             individual_plot=individual_plot,
         )
-    
+
     def measure_VswpV_II_BT_vicurve(
         self,
         *,
@@ -446,7 +454,7 @@ class MeasureFlow(MeasureManager):
         """
         plotobj = DataManipulator(1)
         if vds_swp_lst is not None:
-            vds_swp_lst = "manual"
+            vds_swpmode = "manual"
 
         mea_dict = self.get_measure_dict(
             (
@@ -552,7 +560,7 @@ class MeasureFlow(MeasureManager):
             vary_loop=vary_loop,
             individual_plot=individual_plot,
         )
-    
+
     def measure_VV_II_BvaryT_rhloop(
         self,
         *,
@@ -692,7 +700,6 @@ class MeasureFlow(MeasureManager):
             ds_gate_order=ds_gate_order,
         )
 
-    
     def measure_VswpVswp_II_BT_dsgatemapping(
         self,
         *,
@@ -714,6 +721,7 @@ class MeasureFlow(MeasureManager):
         step_time: float = 1,
         individual_plot: bool = True,
         ds_gate_order: tuple[int, int] = (0, 1),
+        calculate_from_ds: Callable = None,
     ):
         """
         NOTE: the sweep order is important, for order (0,1), it means the inner loop is vg, the outer loop is vds (if not constrained)
@@ -721,7 +729,17 @@ class MeasureFlow(MeasureManager):
         plotobj = DataManipulator(1)
         if not constrained:
             map_lsts = self.create_mapping(ds_map_lst, gate_map_lst, idxs=ds_gate_order)
+            # =======only applied to ds and vg mapping=========
+            if_inner_loop_is_ds = ds_gate_order[0] == 1
+            inner_loop_len = (
+                len(ds_map_lst) if if_inner_loop_is_ds else len(gate_map_lst)
+            )
+            # ==================================================
+            if calculate_from_ds is not None:
+                logger.warning("calculate_fromds causes no effect when not constrained")
         else:
+            if calculate_from_ds is None:
+                calculate_from_ds = lambda x: x
             map_lsts = [ds_map_lst, gate_map_lst]
 
         # Core configuration
@@ -753,7 +771,12 @@ class MeasureFlow(MeasureManager):
             0,
             field,
             temperature,
-            wrapper_lst=[ds_meter, vg_meter],
+            wrapper_lst=[
+                ds_meter,
+                vg_meter,
+                ds_meter,
+                vg_meter,
+            ],
             compliance_lst=[ds_compliance, vg_compliance],
             sr830_current_resistor=None,  # only float
             if_combine_gen=True,  # False for coexistence of vary and mapping
@@ -767,20 +790,79 @@ class MeasureFlow(MeasureManager):
         logger.info("vary modules: %s", mea_dict["vary_mod"])
         # modify the plot configuration
         if individual_plot:
-            plotobj.live_plot_init(3, 1, 1, plot_types=[["scatter"], ["scatter"], ["contour"]])
+            if not constrained:
+                titles = (
+                    [["V_{ds} I_{ds}"], ["V_{ds} I_{g}"], ["contour"]]
+                    if if_inner_loop_is_ds
+                    else [["V_{g} I_{ds}"], ["V_{g} I_{g}"], ["contour"]]
+                )
+                axes_labels = (
+                    [
+                        [[r"$V_{ds}$", r"$I_{ds}$"]],
+                        [[r"$V_{ds}$", r"$I_{g}$"]],
+                        [r"$V_{ds}$", r"$V_{g}$"],
+                    ]
+                    if if_inner_loop_is_ds
+                    else [
+                        [[r"$V_{g}$", r"$I_{ds}$"]],
+                        [[r"$V_{g}$", r"$I_{g}$"]],
+                        [r"$V_{ds}$", r"$V_{g}$"],
+                    ]
+                )
+                plotobj.live_plot_init(
+                    3,
+                    1,
+                    1,
+                    plot_types=[["scatter"], ["scatter"], ["contour"]],
+                    titles=titles,
+                    axes_labels=axes_labels,
+                )
+            else:
+                plotobj.live_plot_init(
+                    2,
+                    1,
+                    1,
+                    plot_types=[["scatter"], ["scatter"]],
+                    titles=[["n I_{ds}"], ["V_{g} I_{g}"]],
+                    axes_labels=[
+                        [[r"$n$", r"$I_{ds}$"]],
+                        [[r"$V_{g}$", r"$I_{ds}$"]],
+                    ],
+                )
+
             plotobj.start_saving(mea_dict["plot_record_path"], 30)
 
         for i in mea_dict["gen_lst"]:
             self.record_update(mea_dict["file_path"], mea_dict["record_num"], i)
-            plotobj.live_plot_update(
-                [0, 1, 2],
-                [0] * 3,
-                [0] * 3,
-                [i[1], i[1], i[0]],
-                [i[2], i[3], i[1]],
-                [i[2]],
-                incremental=True,
-            )
+            if not constrained:
+                x_data = i[1] if if_inner_loop_is_ds else i[2]
+                plotobj.live_plot_update(
+                    [0, 1],
+                    [0] * 2,
+                    [0] * 2,
+                    [x_data, x_data],
+                    [i[3], i[4]],
+                    incremental=True,
+                    max_points=inner_loop_len,
+                )
+                plotobj.live_plot_update(
+                    2,
+                    0,
+                    0,
+                    i[1],
+                    i[2],
+                    i[3],
+                    incremental=True,
+                )
+            else:
+                plotobj.live_plot_update(
+                    [0, 1],
+                    [0] * 2,
+                    [0] * 2,
+                    [calculate_from_ds(i[1]), i[2]],
+                    [i[3], i[4]],
+                    incremental=True,
+                )
             time.sleep(step_time)
 
         if individual_plot:
