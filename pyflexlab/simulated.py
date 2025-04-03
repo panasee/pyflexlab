@@ -24,7 +24,7 @@ class SimMeter(ACSourceMeter, DCSourceMeter):
             },
         }
         self.output_target = 0
-        self.safe_step = 1e-6
+        self.safe_step = {"curr": 2e-6, "volt": 1e-2}
 
     def info_sync(self):
         pass
@@ -90,6 +90,9 @@ class SimMeter(ACSourceMeter, DCSourceMeter):
     ) -> float:
         pass
 
+    def shutdown(self):
+        pass
+
 
 class SimMagnet(Magnet):
     def __init__(self, *args, **kwargs):
@@ -112,7 +115,7 @@ class SimITC(ITC):
             t = 0
             temp_ini = self.temp
             while t < 100:
-                self.temp = self.temp_set + (temp_ini - self.temp_set) * np.exp(-t / 10)
+                self.temp = self.temp_set + (temp_ini - self.temp_set) * np.exp(-t / 3)
                 time.sleep(1)
                 t += 1
             self.temp = self.temp_set
@@ -196,7 +199,7 @@ class SimMag(Magnet):
         status_return = self.cache.get_status()
         if status_return is None:
             return "TO SET"
-        return "HOLD" if status_return["if_stable"] else "VARYING"
+        return "HOLD" if status_return["if_stable"] else "TO SET"
 
 
     def if_reach_target(self, tolerance: float = 3e-3):
