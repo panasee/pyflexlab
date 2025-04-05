@@ -27,7 +27,7 @@ from pymeasure.instruments.validators import strict_discrete_set, \
 from pymeasure.instruments import Instrument, SCPIUnknownMixin
 
 
-class SR860(SCPIUnknownMixin, Instrument):
+class SR860(Instrument):
 
     SENSITIVITIES = [
         1e-9, 2e-9, 5e-9, 10e-9, 20e-9, 50e-9, 100e-9, 200e-9,
@@ -234,14 +234,14 @@ class SR860(SCPIUnknownMixin, Instrument):
         """A integer property that sets the filter slope to 6 dB/oct(i=0), 12 DB/oct(i=1),
         18 dB/oct(i=2), 24 dB/oct(i=3).""",
         validator=strict_discrete_set,
-        values=range(0, 3)
+        values=range(0, 4)
     )
     filter_synchronous = Instrument.control(
         "SYNC?", "SYNC %d",
         """A string property that represents the synchronous filter.
         This property can be set. Allowed values are:{}""".format(INPUT_FILTER),
         validator=strict_discrete_set,
-        values=INPUT_FILTER,
+        values={True: 1, False: 0},
         map_values=True
     )
     filter_advanced = Instrument.control(

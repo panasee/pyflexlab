@@ -1832,7 +1832,7 @@ class WrapperIPS(Magnet):
                 self.ips.GRPZ.sw_heater("ON")
             else:
                 self.ips.GRPZ.sw_heater("OFF")
-            logger.info("Heater switched", "on" if switch else "off")
+            logger.info("Heater switched %s", "on" if switch else "off")
         else:
             match self.ips.GRPZ.sw_heater():
                 case "ON" | "on" | True:

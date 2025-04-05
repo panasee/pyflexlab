@@ -29,8 +29,8 @@ class SimMeter(ACSourceMeter, DCSourceMeter):
     def info_sync(self):
         pass
 
-    def setup(self, *args, **kwargs):
-        pass
+    def setup(self, ac_dc: Literal["ac", "dc"] = "dc", *args, **kwargs):
+        self.info_dict["ac_dc"] = ac_dc
 
     def output_switch(self, switch: bool | Literal["on", "off", "ON", "OFF"]):
         switch = SWITCH_DICT.get(switch, False) if isinstance(switch, str) else switch
@@ -50,7 +50,12 @@ class SimMeter(ACSourceMeter, DCSourceMeter):
         return (self.output_target, self.output_target, self.output_target)
 
     def sense(self, type_str: Literal["curr"] | Literal["volt"]) -> float:
-        return np.random.randn()
+        if self.info_dict["ac_dc"] == "dc":
+            return np.random.randn()
+        else:
+            x = np.random.randn()
+            y = np.random.randn()
+            return x, y, np.sqrt(x**2 + y**2), np.arctan(np.divide(y, x))*180/np.pi
 
     def shutdown(self):
         if self.info_dict["output_status"]:

@@ -28,6 +28,7 @@ from .equip_wrapper import (
     ITCs,
     ITCMercury,
     WrapperSR830,
+    WrapperSR860,
     Wrapper2400,
     Wrapper6430,
     Wrapper2182,
@@ -61,6 +62,7 @@ class MeasureManager(FileOrganizer):
             "2450": Wrapper2450,
             "6221": Wrapper6221,
             "sr830": WrapperSR830,
+            "sr860": WrapperSR860,
             "b2902ch": WrapperB2902Bchannel,
             "tests": SimMeter
         }
@@ -79,7 +81,8 @@ class MeasureManager(FileOrganizer):
     def load_meter(
         self,
         meter_no: Literal[
-            "sr830", "6221", "2182", "2182a", "2400", "2401", "6430", "2450", "b2902ch", "b2902", "b2902b", "tests"
+            "sr830", "6221", "2182", "2182a", "2400", "2401", "6430", "2450",
+            "b2902ch", "b2902", "b2902b", "tests", "sr860"
         ],
         *address: str,
         channel: int | str = 1,
@@ -193,7 +196,7 @@ class MeasureManager(FileOrganizer):
         compliance: float | str,
         freq: float | str = None,
         sweepmode: Optional[
-            Literal["0-max-0", "0--max-max-0", "0-max--max-max-0", "manual"]
+            Literal["0-max-0", "0--max-max-0", "0-max--max-max-0", "0-max", "manual"]
         ] = None,
         resistor: Optional[float] = None,
         sweep_table: Optional[list[float | str, ...]] = None,
@@ -295,12 +298,16 @@ class MeasureManager(FileOrganizer):
                         interval=safe_step,
                         compliance=compliance,
                     )
-                else:
-                    volt_gen = (
-                        i
-                        for i in list(np.arange(0, max_value * resistor, step_value))
-                        + [max_value * resistor]
+                elif sweepmode == "0-max-0":
+                    volt_gen = self.sweep_values(
+                        0, max_value * resistor, step_value, mode="start-end-start"
                     )
+                elif sweepmode == "0-max":
+                    volt_gen = self.sweep_values(
+                        0, max_value * resistor, step_value, mode="start-end"
+                    )
+                else:
+                    raise ValueError("sweepmode not recognized")
                 for value_i in volt_gen:
                     instr.uni_output(value_i, freq=freq, type_str="volt")
                     yield value_i
@@ -316,11 +323,16 @@ class MeasureManager(FileOrganizer):
                         freq=freq,
                         compliance=compliance,
                     )
-                else:
-                    value_gen = (
-                        i
-                        for i in list(np.arange(0, max_value, step_value)) + [max_value]
+                elif sweepmode == "0-max-0":
+                    value_gen = self.sweep_values(
+                        0, max_value, step_value, mode="start-end-start"
                     )
+                elif sweepmode == "0-max":
+                    value_gen = self.sweep_values(
+                        0, max_value, step_value, mode="start-end"
+                    )
+                else:
+                    raise ValueError("sweepmode not recognized")
                 for value_i in value_gen:
                     if ramp_step:
                         instr.ramp_output(
@@ -723,7 +735,8 @@ class MeasureManager(FileOrganizer):
             will be returned, call the function to start the varying; and the generator for varying is a sense_apply
         4. no need to appoint sense for ext modules, they will be automatically sensed as long as the module is included
 
-        sweep mode: for I,V: "0-max-0", "0--max-max-0", "manual"
+        sweep mode: for I,V-dc: "0-max-0", "0--max-max-0", "manual"
+        sweep mode: for I,V-ac: "0-max-0", "0-max", "manual"
         sweep mode: for T,B: "0-max-0", "0--max-max-0", "min-max", "manual"
 
         Args:

@@ -102,6 +102,8 @@ class SafePath(Path):
                 other = other_str.lstrip("/\\")
         return super().__truediv__(other)
 
+    #_flavour = type(Path())._flavour
+
 
 def set_envs() -> None:
     """
