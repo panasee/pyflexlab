@@ -750,15 +750,15 @@ class WrapperSR830(ACSourceMeter):
         self,
         function: Literal["source", "sense"] = "sense",
         *,
-        filter_slope=24,
-        time_constant=0.3,
-        input_config="A - B",
-        input_coupling="AC",
-        input_grounding="Float",
-        sine_voltage: float = 0,
-        input_notch_config="None",
-        reserve="Normal",
-        filter_synchronous=False,
+        filter_slope=None,
+        time_constant=None,
+        input_config=None,
+        input_coupling=None,
+        input_grounding=None,
+        sine_voltage=None,
+        input_notch_config=None,
+        reserve=None,
+        filter_synchronous=None,
         reset: bool = False,
     ) -> None:
         """
@@ -766,41 +766,46 @@ class WrapperSR830(ACSourceMeter):
         only overwrite the specific settings here, other settings will all be reserved
         """
         if reset:
-            self.setup()
+            self.meter.filter_slope=24,
+            self.meter.time_constant=0.3,
+            self.meter.input_config="A - B",
+            self.meter.input_coupling="AC",
+            self.meter.input_grounding="Float",
+            self.meter.sine_voltage = 0,
+            self.meter.input_notch_config="None",
+            self.meter.reserve="Normal",
+            self.meter.filter_synchronous=False,
             return
         if function == "sense":
-            self.meter.filter_slope = filter_slope
-            self.meter.time_constant = time_constant
-            self.meter.input_config = input_config
-            self.meter.input_coupling = input_coupling
-            self.meter.input_grounding = input_grounding
-            self.meter.input_notch_config = input_notch_config
+            if filter_slope is not None:
+                self.meter.filter_slope = filter_slope
+            if time_constant is not None:
+                self.meter.time_constant = time_constant
+            if input_config is not None:
+                self.meter.input_config = input_config
+            if input_coupling is not None:
+                self.meter.input_coupling = input_coupling
+            if input_grounding is not None:
+                self.meter.input_grounding = input_grounding
+            if input_notch_config is not None:
+                self.meter.input_notch_config = input_notch_config
+            if reserve is not None:
+                self.meter.reserve = reserve
+            if filter_synchronous is not None:
+                self.meter.filter_synchronous = filter_synchronous
+
             if not self.if_source:
                 self.meter.reference_source = "External"
             else:
                 self.if_source = False  # restore the if_source to False for the next initialization, would cause unexpected behavior if called twice in one measurement
-            self.meter.reserve = reserve
-            self.meter.filter_synchronous = filter_synchronous
-            self.info_dict.update(
-                {
-                    "filter_slope": filter_slope,
-                    "time_constant": time_constant,
-                    "input_config": input_config,
-                    "input_coupling": input_coupling,
-                    "input_grounding": input_grounding,
-                    "input_notch_config": input_notch_config,
-                    "reference_source": "External",
-                    "reserve": reserve,
-                    "filter_synchronous": filter_synchronous,
-                }
-            )
+            self.info_sync()
+
         elif function == "source":
-            self.meter.sine_voltage = sine_voltage
+            if sine_voltage is not None:
+                self.meter.sine_voltage = sine_voltage
             self.meter.reference_source = "Internal"
             self.if_source = True
-            self.info_dict.update(
-                {"sine_voltage": sine_voltage, "reference_source": "Internal"}
-            )
+            self.info_sync()
         else:
             raise ValueError("function should be either source or sense")
 

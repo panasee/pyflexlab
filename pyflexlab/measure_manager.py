@@ -243,7 +243,6 @@ class MeasureManager(FileOrganizer):
         logger.info("Compliance: %s %s", compliance, "V" if source_type == "curr" else "A")
         logger.info("Freq: %s Hz", freq)
         logger.info("Sweep Mode: %s", sweepmode)
-        instr.setup(function="source")
         safe_step: dict | float = instr.safe_step
         if isinstance(safe_step, dict):
             safe_step: float = safe_step[source_type]
@@ -312,8 +311,6 @@ class MeasureManager(FileOrganizer):
                     instr.uni_output(value_i, freq=freq, type_str="volt")
                     yield value_i
             else:
-                if meter == "6221" or isinstance(meter, Wrapper6221):
-                    instr.setup("source", "ac")
                 if sweepmode == "manual":
                     value_gen = (i for i in convert_unit(sweep_table, "")[0])
                     instr.ramp_output(
@@ -497,13 +494,6 @@ class MeasureManager(FileOrganizer):
         if sense_type in ["volt", "curr"] and meter is not None:
             instr = self.extract_meter_info(meter)
             logger.info("Sense Meter/Instr: %s", instr.meter)
-            instr.setup(function="sense")
-            if isinstance(meter, WrapperSR830) and sense_type == "curr":
-                instr.setup(
-                    function="sense",
-                    input_config="I (1 MOhm)",
-                    input_grounding="Ground",
-                )
             while True:
                 yield instr.sense_delay(type_str=sense_type)
 
@@ -853,6 +843,14 @@ class MeasureManager(FileOrganizer):
         # source part
         mod_i: Literal["I", "V"]
         for idx, src_mod in enumerate(src_lst):
+
+            if isinstance(wrapper_lst[idx], Wrapper6221):
+                wrapper_lst[idx].setup(
+                    function="source", mea_mode=special_mea
+                )  # here assume only one 6221
+            else:
+                wrapper_lst[idx].setup(function="source")
+
             if src_mod["I"]["sweep_fix"] is not None:
                 mod_i = "I"
             elif src_mod["V"]["sweep_fix"] is not None:
@@ -861,13 +859,6 @@ class MeasureManager(FileOrganizer):
                 raise ValueError(f"No source is specified for source {idx}")
 
             if src_mod[mod_i]["sweep_fix"] == "fixed":
-                if isinstance(wrapper_lst[idx], Wrapper6221):
-                    wrapper_lst[idx].setup(
-                        function="source", mea_mode=special_mea
-                    )  # here assume only one 6221
-                else:
-                    wrapper_lst[idx].setup(function="source")
-
                 if ramp_intervals is not None:
                     interval = ramp_intervals.pop(0)
                     wrapper_lst[idx].ramp_output(
@@ -903,6 +894,15 @@ class MeasureManager(FileOrganizer):
                 sweep_idx.append(idx)
         # sense part
         for idx, sense_mod in enumerate(sense_lst):
+            if isinstance(wrapper_lst[idx + len(src_lst)], WrapperSR830) and sense_mod["type"] == "curr":
+                wrapper_lst[idx + len(src_lst)].setup(
+                    function="sense",
+                    input_config="I (1 MOhm)",
+                    input_grounding="Ground",
+                )
+            else:
+                wrapper_lst[idx + len(src_lst)].setup(function="sense")
+
             rec_lst.append(
                 self.sense_apply(sense_mod["type"], wrapper_lst[idx + len(src_lst)])
             )
