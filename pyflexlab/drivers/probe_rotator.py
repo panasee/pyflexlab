@@ -10,7 +10,7 @@ from typing import Optional
 from pathlib import Path
 import ctypes
 from .. import constants
-from ..constants import print_progress_bar
+from pyomnix.utils import print_progress_bar
 
 
 def avoid_running(method):
@@ -21,7 +21,7 @@ def avoid_running(method):
     @functools.wraps(method)
     def wrapper(self, *args, **kwargs):
         if self.if_running():
-            print('Rotator is already running')
+            print("Rotator is already running")
             return
         return method(self, *args, **kwargs)
 
@@ -30,13 +30,15 @@ def avoid_running(method):
 
 class RotatorProbe:
     if constants.LOCAL_DB_PATH is None:
-        dll_path = Path('.')
+        dll_path = Path(".")
     else:
-        dll_path = Path(constants.LOCAL_DB_PATH / 'WJ_API.dll')
+        dll_path = Path(constants.LOCAL_DB_PATH / "WJ_API.dll")
 
     # currently only one axis is used, so all methods are for one axis (axis_num: 1)
     def __init__(self, *, port: Optional[int] = None):
-        assert platform.system().lower() == 'windows', 'This module only works on Windows'
+        assert platform.system().lower() == "windows", (
+            "This module only works on Windows"
+        )
         self._max_axes = 2  # actually only 1 axis is used
         self.axis_num = 1
         self._upper_limit = 365
@@ -46,8 +48,10 @@ class RotatorProbe:
         self._pulse_ratio = 50000  # 360 degrees / pulses
         self.serial_port = 0  # default serial port for usb
         if not self.dll_path.exists():
-            raise FileNotFoundError(f'WJ_API.dll not found at {self.dll_path}')
-        self.wj_api = ctypes.WinDLL(str(self.dll_path))  # can pass Path-like after Python 3.12
+            raise FileNotFoundError(f"WJ_API.dll not found at {self.dll_path}")
+        self.wj_api = ctypes.WinDLL(
+            str(self.dll_path)
+        )  # can pass Path-like after Python 3.12
         if port is not None:
             self.status = self.connect(port)
         else:
@@ -72,7 +76,7 @@ class RotatorProbe:
         """
         if serial_port is not None:
             self.serial_port = serial_port
-        print('Connecting Status:', status := self.wj_api.WJ_Open(self.serial_port))
+        print("Connecting Status:", status := self.wj_api.WJ_Open(self.serial_port))
         return status
 
     def exit(self):
@@ -144,12 +148,17 @@ class RotatorProbe:
         initial_angle = self.curr_angle(axis_no=axis_no)
         delta_angle = angle - initial_angle
         delta_pulse = int(delta_angle * self._pulse_ratio / 360)
-        self.wj_api.WJ_Move_Axis_Pulses(ctypes.c_int32(axis_no), ctypes.c_int32(delta_pulse))
+        self.wj_api.WJ_Move_Axis_Pulses(
+            ctypes.c_int32(axis_no), ctypes.c_int32(delta_pulse)
+        )
         if wait or progress:
             while self.if_running(axis_no=axis_no):
                 time.sleep(1)
                 if progress:
-                    print_progress_bar(self.curr_angle(axis_no=axis_no) - initial_angle, angle - initial_angle)
+                    print_progress_bar(
+                        self.curr_angle(axis_no=axis_no) - initial_angle,
+                        angle - initial_angle,
+                    )
 
     def emergency_stop(self, axis_no: int = 1):
         """
@@ -168,28 +177,50 @@ class RotatorProbe:
         self.wj_api.WJ_Close.restype = ctypes.c_int32
 
         # Query Commands
-        self.wj_api.WJ_Get_Axis_Acc.argtypes = [ctypes.c_int32, ctypes.POINTER(ctypes.c_int32)]
+        self.wj_api.WJ_Get_Axis_Acc.argtypes = [
+            ctypes.c_int32,
+            ctypes.POINTER(ctypes.c_int32),
+        ]
         self.wj_api.WJ_Get_Axis_Acc.restype = ctypes.c_int32
 
-        self.wj_api.WJ_Get_Axis_Dec.argtypes = [ctypes.c_int32, ctypes.POINTER(ctypes.c_int32)]
+        self.wj_api.WJ_Get_Axis_Dec.argtypes = [
+            ctypes.c_int32,
+            ctypes.POINTER(ctypes.c_int32),
+        ]
         self.wj_api.WJ_Get_Axis_Dec.restype = ctypes.c_int32
 
-        self.wj_api.WJ_Get_Axis_Vel.argtypes = [ctypes.c_int32, ctypes.POINTER(ctypes.c_int32)]
+        self.wj_api.WJ_Get_Axis_Vel.argtypes = [
+            ctypes.c_int32,
+            ctypes.POINTER(ctypes.c_int32),
+        ]
         self.wj_api.WJ_Get_Axis_Vel.restype = ctypes.c_int32
 
-        self.wj_api.WJ_Get_Axis_Subdivision.argtypes = [ctypes.c_int32, ctypes.POINTER(ctypes.c_int32)]
+        self.wj_api.WJ_Get_Axis_Subdivision.argtypes = [
+            ctypes.c_int32,
+            ctypes.POINTER(ctypes.c_int32),
+        ]
         self.wj_api.WJ_Get_Axis_Subdivision.restype = ctypes.c_int32
 
-        self.wj_api.WJ_Get_Axis_Status.argtypes = [ctypes.c_int32, ctypes.POINTER(ctypes.c_int32)]
+        self.wj_api.WJ_Get_Axis_Status.argtypes = [
+            ctypes.c_int32,
+            ctypes.POINTER(ctypes.c_int32),
+        ]
         self.wj_api.WJ_Get_Axis_Status.restype = ctypes.c_int32
 
-        self.wj_api.WJ_Get_Axes_Status.argtypes = [ctypes.POINTER(ctypes.c_int32 * self._max_axes)]
+        self.wj_api.WJ_Get_Axes_Status.argtypes = [
+            ctypes.POINTER(ctypes.c_int32 * self._max_axes)
+        ]
         self.wj_api.WJ_Get_Axes_Status.restype = ctypes.c_int32
 
-        self.wj_api.WJ_Get_Axis_Pulses.argtypes = [ctypes.c_int32, ctypes.POINTER(ctypes.c_int32)]
+        self.wj_api.WJ_Get_Axis_Pulses.argtypes = [
+            ctypes.c_int32,
+            ctypes.POINTER(ctypes.c_int32),
+        ]
         self.wj_api.WJ_Get_Axis_Pulses.restype = ctypes.c_int32
 
-        self.wj_api.WJ_Get_Axes_Pulses.argtypes = [ctypes.POINTER(ctypes.c_int32 * self._max_axes)]
+        self.wj_api.WJ_Get_Axes_Pulses.argtypes = [
+            ctypes.POINTER(ctypes.c_int32 * self._max_axes)
+        ]
         self.wj_api.WJ_Get_Axes_Pulses.restype = ctypes.c_int32
 
         self.wj_api.WJ_Get_Axes_Num.argtypes = [ctypes.POINTER(ctypes.c_int32)]
@@ -199,13 +230,17 @@ class RotatorProbe:
         self.wj_api.WJ_Move_Axis_Pulses.argtypes = [ctypes.c_int32, ctypes.c_int32]
         self.wj_api.WJ_Move_Axis_Pulses.restype = ctypes.c_int32
 
-        self.wj_api.WJ_Move_Axes_Pulses.argtypes = [ctypes.POINTER(ctypes.c_int32 * self._max_axes)]
+        self.wj_api.WJ_Move_Axes_Pulses.argtypes = [
+            ctypes.POINTER(ctypes.c_int32 * self._max_axes)
+        ]
         self.wj_api.WJ_Move_Axes_Pulses.restype = ctypes.c_int32
 
         self.wj_api.WJ_Move_Axis_Vel.argtypes = [ctypes.c_int32, ctypes.c_int32]
         self.wj_api.WJ_Move_Axis_Vel.restype = ctypes.c_int32
 
-        self.wj_api.WJ_Move_Axes_Vel.argtypes = [ctypes.POINTER(ctypes.c_int32 * self._max_axes)]
+        self.wj_api.WJ_Move_Axes_Vel.argtypes = [
+            ctypes.POINTER(ctypes.c_int32 * self._max_axes)
+        ]
         self.wj_api.WJ_Move_Axes_Vel.restype = ctypes.c_int32
 
         self.wj_api.WJ_Move_Axis_Emergency_Stop.argtypes = [ctypes.c_int32]
@@ -252,5 +287,8 @@ class RotatorProbe:
         self.wj_api.WJ_IO_Output.argtypes = [ctypes.c_int32, ctypes.c_int32]
         self.wj_api.WJ_IO_Output.restype = ctypes.c_int32
 
-        self.wj_api.WJ_IO_Input.argtypes = [ctypes.c_int32, ctypes.POINTER(ctypes.c_int32)]
+        self.wj_api.WJ_IO_Input.argtypes = [
+            ctypes.c_int32,
+            ctypes.POINTER(ctypes.c_int32),
+        ]
         self.wj_api.WJ_IO_Input.restype = ctypes.c_int32

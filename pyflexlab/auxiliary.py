@@ -8,7 +8,9 @@ from .file_organizer import FileOrganizer
 
 class Flakes:
     def __init__(self):
-        self.dir_path = FileOrganizer.load_third_party("flakes", location="out").parent / "flakes"
+        self.dir_path = (
+            FileOrganizer.load_third_party("flakes", location="out").parent / "flakes"
+        )
         self.flakes_json = FileOrganizer.third_party_json
         self.coor_transition = {"sin": 0, "cos": 1, "x": 0, "y": 0}
 
@@ -36,11 +38,22 @@ class Flakes:
         FileOrganizer.third_party_json = self.flakes_json
         FileOrganizer._sync_json("flakes")
 
-    def add_flake(self, label: str, info: str, coor: tuple, *, ref1: tuple, ref2: tuple):
+    def add_flake(
+        self, label: str, info: str, coor: tuple, *, ref1: tuple, ref2: tuple
+    ):
         """
         add a new flake label with its information
         """
-        self.flakes_json.update({label: {"info": info, "ref_coor": coor, "ref1_ref": ref1, "ref2_ref": ref2}})
+        self.flakes_json.update(
+            {
+                label: {
+                    "info": info,
+                    "ref_coor": coor,
+                    "ref1_ref": ref1,
+                    "ref2_ref": ref2,
+                }
+            }
+        )
         self.sync_flakes()
         flake_dir = self.dir_path / label
         flake_dir.mkdir(exist_ok=True)
@@ -68,8 +81,12 @@ class Flakes:
         if label not in self.flakes_json:
             print("flake not found")
             return
-        self.get_coor_transition(self.flakes_json[label]["ref1_ref"], ref1_new,
-                                 self.flakes_json[label]["ref2_ref"], ref2_new)
+        self.get_coor_transition(
+            self.flakes_json[label]["ref1_ref"],
+            ref1_new,
+            self.flakes_json[label]["ref2_ref"],
+            ref2_new,
+        )
         self.transition_coors(self.flakes_json[label]["ref_coor"])
 
     def manual_calculator(self):
@@ -111,13 +128,16 @@ class Flakes:
             vecp2_prac: the second point in practical axes
         """
         # the transform matrix is solved analytically without approximation
-        theta_sin = ((vecp2_prac[0] - vecp1_prac[0]) * (vecp2_ref[1] - vecp1_ref[1]) -
-                     (vecp2_prac[1] - vecp1_prac[1]) * (vecp2_ref[0] - vecp1_ref[0])) / \
-                    ((vecp2_ref[1] - vecp1_ref[1]) ** 2 + (vecp2_ref[0] - vecp1_ref[0]) ** 2)
+        theta_sin = (
+            (vecp2_prac[0] - vecp1_prac[0]) * (vecp2_ref[1] - vecp1_ref[1])
+            - (vecp2_prac[1] - vecp1_prac[1]) * (vecp2_ref[0] - vecp1_ref[0])
+        ) / ((vecp2_ref[1] - vecp1_ref[1]) ** 2 + (vecp2_ref[0] - vecp1_ref[0]) ** 2)
 
         if vecp1_ref[0] != vecp2_ref[0]:
-            theta_cos = ((vecp2_prac[0] - vecp1_prac[0]) - (vecp2_ref[1] - vecp1_ref[1]) * theta_sin) / (
-                    vecp2_ref[0] - vecp1_ref[0])
+            theta_cos = (
+                (vecp2_prac[0] - vecp1_prac[0])
+                - (vecp2_ref[1] - vecp1_ref[1]) * theta_sin
+            ) / (vecp2_ref[0] - vecp1_ref[0])
         else:
             theta_cos = (vecp2_prac[1] - vecp1_prac[1]) / (vecp2_ref[1] - vecp1_ref[1])
 
@@ -125,37 +145,62 @@ class Flakes:
         y = vecp2_prac[0] * theta_sin + vecp2_prac[1] * theta_cos - vecp2_ref[1]
 
         # the equation is over-constrained, so sin2+cos2 could be used as a indicator for numerical error
-        print(f"sin2+cos2:{theta_sin ** 2 + theta_cos ** 2}")
+        print(f"sin2+cos2:{theta_sin**2 + theta_cos**2}")
         if theta_sin > 1:
             theta_sin = 1
         elif theta_sin < -1:
             theta_sin = -1
-        print(f"rot_angle(only -90~90, x represents x & (-)180-x)\nangle:{math.asin(theta_sin) * 180 / math.pi}")
+        print(
+            f"rot_angle(only -90~90, x represents x & (-)180-x)\nangle:{math.asin(theta_sin) * 180 / math.pi}"
+        )
         print(f"disp:({x},{y})")
 
-        self.coor_transition.update({"sin": theta_sin, "cos": theta_cos, "x": x, "y": y})
+        self.coor_transition.update(
+            {"sin": theta_sin, "cos": theta_cos, "x": x, "y": y}
+        )
 
     def transition_coors(self, vec_ref_in: tuple | list):
         """
         transform the coor in reference axes to practical axes
         """
         theta_sin, theta_cos, x, y = self.coor_transition.values()
-        vec_out_x = theta_cos * vec_ref_in[0] + theta_sin * vec_ref_in[1] + x * theta_cos + y * theta_sin
-        vec_out_y = -theta_sin * vec_ref_in[0] + theta_cos * vec_ref_in[1] - x * theta_sin + y * theta_cos
+        vec_out_x = (
+            theta_cos * vec_ref_in[0]
+            + theta_sin * vec_ref_in[1]
+            + x * theta_cos
+            + y * theta_sin
+        )
+        vec_out_y = (
+            -theta_sin * vec_ref_in[0]
+            + theta_cos * vec_ref_in[1]
+            - x * theta_sin
+            + y * theta_cos
+        )
         print(f"coor in prac axes:{vec_out_x},{vec_out_y}")
 
     # write same static methods for calling without instantiation
     @staticmethod
-    def plot_relative_pos(ref1: list | tuple, ref2: list | tuple, target: list | tuple, *, plot_handler: any = None) -> None:
+    def plot_relative_pos(
+        ref1: list | tuple,
+        ref2: list | tuple,
+        target: list | tuple,
+        *,
+        plot_handler: any = None,
+    ) -> None:
         """
         plot the relative position of the target point to the reference points
         """
         relative_ref = np.array((ref2[0] - ref1[0], ref2[1] - ref1[1]))
         dist_ref = np.linalg.norm(relative_ref)
         # use special coordinate transformation to plot the relative position
-        target_final = Flakes.coor_transition(ref1=ref1, ref1_new=(0, 0),
-                                              ref2=ref2, ref2_new=(dist_ref, 0),
-                                              target=target, suppress_print=True)
+        target_final = Flakes.coor_transition(
+            ref1=ref1,
+            ref1_new=(0, 0),
+            ref2=ref2,
+            ref2_new=(dist_ref, 0),
+            target=target,
+            suppress_print=True,
+        )
         # plot two reference points on x-axis
         if plot_handler is None:
             plt.plot([0, dist_ref], [0, 0], "ro-")
@@ -163,15 +208,23 @@ class Flakes:
             plt.show()
         else:
             plot_handler.plot([0, dist_ref], [0, 0], "ro-")
-            plot_handler.scatter(target_final[0], target_final[1], c="purple", marker="x")
+            plot_handler.scatter(
+                target_final[0], target_final[1], c="purple", marker="x"
+            )
 
     # here use the transformation of object instead of coordinate system
     # tranlate the target point to the origin, rotate and then to the new location
     # check previous methods' comments for more details
     @staticmethod
-    def coor_transition(*, ref1: list | tuple, ref1_new: list | tuple,
-                        ref2: list | tuple, ref2_new: list | tuple,
-                        target: list | tuple, suppress_print: Literal["plot"] | bool = False) -> tuple[float, float]:
+    def coor_transition(
+        *,
+        ref1: list | tuple,
+        ref1_new: list | tuple,
+        ref2: list | tuple,
+        ref2_new: list | tuple,
+        target: list | tuple,
+        suppress_print: Literal["plot"] | bool = False,
+    ) -> tuple[float, float]:
         """
         calculate the transformation matrix and the displacement
         return the sin, cos of the rotation angle and the displacement
@@ -194,7 +247,9 @@ class Flakes:
         target_new = target_at_ori * rot + ref1_new[0] + 1j * ref1_new[1]
 
         if suppress_print in [False, "plot"]:
-            print(f"magnitude(length) ratio(new/old):{abs(relative_ref_new / relative_ref) * 100} %")
+            print(
+                f"magnitude(length) ratio(new/old):{abs(relative_ref_new / relative_ref) * 100} %"
+            )
             print(f"rot_angle:{np.angle(rot) * 180 / np.pi}")
             print(f"disp:({ref1_new[0] - ref1[0]},{ref1_new[1] - ref1[1]})")
             print(f"coor in prac axes:{target_new.real},{target_new.imag}")
@@ -211,8 +266,16 @@ class Flakes:
         """
         # use lazy import to avoid the error when PyQt6 is not installed for other methods
         try:
-            from PyQt6.QtWidgets import QApplication, QWidget, QLabel, QLineEdit, \
-                QPushButton, QMainWindow, QVBoxLayout, QTextEdit
+            from PyQt6.QtWidgets import (
+                QApplication,
+                QWidget,
+                QLabel,
+                QLineEdit,
+                QPushButton,
+                QMainWindow,
+                QVBoxLayout,
+                QTextEdit,
+            )
             from matplotlib.backends.backend_qtagg import FigureCanvasQTAgg
             from matplotlib.figure import Figure
             import sys
@@ -292,21 +355,29 @@ class Flakes:
 
             def plot(self, ref1, ref2, target):
                 self.canvas.axes.clear()
-                Flakes.plot_relative_pos(ref1, ref2, target, plot_handler=self.canvas.axes)
+                Flakes.plot_relative_pos(
+                    ref1, ref2, target, plot_handler=self.canvas.axes
+                )
                 self.canvas.draw()
 
             def calculate(self):
                 # split the input string by space or comma or multiple dots
-                def str_treat(x: str): return list(map(float, re.split(r"[ ,]+|\.{2,}", x.strip())))
+                def str_treat(x: str):
+                    return list(map(float, re.split(r"[ ,]+|\.{2,}", x.strip())))
 
                 ref1 = str_treat(self.ref1_edit.text())
                 ref1_new = str_treat(self.ref1_new_edit.text())
                 ref2 = str_treat(self.ref2_edit.text())
                 ref2_new = str_treat(self.ref2_new_edit.text())
                 target = str_treat(self.target_edit.text())
-                result = Flakes.coor_transition(ref1=ref1, ref1_new=ref1_new,
-                                                ref2=ref2, ref2_new=ref2_new,
-                                                target=target, suppress_print="plot")
+                result = Flakes.coor_transition(
+                    ref1=ref1,
+                    ref1_new=ref1_new,
+                    ref2=ref2,
+                    ref2_new=ref2_new,
+                    target=target,
+                    suppress_print="plot",
+                )
                 self.result_edit.setText(f"{result[0]},{result[1]}")
                 self.plot(ref1, ref2, target)
 
