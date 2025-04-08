@@ -35,7 +35,9 @@ dependencies = [
     "pymeasure>=0.14.0",
     "qcodes>=0.47.0",
     "jupyter",
-    "dash"
+    "dash",
+    "prefect",
+    "pyomnix"
 ]
 
 [project.optional-dependencies]

@@ -30,7 +30,11 @@ import numpy as np
 
 from pymeasure.instruments import Instrument, SCPIMixin
 from pymeasure.errors import RangeException
-from pymeasure.instruments.validators import truncated_range, strict_discrete_set, joined_validators
+from pymeasure.instruments.validators import (
+    truncated_range,
+    strict_discrete_set,
+    joined_validators,
+)
 
 from pymeasure.instruments.keithley.buffer import KeithleyBuffer
 
@@ -39,7 +43,7 @@ log.addHandler(logging.NullHandler())
 
 
 class Keithley6221(KeithleyBuffer, SCPIMixin, Instrument):
-    """ Represents the Keithley 6221 AC and DC current source and provides a
+    """Represents the Keithley 6221 AC and DC current source and provides a
     high-level interface for interacting with the instrument.
 
     .. code-block:: python
@@ -74,36 +78,36 @@ class Keithley6221(KeithleyBuffer, SCPIMixin, Instrument):
     """
 
     def __init__(self, adapter, name="Keithley 6221 SourceMeter", **kwargs):
-        super().__init__(
-            adapter,
-            name,
-            **kwargs)
+        super().__init__(adapter, name, **kwargs)
 
     ##########
     # OUTPUT #
     ##########
 
     source_enabled = Instrument.control(
-        "OUTPut?", "OUTPut %d",
+        "OUTPut?",
+        "OUTPut %d",
         """A boolean property that controls whether the source is enabled, takes
         values True or False. The convenience methods :meth:`~.Keithley6221.enable_source` and
         :meth:`~.Keithley6221.disable_source` can also be used.""",
         validator=strict_discrete_set,
         values={True: 1, False: 0},
-        map_values=True
+        map_values=True,
     )
 
     shield_connection = Instrument.control(
-        ":OUTPut:ISHield?", ":OUTPut:ISHield %s",
+        ":OUTPut:ISHield?",
+        ":OUTPut:ISHield %s",
         """ A string property that controls to whom the shield is connected, default to 'output-low'.
         Valid values are 'guard' and 'output-low'. """,
         validator=strict_discrete_set,
         values={"guard": "GUARd", "output-low": "OLOW"},
-        map_values=True
+        map_values=True,
     )
 
     source_delay = Instrument.control(
-        ":SOUR:DEL?", ":SOUR:DEL %g",
+        ":SOUR:DEL?",
+        ":SOUR:DEL %g",
         """ A floating point property that sets a manual delay for the source
         after the output is turned on before a measurement is taken. When this
         property is set, the auto delay is turned off. Valid values are
@@ -113,12 +117,13 @@ class Keithley6221(KeithleyBuffer, SCPIMixin, Instrument):
     )
 
     output_low_grounded = Instrument.control(
-        ":OUTP:LTE?", "OUTP:LTE %d",
+        ":OUTP:LTE?",
+        "OUTP:LTE %d",
         """ A boolean property that controls whether the low output of the triax
         connection is connected to earth ground (True) or is floating (False). """,
         validator=strict_discrete_set,
         values={True: 1, False: 0},
-        map_values=True
+        map_values=True,
     )
 
     ##########
@@ -126,28 +131,33 @@ class Keithley6221(KeithleyBuffer, SCPIMixin, Instrument):
     ##########
 
     source_current = Instrument.control(
-        ":SOUR:CURR?", ":SOUR:CURR %g",
+        ":SOUR:CURR?",
+        ":SOUR:CURR %g",
         """ A floating point property that controls the source current
         in Amps. """,
         validator=truncated_range,
-        values=[-0.105, 0.105]
+        values=[-0.105, 0.105],
     )
     source_compliance = Instrument.control(
-        ":SOUR:CURR:COMP?", ":SOUR:CURR:COMP %g",
+        ":SOUR:CURR:COMP?",
+        ":SOUR:CURR:COMP %g",
         """A floating point property that controls the compliance of the current
         source in Volts. valid values are in range 0.1 [V] to 105 [V].""",
         validator=truncated_range,
-        values=[0.1, 105])
+        values=[0.1, 105],
+    )
     source_range = Instrument.control(
-        ":SOUR:CURR:RANG?", ":SOUR:CURR:RANG:AUTO 0;:SOUR:CURR:RANG %g",
+        ":SOUR:CURR:RANG?",
+        ":SOUR:CURR:RANG:AUTO 0;:SOUR:CURR:RANG %g",
         """ A floating point property that controls the source current
         range in Amps, which can take values between -0.105 A and +0.105 A.
         Auto-range is disabled when this property is set. """,
         validator=truncated_range,
-        values=[-0.105, 0.105]
+        values=[-0.105, 0.105],
     )
     source_auto_range = Instrument.control(
-        ":SOUR:CURR:RANG:AUTO?", ":SOUR:CURR:RANG:AUTO %d",
+        ":SOUR:CURR:RANG:AUTO?",
+        ":SOUR:CURR:RANG:AUTO %d",
         """ A boolean property that controls the auto range of the current source.
         Valid values are True or False. """,
         values={True: 1, False: 0},
@@ -159,89 +169,97 @@ class Keithley6221(KeithleyBuffer, SCPIMixin, Instrument):
     ##############
 
     delta_unit = Instrument.control(
-        ":UNIT:VOLT:DC?", ":UNIT:VOLT:DC %s",
+        ":UNIT:VOLT:DC?",
+        ":UNIT:VOLT:DC %s",
         """ A string property that controls the reading unit. Valid values are 'V', 'Ohms', 'W' and 'Siemens' """,
         validator=strict_discrete_set,
         values={"V": "V", "Ohms": "OHMS", "W": "W", "Siemens": "SIEM"},
-        map_values=True
+        map_values=True,
     )
 
     delta_high_source = Instrument.control(
-        ":SOUR:DELT:HIGH?", ":SOUR:DELT:HIGH %g",
+        ":SOUR:DELT:HIGH?",
+        ":SOUR:DELT:HIGH %g",
         """ A floating point property that controls the delta high source value in Amps. """,
         validator=truncated_range,
-        values=[0, 0.105]
+        values=[0, 0.105],
     )
 
     delta_low_source = Instrument.control(
-        ":SOUR:DELT:LOW?", ":SOUR:DELT:LOW %g",
+        ":SOUR:DELT:LOW?",
+        ":SOUR:DELT:LOW %g",
         """ A floating point property that controls the delta low source value in Amps. By default, the low source value is minus the high source value.""",
         validator=truncated_range,
-        values=[-0.105, 0]
+        values=[-0.105, 0],
     )
 
     delta_delay = Instrument.control(
-        ":SOUR:DELT:DELay?", ":SOUR:DELT:DELay %s",
+        ":SOUR:DELT:DELay?",
+        ":SOUR:DELT:DELay %s",
         """ A floating point property that controls the delta delay in seconds. Can be a value between 0 and 9999.999, or "INF" for infinite delay.""",
         validator=joined_validators(truncated_range, strict_discrete_set),
         values=([0, 9999.999], ["INF"]),
     )
 
-    delta_cycles = Instrument.control( 
-        ":SOUR:DELT:COUN?", ":SOUR:DELT:COUN %s",
+    delta_cycles = Instrument.control(
+        ":SOUR:DELT:COUN?",
+        ":SOUR:DELT:COUN %s",
         """ An integer property that controls the number of cycles to run for the delta measurements. Can be a value between 1 and 65536, or "INF" for infinite cycles.""",
         validator=joined_validators(truncated_range, strict_discrete_set),
         values=([1, 65536], ["INF"]),
     )
 
-    delta_measurement_sets = Instrument.control( 
-        ":SOUR:SWEep:COUN?", ":SOUR:SWEep:COUN %s",
+    delta_measurement_sets = Instrument.control(
+        ":SOUR:SWEep:COUN?",
+        ":SOUR:SWEep:COUN %s",
         """ An integer property that controls the number of measurement sets to repeat for the delta measurements. Can be a value between 1 and 65536, or "INF" for infinite sets.""",
         validator=joined_validators(truncated_range, strict_discrete_set),
         values=([1, 65536], ["INF"]),
     )
 
     delta_compliance_abort = Instrument.control(
-        ":SOUR:DELT:CAB?", ":SOUR:DELT:CAB %s",
+        ":SOUR:DELT:CAB?",
+        ":SOUR:DELT:CAB %s",
         """ A boolean property that controls whether the compliance abort is turned on or off. Valid values True (on) or False (off). """,
         values={True: "ON", False: "OFF"},
         map_values=True,
     )
 
     delta_cold_switch = Instrument.control(
-        ":SOUR:DELT:CSW?", ":SOUR:DELT:CSW %s",
+        ":SOUR:DELT:CSW?",
+        ":SOUR:DELT:CSW %s",
         """ A boolean property that controls whether the cold switching mode is turned on or off. Valid values True (on) or False (off). """,
         values={True: "ON", False: "OFF"},
         map_values=True,
     )
 
     delta_buffer_points = Instrument.control(
-        "TRAC:POIN?", "TRAC:POIN %d",
+        "TRAC:POIN?",
+        "TRAC:POIN %d",
         """ A integer property that controls the size of the buffer. (Buffer size should be the same value as Delta count.) Can be a value between 1 and 1000000. """,
         validator=truncated_range,
-        values=[1, 1000000]
+        values=[1, 1000000],
     )
 
     def delta_arm(self):
-        """ Arms delta. """
+        """Arms delta."""
         self.write(":SOUR:DELT:ARM")
 
     def delta_start(self):
-        """ Starts delta measurements. """
+        """Starts delta measurements."""
         self.write(":INIT:IMM")
 
     def delta_abort(self):
-        """ Stops Delta and places the Model 2182A in the local mode. """
+        """Stops Delta and places the Model 2182A in the local mode."""
         self.write(":SOUR:SWE:ABOR")
 
     delta_sense = Instrument.measurement(
         ":SENS:DATA?",
-        """ Gets the latest delta results.(Model 2182/2182A Delta reading) """
+        """ Gets the latest delta results.(Model 2182/2182A Delta reading) """,
     )
 
     delta_recall = Instrument.measurement(
-        ":TRAC:DATA?",
-        """ Read Delta readings stored in 622x buffer."""
+        ":TRAC:DATA?", """ Read Delta readings stored in 622x buffer."""
     )
 
     delta_verify = Instrument.measurement(
@@ -255,15 +273,14 @@ class Keithley6221(KeithleyBuffer, SCPIMixin, Instrument):
         """ Queries the arm status of the delta measurement. """,
         cast=bool,
     )
-    
-    
 
     ##################
     # WAVE FUNCTIONS #
     ##################
 
     waveform_function = Instrument.control(
-        ":SOUR:WAVE:FUNC?", ":SOUR:WAVE:FUNC %s",
+        ":SOUR:WAVE:FUNC?",
+        ":SOUR:WAVE:FUNC %s",
         """ A string property that controls the selected wave function. Valid
         values are "sine", "ramp", "square", "arbitrary1", "arbitrary2",
         "arbitrary3" and "arbitrary4". """,
@@ -276,69 +293,76 @@ class Keithley6221(KeithleyBuffer, SCPIMixin, Instrument):
             "arbitrary3": "ARB3",
             "arbitrary4": "ARB4",
         },
-        map_values=True
+        map_values=True,
     )
 
     waveform_frequency = Instrument.control(
-        ":SOUR:WAVE:FREQ?", ":SOUR:WAVE:FREQ %g",
+        ":SOUR:WAVE:FREQ?",
+        ":SOUR:WAVE:FREQ %g",
         """A floating point property that controls the frequency of the
         waveform in Hertz. Valid values are in range 1e-3 to 1e5. """,
         validator=truncated_range,
-        values=[1e-3, 1e5]
+        values=[1e-3, 1e5],
     )
     waveform_amplitude = Instrument.control(
-        ":SOUR:WAVE:AMPL?", ":SOUR:WAVE:AMPL %g",
+        ":SOUR:WAVE:AMPL?",
+        ":SOUR:WAVE:AMPL %g",
         """A floating point property that controls the (peak) amplitude of the
         waveform in Amps. Valid values are in range 2e-12 to 0.105. """,
         validator=truncated_range,
-        values=[2e-12, 0.105]
+        values=[2e-12, 0.105],
     )
     waveform_offset = Instrument.control(
-        ":SOUR:WAVE:OFFS?", ":SOUR:WAVE:OFFS %g",
+        ":SOUR:WAVE:OFFS?",
+        ":SOUR:WAVE:OFFS %g",
         """A floating point property that controls the offset of the waveform
         in Amps. Valid values are in range -0.105 to 0.105. """,
         validator=truncated_range,
-        values=[-0.105, 0.105]
+        values=[-0.105, 0.105],
     )
     waveform_dutycycle = Instrument.control(
-        ":SOUR:WAVE:DCYC?", ":SOUR:WAVE:DCYC %g",
+        ":SOUR:WAVE:DCYC?",
+        ":SOUR:WAVE:DCYC %g",
         """A floating point property that controls the duty-cycle of the
         waveform in percent for the square and ramp waves. Valid values are in
         range 0 to 100. """,
         validator=truncated_range,
-        values=[0, 100]
+        values=[0, 100],
     )
     waveform_duration_time = Instrument.control(
-        ":SOUR:WAVE:DUR:TIME?", ":SOUR:WAVE:DUR:TIME %g",
+        ":SOUR:WAVE:DUR:TIME?",
+        ":SOUR:WAVE:DUR:TIME %g",
         """A floating point property that controls the duration of the
         waveform in seconds. Valid values are in range 100e-9 to 999999.999.
         """,
         validator=truncated_range,
-        values=[100e-9, 999999.999]
+        values=[100e-9, 999999.999],
     )
     waveform_duration_cycles = Instrument.control(
-        ":SOUR:WAVE:DUR:CYCL?", ":SOUR:WAVE:DUR:CYCL %g",
+        ":SOUR:WAVE:DUR:CYCL?",
+        ":SOUR:WAVE:DUR:CYCL %g",
         """A floating point property that controls the duration of the
         waveform in cycles. Valid values are in range 1e-3 to 99999999900.
         """,
         validator=truncated_range,
-        values=[1e-3, 99999999900]
+        values=[1e-3, 99999999900],
     )
 
     def waveform_duration_set_infinity(self):
-        """ Set the waveform duration to infinity.
-        """
+        """Set the waveform duration to infinity."""
         self.write(":SOUR:WAVE:DUR:TIME INF")
 
     waveform_ranging = Instrument.control(
-        ":SOUR:WAVE:RANG?", ":SOUR:WAVE:RANG %s",
+        ":SOUR:WAVE:RANG?",
+        ":SOUR:WAVE:RANG %s",
         """ A string property that controls the source ranging of the
         waveform. Valid values are "best" and "fixed". """,
         values={"best": "BEST", "fixed": "FIX"},
         map_values=True,
     )
     waveform_use_phasemarker = Instrument.control(
-        ":SOUR:WAVE:PMAR:STAT?", ":SOUR:WAVE:PMAR:STAT %s",
+        ":SOUR:WAVE:PMAR:STAT?",
+        ":SOUR:WAVE:PMAR:STAT %s",
         """ A boolean property that controls whether the phase marker option
         is turned on or of. Valid values True (on) or False (off). Other
         settings for the phase marker have not yet been implemented.""",
@@ -346,32 +370,34 @@ class Keithley6221(KeithleyBuffer, SCPIMixin, Instrument):
         map_values=True,
     )
     waveform_phasemarker_phase = Instrument.control(
-        ":SOUR:WAVE:PMAR?", ":SOUR:WAVE:PMAR %g",
+        ":SOUR:WAVE:PMAR?",
+        ":SOUR:WAVE:PMAR %g",
         """ A numerical property that controls the phase of the phase marker.""",
         validator=truncated_range,
         values=[-180, 180],
     )
     waveform_phasemarker_line = Instrument.control(
-        ":SOUR:WAVE:PMAR:OLIN?", ":SOUR:WAVE:PMAR:OLIN %d",
+        ":SOUR:WAVE:PMAR:OLIN?",
+        ":SOUR:WAVE:PMAR:OLIN %d",
         """ A numerical property that controls the line of the phase marker.""",
         validator=truncated_range,
         values=[1, 6],
     )
 
     def waveform_arm(self):
-        """ Arm the current waveform function. """
+        """Arm the current waveform function."""
         self.write(":SOUR:WAVE:ARM")
 
     def waveform_start(self):
-        """ Start the waveform output. Must already be armed """
+        """Start the waveform output. Must already be armed"""
         self.write(":SOUR:WAVE:INIT")
 
     def waveform_abort(self):
-        """ Abort the waveform output and disarm the waveform function. """
+        """Abort the waveform output and disarm the waveform function."""
         self.write(":SOUR:WAVE:ABOR")
 
     def define_arbitary_waveform(self, datapoints, location=1):
-        """ Define the data points for the arbitrary waveform and copy the
+        """Define the data points for the arbitrary waveform and copy the
         defined waveform into the given storage location.
 
         :param datapoints: a list (or numpy array) of the data points; all
@@ -405,17 +431,17 @@ class Keithley6221(KeithleyBuffer, SCPIMixin, Instrument):
         self.waveform_function = "arbitrary%d" % location
 
     def enable_source(self):
-        """ Enables the source of current or voltage depending on the
-        configuration of the instrument. """
+        """Enables the source of current or voltage depending on the
+        configuration of the instrument."""
         self.write("OUTPUT ON")
 
     def disable_source(self):
-        """ Disables the source of current or voltage depending on the
-        configuration of the instrument. """
+        """Disables the source of current or voltage depending on the
+        configuration of the instrument."""
         self.write("OUTPUT OFF")
 
     def beep(self, frequency, duration):
-        """ Sounds a system beep.
+        """Sounds a system beep.
 
         :param frequency: A frequency in Hz between 65 Hz and 2 MHz
         :param duration: A time in seconds between 0 and 7.9 seconds
@@ -423,7 +449,7 @@ class Keithley6221(KeithleyBuffer, SCPIMixin, Instrument):
         self.write(f":SYST:BEEP {frequency:g}, {duration:g}")
 
     def triad(self, base_frequency, duration):
-        """ Sounds a musical triad using the system beep.
+        """Sounds a musical triad using the system beep.
 
         :param base_frequency: A frequency in Hz between 65 Hz and 1.3 MHz
         :param duration: A time in seconds between 0 and 7.9 seconds
@@ -435,7 +461,8 @@ class Keithley6221(KeithleyBuffer, SCPIMixin, Instrument):
         self.beep(base_frequency * 6.0 / 4.0, duration)
 
     display_enabled = Instrument.control(
-        ":DISP:ENAB?", ":DISP:ENAB %d",
+        ":DISP:ENAB?",
+        ":DISP:ENAB %d",
         """ A boolean property that controls whether or not the display of the
         sourcemeter is enabled. Valid values are True and False. """,
         values={True: 1, False: 0},
@@ -448,39 +475,40 @@ class Keithley6221(KeithleyBuffer, SCPIMixin, Instrument):
         return self.next_error
 
     def reset(self):
-        """ Resets the instrument and clears the queue.  """
+        """Resets the instrument and clears the queue."""
         self.write("status:queue:clear;*RST;:stat:pres;:*CLS;")
 
     def trigger(self):
-        """ Executes a bus trigger, which can be used when
+        """Executes a bus trigger, which can be used when
         :meth:`~.trigger_on_bus` is configured.
         """
         return self.write("*TRG")
 
     def trigger_immediately(self):
-        """ Configures measurements to be taken with the internal
+        """Configures measurements to be taken with the internal
         trigger at the maximum sampling rate.
         """
         self.write(":ARM:SOUR IMM;:TRIG:SOUR IMM;")
 
     def trigger_on_bus(self):
-        """ Configures the trigger to detect events based on the bus
+        """Configures the trigger to detect events based on the bus
         trigger, which can be activated by :meth:`~.trigger`.
         """
         self.write(":ARM:SOUR BUS;:TRIG:SOUR BUS;")
 
     def set_timed_arm(self, interval):
-        """ Sets up the measurement to be taken with the internal
+        """Sets up the measurement to be taken with the internal
         trigger at a variable sampling rate defined by the interval
         in seconds between sampling points
         """
         if interval > 99999.99 or interval < 0.001:
-            raise RangeException("Keithley 6221 can only be time"
-                                 " triggered between 1 mS and 1 Ms")
+            raise RangeException(
+                "Keithley 6221 can only be time triggered between 1 mS and 1 Ms"
+            )
         self.write(":ARM:SOUR TIM;:ARM:TIM %.3f" % interval)
 
     def trigger_on_external(self, line=1):
-        """ Configures the measurement trigger to be taken from a
+        """Configures the measurement trigger to be taken from a
         specific line of an external trigger
 
         :param line: A trigger line from 1 to 4
@@ -489,8 +517,8 @@ class Keithley6221(KeithleyBuffer, SCPIMixin, Instrument):
         cmd += ":ARM:ILIN %d;:TRIG:ILIN %d;" % (line, line)
         self.write(cmd)
 
-    def output_trigger_on_external(self, line=1, after='DEL'):
-        """ Configures the output trigger on the specified trigger link
+    def output_trigger_on_external(self, line=1, after="DEL"):
+        """Configures the output trigger on the specified trigger link
         line number, with the option of supplying the part of the
         measurement after which the trigger should be generated
         (default to delay, which is right before the measurement)
@@ -501,12 +529,11 @@ class Keithley6221(KeithleyBuffer, SCPIMixin, Instrument):
         self.write(":TRIG:OUTP %s;:TRIG:OLIN %d;" % (after, line))
 
     def disable_output_trigger(self):
-        """ Disables the output trigger for the Trigger layer
-        """
+        """Disables the output trigger for the Trigger layer"""
         self.write(":TRIG:OUTP NONE")
 
     def shutdown(self):
-        """ Disables the output. """
+        """Disables the output."""
         log.info("Shutting down %s." % self.name)
         self.disable_source()
         super().shutdown()
@@ -516,7 +543,8 @@ class Keithley6221(KeithleyBuffer, SCPIMixin, Instrument):
     ###############
 
     measurement_event_enabled = Instrument.control(
-        ":STAT:MEAS:ENAB?", ":STAT:MEAS:ENAB %d",
+        ":STAT:MEAS:ENAB?",
+        ":STAT:MEAS:ENAB %d",
         """ An integer value that controls which measurement events are
         registered in the Measurement Summary Bit (MSB) status bit. Refer to
         the Model 6220/6221 Reference Manual for more information about
@@ -528,7 +556,8 @@ class Keithley6221(KeithleyBuffer, SCPIMixin, Instrument):
     )
 
     operation_event_enabled = Instrument.control(
-        ":STAT:OPER:ENAB?", ":STAT:OPER:ENAB %d",
+        ":STAT:OPER:ENAB?",
+        ":STAT:OPER:ENAB %d",
         """ An integer value that controls which operation events are
         registered in the Operation Summary Bit (OSB) status bit. Refer to
         the Model 6220/6221 Reference Manual for more information about
@@ -540,7 +569,8 @@ class Keithley6221(KeithleyBuffer, SCPIMixin, Instrument):
     )
 
     questionable_event_enabled = Instrument.control(
-        ":STAT:QUES:ENAB?", ":STAT:QUES:ENAB %d",
+        ":STAT:QUES:ENAB?",
+        ":STAT:QUES:ENAB %d",
         """ An integer value that controls which questionable events are
         registered in the Questionable Summary Bit (QSB) status bit. Refer to
         the Model 6220/6221 Reference Manual for more information about
@@ -552,7 +582,8 @@ class Keithley6221(KeithleyBuffer, SCPIMixin, Instrument):
     )
 
     standard_event_enabled = Instrument.control(
-        "ESE?", "ESE %d",
+        "ESE?",
+        "ESE %d",
         """ An integer value that controls which standard events are
         registered in the Event Summary Bit (ESB) status bit. Refer to
         the Model 6220/6221 Reference Manual for more information about
@@ -564,7 +595,8 @@ class Keithley6221(KeithleyBuffer, SCPIMixin, Instrument):
     )
 
     srq_event_enabled = Instrument.control(
-        "*SRE?", "*SRE %d",
+        "*SRE?",
+        "*SRE %d",
         """ An integer value that controls which event registers trigger the
         Service Request (SRQ) status bit. Refer to the Model 6220/6221
         Reference Manual for more information about programming the status
