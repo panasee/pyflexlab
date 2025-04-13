@@ -7,7 +7,7 @@ exclude = ["tests"]
 
 [project]
 name = "pyflexlab"
-version = "1.0b1"
+version = "1.0"
 description = "Integrated Tools for Electronic, Cryogenic and Magnetic Measurements"
 authors = [{name="Dongkai", email="dongkai001@e.ntu.edu.sg"}]
 readme = "README.md"

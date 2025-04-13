@@ -356,8 +356,13 @@ class FileOrganizer:
     @staticmethod
     def filename_format(name_str: str, *var_tuple) -> str:
         """This method is used to format the filename, csv suffix is added automatically"""
+        def remove_trailing_zeros(num):
+            if isinstance(num, str):
+                return num
+            s = str(num)
+            return re.sub(r'(\.\d*?)0+\b', r'\1', s).rstrip('.') if '.' in s else s
         for value in var_tuple:
-            name_str = re.sub(r"{\w+}", str(value), name_str, count=1)
+            name_str = re.sub(r"{\w+}", remove_trailing_zeros(value), name_str, count=1)
         # the method needs to throw an error if there are still {} in the name_str
         if re.search(r"{\w+}", name_str):
             logger.raise_error(

@@ -16,7 +16,7 @@ class SimMeter(ACSourceMeter, DCSourceMeter):
         self.meter = None
         self.info_dict = {
             "output_status": False,
-            "ac_dc": "ac",
+            "ac_dc": "dc",
             "output": {
                 "voltage": 120,
                 "current": 0,
@@ -29,8 +29,15 @@ class SimMeter(ACSourceMeter, DCSourceMeter):
     def info_sync(self):
         pass
 
-    def setup(self, ac_dc: Literal["ac", "dc"] = "dc", *args, **kwargs):
-        self.info_dict["ac_dc"] = ac_dc
+    def setup(self, 
+              ac_dc: Literal["ac", "dc"] | None = None, 
+              *args, 
+              reset: bool = False,
+              **kwargs):
+        if reset is True and ac_dc is None:
+            ac_dc = "dc"
+        if ac_dc is not None:
+            self.info_dict["ac_dc"] = ac_dc
 
     def output_switch(self, switch: bool | Literal["on", "off", "ON", "OFF"]):
         switch = SWITCH_DICT.get(switch, False) if isinstance(switch, str) else switch
@@ -55,12 +62,7 @@ class SimMeter(ACSourceMeter, DCSourceMeter):
         else:
             x = np.random.randn()
             y = np.random.randn()
-            return x, y, np.sqrt(x**2 + y**2), np.arctan(np.divide(y, x))*180/np.pi
-
-    def shutdown(self):
-        if self.info_dict["output_status"]:
-            self.output_switch("off")
-        self.meter.shutdown()
+            return x, y, np.sqrt(x**2 + y**2), np.arctan(np.divide(y, x)) * 180 / np.pi
 
     def uni_output(
         self,
@@ -71,10 +73,10 @@ class SimMeter(ACSourceMeter, DCSourceMeter):
         fix_range: float | str | None = None,
         type_str: Literal["curr"] | Literal["volt"],
     ) -> float:
-        if freq is not None:
-            self.info_dict["ac_dc"] = "ac"
-        else:
-            self.info_dict["ac_dc"] = "dc"
+        if freq is not None and self.info_dict["ac_dc"] == "dc":
+            raise ValueError("freq should be None for dc output")
+        elif freq is None and self.info_dict["ac_dc"] == "ac":
+            raise ValueError("freq should not be None for ac output")
         if type_str == "curr":
             self.info_dict["output"]["current"] = value
             self.info_dict["output"]["frequency"] = freq
@@ -87,11 +89,22 @@ class SimMeter(ACSourceMeter, DCSourceMeter):
             raise ValueError(f"Invalid type_str: {type_str}")
         return value
 
-    def rms_output(self, value: float | str, *, freq: float | str | None = None, compliance: float | str | None = None, fix_range: float | str | None = None, type_str: Literal["curr"] | Literal["volt"],
+    def rms_output(
+        self,
+        value: float | str,
+        *,
+        freq: float | str | None = None,
+        compliance: float | str | None = None,
+        fix_range: float | str | None = None,
+        type_str: Literal["curr"] | Literal["volt"],
     ) -> float:
         pass
 
-    def dc_output(self, value: float | str, *, type_str: Literal["curr"] | Literal["volt"],
+    def dc_output(
+        self,
+        value: float | str,
+        *,
+        type_str: Literal["curr"] | Literal["volt"],
     ) -> float:
         pass
 
@@ -107,10 +120,10 @@ class SimMagnet(Magnet):
 class SimITC(ITC):
     def __init__(self, *args, **kwargs):
         self.temp = 300
-        self.cache = CacheArray()
+        self.cache = CacheArray(10)
         self.temp_set = 300
 
-    def begin_vary(self):
+    def begin_vary(self, vary_spd: float = 3):
         """
         The temperature will gradually approach the set point
         to simulate real-world behavior.
@@ -120,7 +133,9 @@ class SimITC(ITC):
             t = 0
             temp_ini = self.temp
             while t < 100:
-                self.temp = self.temp_set + (temp_ini - self.temp_set) * np.exp(-t / 3)
+                self.temp = self.temp_set + (temp_ini - self.temp_set) * np.exp(
+                    -t / vary_spd
+                )
                 time.sleep(1)
                 t += 1
             self.temp = self.temp_set
@@ -165,7 +180,7 @@ class SimMag(Magnet):
         self.f = 0
         self.f_set = 0
         self.cache = CacheArray(30)
-        
+
     def begin_vary(self):
         """
         The temperature will gradually approach the set point
@@ -189,11 +204,11 @@ class SimMag(Magnet):
     def field(self) -> float:
         self.cache.update_cache(self.f)
         return self.f
-        
+
     @property
     def field_set(self) -> float:
         return self.f_set
-        
+
     @field_set.setter
     def field_set(self, value: float) -> None:
         self.f_set = value
@@ -205,7 +220,6 @@ class SimMag(Magnet):
         if status_return is None:
             return "TO SET"
         return "HOLD" if status_return["if_stable"] else "TO SET"
-
 
     def if_reach_target(self, tolerance: float = 3e-3):
         """
@@ -247,7 +261,9 @@ class SimMag(Magnet):
         self.begin_vary()
 
         if wait:
-            while self.status == "TO SET" or abs(self.field - self.field_set) > tolerance:
+            while (
+                self.status == "TO SET" or abs(self.field - self.field_set) > tolerance
+            ):
                 print_progress_bar(
                     self.field - ini_field,
                     field - ini_field,
@@ -256,3 +272,44 @@ class SimMag(Magnet):
                 )
                 time.sleep(1)
             logger.info("ramping finished")
+
+
+class FakeMag(Magnet):
+    """
+    a fake magnet that always gives zero field
+    """
+
+    def __init__(self, *args, **kwargs):
+        self.cache = CacheArray(30)
+
+    def ramp_to_field(
+        self,
+        field: float | int | tuple[float] | list[float],
+        *,
+        rate: float | tuple[float] = (0.2,) * 3,
+        wait: bool = True,
+        tolerance: float = 1e-3,
+    ) -> None:
+        if field != 0:
+            logger.warning("You are ramping a fake magnet, the field will not change")
+
+    @property
+    def field(self) -> float:
+        return 0
+
+    @property
+    def field_set(self) -> float:
+        return 0
+
+    @field_set.setter
+    def field_set(self, value: float) -> None:
+        pass
+
+    def status(self) -> Literal["TO SET", "HOLD"]:
+        return "HOLD"
+
+    def if_reach_target(self, tolerance: float = 3e-3) -> bool:
+        return True
+
+
+FakeITC = SimITC
