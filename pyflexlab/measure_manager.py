@@ -12,6 +12,7 @@ import pyvisa
 import pandas as pd
 import re
 from functools import partial
+import time
 from pyomnix.data_process import DataManipulator
 from pyomnix.utils import (
     convert_unit,
@@ -40,7 +41,7 @@ from .equip_wrapper import (
     WrapperB2902Bchannel,
     ITCLakeshore,
 )
-from .simulated import SimMeter, SimMag, SimITC
+from .simulated import SimMeter, SimMag, SimITC, FakeMag, FakeITC
 from .constants import SafePath, BoundedCounter
 
 logger = get_logger(__name__)
@@ -170,6 +171,19 @@ class MeasureManager(FileOrganizer):
         )
         self.instrs["itc"] = self.instrs["mercury_itc"]
         # print(self.instrs["mercury_itc"].modules)
+    
+    def load_fakes(self, no_meters: int = 0) -> None:
+        """
+        load fake instruments if no real instruments are loaded
+        """
+        if "ips" not in self.instrs:
+            self.instrs["ips"] = FakeMag()
+        if "itc" not in self.instrs:
+            self.instrs["itc"] = FakeITC()
+        if no_meters > 0:
+            self.instrs["fakes"] = []
+            for i in range(no_meters):
+                self.instrs["fakes"].append(SimMeter())
 
     def load_lakeshore(
         self,
@@ -201,6 +215,7 @@ class MeasureManager(FileOrganizer):
         resistor: Optional[float] = None,
         sweep_table: Optional[list[float | str, ...]] = None,
         ramp_step: bool = False,
+        source_wait: float = 0.1,
     ) -> Generator[float, None, None]:
         """
         source the current using the source meter, initializations will be done automatically
@@ -284,10 +299,11 @@ class MeasureManager(FileOrganizer):
                     instr.uni_output(
                         value_i, compliance=compliance, type_str=source_type
                     )
+                time.sleep(source_wait)
                 yield value_i
         elif ac_dc == "ac":
             if (
-                resistor is not None
+                resistor is not None and source_type == "curr"
             ):  # automatically regard the source value as current and set output mode to volt
                 if sweepmode == "manual":
                     volt_gen = (i * resistor for i in convert_unit(sweep_table, "")[0])
@@ -309,8 +325,13 @@ class MeasureManager(FileOrganizer):
                     raise ValueError("sweepmode not recognized")
                 for value_i in volt_gen:
                     instr.uni_output(value_i, freq=freq, type_str="volt")
+                    time.sleep(source_wait)
                     yield value_i
             else:
+                if resistor is not None:
+                    logger.warning(
+                        "resistor is provided but source type is not current, ignored"
+                    )
                 if sweepmode == "manual":
                     value_gen = (i for i in convert_unit(sweep_table, "")[0])
                     instr.ramp_output(
@@ -329,7 +350,7 @@ class MeasureManager(FileOrganizer):
                         0, max_value, step_value, mode="start-end"
                     )
                 else:
-                    raise ValueError("sweepmode not recognized")
+                    raise ValueError(f"sweepmode {sweepmode} not recognized")
                 for value_i in value_gen:
                     if ramp_step:
                         instr.ramp_output(
@@ -347,6 +368,7 @@ class MeasureManager(FileOrganizer):
                             compliance=compliance,
                             type_str=source_type,
                         )
+                    time.sleep(source_wait)
                     yield value_i
 
     def ext_sweep_apply(
@@ -447,7 +469,7 @@ class MeasureManager(FileOrganizer):
         Returns:
             float | tuple[float]: the sensed value (tuple for sr830 ac sense)
         """
-        LEAST_TIME_AFTER_TRIGGER = wait_before_vary # s, used to avoid misjudging right after the trigger
+        LEAST_TIME_AFTER_TRIGGER = 5 * wait_before_vary if sense_type == "temp" else wait_before_vary # s, used to avoid misjudging right after the trigger
         timer_from_trigger = BoundedCounter(0, min_val=0, max_val=LEAST_TIME_AFTER_TRIGGER) # s, used to avoid misjudging right after the trigger
         timer_before_vary = BoundedCounter(wait_before_vary, min_val=0, max_val=wait_before_vary) # s, used to avoid misjudging before the vary
         if not if_during_vary:
@@ -612,8 +634,6 @@ class MeasureManager(FileOrganizer):
         mainname_str, _, mod_detail_lst = FileOrganizer.name_fstr_gen(
             *measure_mods, require_detail=True
         )
-        # IMPORTANT: judge ac_dc ONLY from the first module, and if ac, then lock-in sensor is assumed
-        ac_dc = mod_detail_lst[0]["ac_dc"]
         # combine the namestr
         pure_name_lst = list(mainname_str.replace("-", "").replace("_", ""))
         if len(pure_name_lst) != len(mod_detail_lst):
@@ -629,7 +649,7 @@ class MeasureManager(FileOrganizer):
                 if detail["source_sense"] == "source":
                     columns_lst.append(f"{name}_source")
                 elif (
-                    detail["source_sense"] == "sense" and ac_dc == "ac"
+                    detail["source_sense"] == "sense" and detail["ac_dc"] == "ac"
                 ):  # note the "sense" is assumed here
                     columns_lst += ["X", "Y", "R", "Theta"]
                 else:
@@ -715,6 +735,7 @@ class MeasureManager(FileOrganizer):
         special_mea: Literal["normal", "delta"] = "normal",
         vary_loop: bool = False,
         wait_before_vary: int = 7,
+        source_wait: float = 0.05,
     ) -> dict:
         """
         do the preset of measurements and return the generators, filepath and related info
@@ -748,6 +769,8 @@ class MeasureManager(FileOrganizer):
             field_ramp_rate (float): the rate of the field ramp (T/min)
             special_mea (Literal["normal", "delta"]): whether to do the special measurement, "delta" means the delta current-reversal measurement
             vary_loop (bool): whether to loop the varying, if True, the varying will be looped
+            wait_before_vary (int): the wait time before varying
+            source_wait (float): the wait time after source changes
 
         Returns:
             dict: a dictionary containing the list of generators, dataframe csv filepath and record number
@@ -796,6 +819,8 @@ class MeasureManager(FileOrganizer):
                     special_mea=special_mea,
                     vary_loop=vary_loop,
                     measure_nickname=measure_nickname,
+                    wait_before_vary=wait_before_vary,
+                    source_wait=source_wait,
                 )
             elif isinstance(sweep_tables, np.ndarray):
                 return self.get_measure_dict(
@@ -815,6 +840,8 @@ class MeasureManager(FileOrganizer):
                     special_mea=special_mea,
                     vary_loop=vary_loop,
                     measure_nickname=measure_nickname,
+                    wait_before_vary=wait_before_vary,
+                    source_wait=source_wait,
                 )
             else:
                 raise TypeError("unsupported sweep_tables type")
@@ -864,14 +891,19 @@ class MeasureManager(FileOrganizer):
                     wrapper_lst[idx].ramp_output(
                         mod_i,
                         src_mod[mod_i]["fix"],
+                        freq=src_mod[mod_i]["freq"],
                         compliance=compliance_lst[idx],
                         interval=interval,
                     )
                 else:
                     wrapper_lst[idx].ramp_output(
-                        mod_i, src_mod[mod_i]["fix"], compliance=compliance_lst[idx]
+                        mod_i,
+                        src_mod[mod_i]["fix"],
+                        freq=src_mod[mod_i]["freq"],
+                        compliance=compliance_lst[idx],
                     )
                 rec_lst.append(constant_generator(src_mod[mod_i]["fix"]))
+                time.sleep(source_wait)
             elif src_mod[mod_i]["sweep_fix"] == "sweep":
                 if src_mod[mod_i]["mode"] == "manual":
                     sweep_table = sweep_tables.pop(0)
@@ -889,6 +921,7 @@ class MeasureManager(FileOrganizer):
                         sweepmode=src_mod[mod_i]["mode"],
                         resistor=sr830_current_resistor,
                         sweep_table=sweep_table,
+                        source_wait=source_wait,
                     )
                 )
                 sweep_idx.append(idx)
@@ -1293,25 +1326,20 @@ class MeasureManager(FileOrganizer):
                     src_lst[idx][mod]["step"] = var_tuple[
                         index_vars + find_positions(vars_lst, "step")
                     ]
-                    if detail["ac_dc"] == "dc":
-                        src_lst[idx][mod]["mode"] = var_tuple[
-                            index_vars + find_positions(vars_lst, "mode")
-                        ]
+                    src_lst[idx][mod]["mode"] = var_tuple[
+                        index_vars + find_positions(vars_lst, "mode")
+                    ]
                 elif detail["sweep_fix"] == "fixed":
                     src_lst[idx][mod]["fix"] = var_tuple[
                         index_vars + find_positions(vars_lst, "fix")
                     ]
             elif idx < src_no + sense_no:
                 vars_lst = re.findall(
-                    r"{(\w+)}", MeasureManager.measure_types_json[mod]["sense"]
+                    r"{(\w+)}", MeasureManager.measure_types_json[mod]["sense"][detail["ac_dc"]]
                 )
                 length = len(vars_lst)
                 sense_lst[idx - src_no]["type"] = mod
-                sense_lst[idx - src_no]["ac_dc"] = (
-                    src_lst[0]["I"]["ac_dc"]
-                    if src_lst[0]["I"]["ac_dc"] is not None
-                    else src_lst[0]["V"]["ac_dc"]
-                )
+                sense_lst[idx - src_no]["ac_dc"] = detail["ac_dc"]
             else:
                 vars_lst = re.findall(
                     r"{(\w+)}",

@@ -473,6 +473,14 @@ class SR860(Instrument):
                 cast=float,
             )
 
+    def snap_all(self):
+        """snap X,Y,R,THETA parameters at once"""
+        return self.values(
+            command="SNAPD?",
+            separator=",",
+            cast=float,
+        )
+
     gettimebase = Instrument.measurement(
         "TBSTAT?",
         """Returns the current 10 MHz timebase source."""

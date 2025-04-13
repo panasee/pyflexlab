@@ -76,3 +76,32 @@ class DataProcess(FileOrganizer):
         self.dfs[measurename_main].rename(columns=rename_dict, inplace=True)
         if "cache" in self.dfs:
             self.dfs["cache"].rename(columns=rename_dict, inplace=True)
+
+    @property
+    def fig_path(self, measure_nickname: str) -> str:
+        """
+        Get the path to the figure
+
+        Args:
+        - measure_nickname: the nickname of the measure
+        """
+        fig_dir = self.proj_path / "figs" / measure_nickname
+        return fig_dir
+
+def calc_relative_mr(df: pd.DataFrame, tolerance: float = 5E-3) -> tuple[pd.DataFrame, float]:
+    """
+    Calculate the relative value of MR
+
+    Args:
+    - df: the dataframe
+    - tolerance: the tolerance of the reference value
+
+    Returns:
+    - df: the dataframe with the relative value of MR
+    - r_ref: the reference value of MR
+    """
+    df = df.copy()
+    ref_df = df[abs(df["B"] - 0) <= tolerance].copy()
+    r_ref = ref_df["V_source"].mean() / ref_df["I"].mean()
+    df["r_mr"] = df["V_source"] / df["I"] / r_ref
+    return df, r_ref

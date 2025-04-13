@@ -36,15 +36,17 @@ Actions that can be optimized for quicker operation:
 
 import time
 from typing import Literal, Optional
+from typing_extensions import override
+
 from abc import ABC, abstractmethod
 
 import numpy as np
-from pymeasure.instruments.srs import SR830 
+from pymeasure.instruments.srs import SR830
 from pymeasure.instruments.oxfordinstruments import ITC503
 from pymeasure.instruments.keithley import KeithleyDMM6500
 from pymeasure.instruments.keithley import Keithley2182
 from qcodes.instrument_drivers.Keithley import Keithley2400, Keithley2450
-from qcodes.instrument_drivers.Lakeshore import LakeshoreModel325
+from qcodes.instrument_drivers.Lakeshore import LakeshoreModel336
 from qcodes.instrument import find_or_create_instrument
 from pyomnix.omnix_logger import get_logger
 from pyomnix.utils import convert_unit, print_progress_bar, SWITCH_DICT, CacheArray
@@ -57,6 +59,7 @@ from .drivers.keysight_b2902b import Keysight_B2902B, KeysightB2902BChannel
 from .drivers.SR860 import SR860
 
 logger = get_logger(__name__)
+
 
 class Meter(ABC):
     """
@@ -87,7 +90,7 @@ class Meter(ABC):
     def info_sync(self):
         self.info_dict.update({})
 
-    def sense_delay(self, type_str: Literal["curr", "volt"], *, delay: float = 0.03):
+    def sense_delay(self, type_str: Literal["curr", "volt"], *, delay: float = 0.01):
         time.sleep(delay)
         return self.sense(type_str=type_str)
 
@@ -152,13 +155,6 @@ class SourceMeter(Meter):
     @abstractmethod
     def shutdown(self):
         pass
-
-    def __del__(self):
-        self.shutdown()
-        try:
-            self.meter.__del__()
-        except AttributeError:
-            del self.meter
 
     def ramp_output(
         self,
@@ -305,9 +301,9 @@ class Wrapper6221(ACSourceMeter, DCSourceMeter):
         function: Literal["source", "sense"] = "source",
         mode: Literal["ac", "dc"] = "ac",
         *,
-        offset=0,
-        source_auto_range=True,
-        low_grounded=True,
+        offset: float | None = None,
+        source_auto_range: bool | None = None,
+        low_grounded: bool | None = None,
         wave_function: Literal[
             "sine",
             "ramp",
@@ -316,7 +312,7 @@ class Wrapper6221(ACSourceMeter, DCSourceMeter):
             "arbitrary2",
             "arbitrary3",
             "arbitrary4",
-        ] = "sine",
+        ] | None = None,
         mea_mode: Literal["normal", "delta", "pulse-delta", "differential"] = "normal",
         reset: bool = False,
     ) -> None:
@@ -325,15 +321,21 @@ class Wrapper6221(ACSourceMeter, DCSourceMeter):
         reserved. Note that the waveform will not begin here
         """
         if reset:
-            self.meter.write("*RST")
-        if mea_mode == "normal":
-            assert function == "source", (
-                "6221 is a source meter, so the function should be source"
-            )
+            offset = 0
+            source_auto_range = True
+            low_grounded = True
+            wave_function = "sine"
+
         source_6221 = self.meter
         # first must close the output to do setup
         self.output_switch("off")
         source_6221.clear()
+        if reset:
+            source_6221.write("*RST")
+        if mea_mode == "normal":
+            assert function == "source", (
+                "6221 is a source meter, so the function should be source"
+            )
         if mea_mode == "delta":
             logger.info(
                 "delta mode is selected, please set the specific parameters using delta_setup method"
@@ -343,9 +345,13 @@ class Wrapper6221(ACSourceMeter, DCSourceMeter):
         self.mea_mode = mea_mode
         if mode == "ac":
             self.info_dict["ac_dc"] = "ac"
-            source_6221.waveform_function = wave_function
+            if wave_function is not None:
+                source_6221.waveform_function = wave_function
+                self.info_dict.update({"wave_function": wave_function})
             source_6221.waveform_amplitude = 0
-            source_6221.waveform_offset = offset
+            if offset is not None:
+                source_6221.waveform_offset = offset
+                self.info_dict.update({"wave_offset": offset})
             source_6221.waveform_ranging = "best"
             source_6221.waveform_use_phasemarker = True
             source_6221.waveform_phasemarker_line = 3
@@ -353,16 +359,16 @@ class Wrapper6221(ACSourceMeter, DCSourceMeter):
             source_6221.waveform_phasemarker_phase = 0
             self.info_dict.update(
                 {
-                    "wave_function": wave_function,
-                    "wave_offset": offset,
                     "wave_phasemarker": 0,
                 }
             )
         elif mode == "dc":
             self.info_dict["ac_dc"] = "dc"
-        source_6221.source_auto_range = source_auto_range
-        source_6221.output_low_grounded = low_grounded
-        self.info_dict.update({"low_grounded": low_grounded})
+        if source_auto_range is not None:
+            source_6221.source_auto_range = source_auto_range
+        if low_grounded is not None:
+            source_6221.output_low_grounded = low_grounded
+            self.info_dict.update({"low_grounded": low_grounded})
 
     def delta_setup(
         self,
@@ -722,7 +728,7 @@ class WrapperSR830(ACSourceMeter):
         self.safe_step = 2e-3
         self.if_source = False  # if the meter has been declared as source (as source initialization is earlier)
         if reset:
-            self.setup()
+            self.setup(reset=True)
         self.info_sync()
 
     def info_sync(self):
@@ -766,15 +772,15 @@ class WrapperSR830(ACSourceMeter):
         only overwrite the specific settings here, other settings will all be reserved
         """
         if reset:
-            self.meter.filter_slope=24,
-            self.meter.time_constant=0.3,
-            self.meter.input_config="A - B",
-            self.meter.input_coupling="AC",
-            self.meter.input_grounding="Float",
-            self.meter.sine_voltage = 0,
-            self.meter.input_notch_config="None",
-            self.meter.reserve="Normal",
-            self.meter.filter_synchronous=False,
+            self.meter.filter_slope = (24,)
+            self.meter.time_constant = (0.3,)
+            self.meter.input_config = ("A - B",)
+            self.meter.input_coupling = ("AC",)
+            self.meter.input_grounding = ("Float",)
+            self.meter.sine_voltage = (0,)
+            self.meter.input_notch_config = ("None",)
+            self.meter.reserve = ("Normal",)
+            self.meter.filter_synchronous = (False,)
             return
         if function == "sense":
             if filter_slope is not None:
@@ -861,6 +867,8 @@ class WrapperSR830(ACSourceMeter):
         fix_range: Optional[float | str] = None,
     ) -> float:
         """fix_range is not used for sr830"""
+        if value > 5:
+            logger.warning("exceed SR830 max output")
         self.rms_output(value, freq=freq, compliance=compliance, type_str=type_str)
         self.output_target = convert_unit(value, "V")[0]
         return self.get_output_status()[0]
@@ -888,6 +896,7 @@ class WrapperSR830(ACSourceMeter):
         if self.info_dict["output_status"]:
             self.output_switch("off")
 
+
 class WrapperSR860(ACSourceMeter):
     def __init__(self, GPIB: str = "GPIB0::8::INSTR", reset=True):
         super().__init__()
@@ -897,7 +906,7 @@ class WrapperSR860(ACSourceMeter):
         self.safe_step = 2e-3
         self.if_source = False  # if the meter has been declared as source (as source initialization is earlier)
         if reset:
-            self.setup()
+            self.setup(reset=True)
         self.info_sync()
 
     def info_sync(self):
@@ -923,13 +932,13 @@ class WrapperSR860(ACSourceMeter):
         self,
         function: Literal["source", "sense"] = "sense",
         *,
-        filter_slope=3,
-        time_constant=0.3,
-        input_config="A-B",
-        input_coupling="AC",
-        input_grounding="Float",
-        sine_voltage: float = 0,
-        filter_synchronous=False,
+        filter_slope=None,
+        time_constant=None,
+        input_config=None,
+        input_coupling=None,
+        input_grounding=None,
+        sine_voltage=None,
+        filter_synchronous=None,
         reset: bool = False,
     ) -> None:
         """
@@ -937,37 +946,38 @@ class WrapperSR860(ACSourceMeter):
         only overwrite the specific settings here, other settings will all be reserved
         """
         if reset:
-            self.setup()
+            self.meter.filter_slope = 3
+            self.meter.time_constant = 0.3
+            self.meter.input_config = "A-B"
+            self.meter.input_coupling = "AC"
+            self.meter.input_grounding = "Float"
+            self.meter.sine_voltage = 0
+            self.meter.filter_synchronous = False
             return
         if function == "sense":
-            self.meter.filter_slope = filter_slope
-            self.meter.time_constant = time_constant
-            self.meter.input_config = input_config
-            self.meter.input_coupling = input_coupling
-            self.meter.input_grounding = input_grounding
+            if filter_slope is not None:
+                self.meter.filter_slope = filter_slope
+            if time_constant is not None:
+                self.meter.time_constant = time_constant
+            if input_config is not None:
+                self.meter.input_config = input_config
+            if input_coupling is not None:
+                self.meter.input_coupling = input_coupling
+            if input_grounding is not None:
+                self.meter.input_shields = input_grounding
+            if filter_synchronous is not None:
+                self.meter.filter_synchronous = filter_synchronous
             if not self.if_source:
                 self.meter.reference_source = "EXT"
             else:
                 self.if_source = False  # restore the if_source to False for the next initialization, would cause unexpected behavior if called twice in one measurement
-            self.meter.filter_synchronous = filter_synchronous
-            self.info_dict.update(
-                {
-                    "filter_slope": filter_slope,
-                    "time_constant": time_constant,
-                    "input_config": input_config,
-                    "input_coupling": input_coupling,
-                    "input_grounding": input_grounding,
-                    "reference_source": "EXT",
-                    "filter_synchronous": filter_synchronous,
-                }
-            )
+            self.info_sync()
         elif function == "source":
-            self.meter.sine_voltage = sine_voltage
+            if sine_voltage is not None:
+                self.meter.sine_voltage = sine_voltage
             self.meter.reference_source = "INT"
             self.if_source = True
-            self.info_dict.update(
-                {"sine_voltage": sine_voltage, "reference_source": "INT"}
-            )
+            self.info_sync()
         else:
             raise ValueError("function should be either source or sense")
 
@@ -992,11 +1002,11 @@ class WrapperSR860(ACSourceMeter):
             self.meter.harmonic = harmonic
         self.info_sync()
 
-    def sense(self, type_str: Literal["volt", "curr"] = "volt") -> tuple[float, float, float, float]:
+    def sense(
+        self, type_str: Literal["volt", "curr"] = "volt"
+    ) -> tuple[float, float, float, float]:
         """snap X Y and THETA from the meter and calculate the R, for compatibility with the SR830"""
-        x, y, theta = self.meter.snap("X", "Y", "THeta")
-        logger.debug("R is calculated from X and Y, not directly from the meter")
-        r = np.sqrt(x**2 + y**2)
+        x, y, r, theta = self.meter.snap_all()
         return x, y, r, theta
 
     def get_output_status(self) -> tuple[float, float]:
@@ -1027,6 +1037,8 @@ class WrapperSR860(ACSourceMeter):
         fix_range: Optional[float | str] = None,
     ) -> float:
         """fix_range is not used for sr830"""
+        if value > 2:
+            logger.warning("exceed SR860 max output")
         self.rms_output(value, freq=freq, compliance=compliance, type_str=type_str)
         self.output_target = convert_unit(value, "V")[0]
         return self.get_output_status()[0]
@@ -1053,6 +1065,7 @@ class WrapperSR860(ACSourceMeter):
     def shutdown(self):
         if self.info_dict["output_status"]:
             self.output_switch("off")
+
 
 class Wrapper6430(DCSourceMeter):
     def __init__(self, GPIB: str = "GPIB0::26::INSTR"):
@@ -1102,7 +1115,7 @@ class Wrapper6430(DCSourceMeter):
         elif function == "sense":
             if reset:
                 self.meter.reset()
-            self.meter.sense_autorange(True)
+                self.meter.sense_autorange(True)
             self.meter.autozero(auto_zero)
         else:
             raise ValueError("function should be either source or sense")
@@ -1240,7 +1253,9 @@ class Wrapper6430(DCSourceMeter):
 class WrapperB2902Bchannel(DCSourceMeter):
     def __init__(self, GPIB: str = "GPIB0::25::INSTR", channel: int | str = 1):
         super().__init__()
-        self.meter_all = find_or_create_instrument(Keysight_B2902B, "KeysightB2902B", address=GPIB)
+        self.meter_all = find_or_create_instrument(
+            Keysight_B2902B, "KeysightB2902B", address=GPIB
+        )
         self.meter: KeysightB2902BChannel
         self.meter = self.meter_all.ch1 if int(channel) == 1 else self.meter_all.ch2
         self.info_dict = {}
@@ -1275,14 +1290,15 @@ class WrapperB2902Bchannel(DCSourceMeter):
         if reset:
             self.meter_all.reset()
         if function == "sense":
-            self.meter.sense_current_autorange(True)
-            self.meter.sense_voltage_autorange(True)
-            self.meter.sense_resistance_autorange(True)
+            if reset:
+                self.meter.sense_current_autorange(True)
+                self.meter.sense_voltage_autorange(True)
+                self.meter.sense_resistance_autorange(True)
         elif function == "source":
             if reset:
                 self.meter.output(False)
-            self.meter.source_current_autorange(True)
-            self.meter.source_voltage_autorange(True)
+                self.meter.source_current_autorange(True)
+                self.meter.source_voltage_autorange(True)
         self.info_sync()
 
     def sense(self, type_str: Literal["curr", "volt", "resist"]) -> float:
@@ -1606,11 +1622,12 @@ class Wrapper2450(DCSourceMeter):
     ):
         if reset:
             self.meter.reset()
+            self.meter.sense.auto_range(True)
+            self.meter.terminals("front")
         if function == "source":
-            self.meter.source.auto_range(True)
+            if reset:
+                self.meter.source.auto_range(True)
         self.info_sync()
-        self.meter.terminals("front")
-        self.meter.sense.auto_range(True)
 
     def sense(self, type_str: Literal["curr", "volt", "resist"]) -> float:
         if self.info_dict["sense_type"] == type_str:
@@ -1911,7 +1928,9 @@ class WrapperIPS(Magnet):
         if wait:
             # the is_ramping() method is not working properly, so we use the following method to wait for the ramping
             # to finish
-            while self.status == "TO SET" or abs(self.field - self.field_set) > tolerance:
+            while (
+                self.status == "TO SET" or abs(self.field - self.field_set) > tolerance
+            ):
                 print_progress_bar(
                     self.field - ini_field,
                     field - ini_field,
@@ -1930,8 +1949,16 @@ Wrappers for ITC are following
 class ITC(ABC):
     # parent class to incorporate both two ITCs
     @abstractmethod
-    def __init__(self, address: str, cache_length: int = 60, var_crit: float = 1e-4):
-        self.cache = CacheArray(cache_length=cache_length, var_crit=var_crit)
+    def __init__(
+        self,
+        address: str,
+        cache_length: int = 60,
+        var_crit: float = 1e-4,
+        least_length: int = 13,
+    ):
+        self.cache = CacheArray(
+            cache_length=cache_length, var_crit=var_crit, least_length=least_length
+        )
 
     def set_cache(self, *, cache_length: int, var_crit: Optional[float] = None):
         """
@@ -2017,7 +2044,13 @@ class ITC(ABC):
         pass
 
     def wait_for_temperature(
-        self, temp, *, check_interval=1, stability_counter=1, thermalize_counter=7
+        self,
+        temp,
+        *,
+        check_interval=1,
+        stability_counter=1,
+        thermalize_counter=7,
+        correction_needed=False,
     ):
         """
         wait for the temperature to stablize for a certain time length
@@ -2054,9 +2087,13 @@ class ITC(ABC):
 
         i = 0
         while i < stability_counter:
-            #self.add_cache()
-            self.correction_ramping(self.temperature, trend)
-            if abs(self.cache.get_status()["mean"] - temp) < ITC.dynamic_delta(temp) and self.cache.get_status()["if_stable"]:
+            # self.add_cache()
+            if correction_needed:
+                self.correction_ramping(self.temperature, trend)
+            if (
+                abs(self.cache.get_status()["mean"] - temp) < ITC.dynamic_delta(temp)
+                and self.cache.get_status()["if_stable"]
+            ):
                 i += 1
             else:
                 i = 0
@@ -2123,35 +2160,140 @@ class ITCLakeshore(ITC):
         address: str = "GPIB0::12::INSTR",
         cache_length: int = 60,
         var_crit: float = 5e-4,
+        least_length: int = 13,
     ):
-        self.lake = LakeshoreModel325("Lakeshore325", address)
-        self.cache = CacheArray(cache_length=cache_length, var_crit=var_crit)
+        self.ls = LakeshoreModel336("Lakeshore336", address)
+        self.cache = CacheArray(
+            cache_length=cache_length, var_crit=var_crit, least_length=least_length
+        )
+        self.channels_no = len(self.ls.channels)
+        self.second_stage = self.ls.C
+        self.sample_mount = self.ls.B
+        self.sample = self.ls.A
+        self.heater_intrinsic = [self.ls.output_1, self.ls.output_2]
+        self.binding = {"heater_1": "sample", "heater_2": "second_stage"}
+        self.binding_inv = {v: k for k, v in self.binding.items()}
+        if "sample" not in self.binding_inv and "sample_mount" not in self.binding_inv:
+            logger.raise_error(
+                "sample related sensor is not in the binding", ValueError
+            )
+        heater_sample_str = (
+            self.binding_inv["sample"]
+            if "sample" in self.binding_inv
+            else self.binding_inv["sample_mount"]
+        )
+        self.heater_sample = (
+            self.ls.output_1 if heater_sample_str == "sample" else self.ls.output_2
+        )
+
+    def get_binding(self):
+        print(f"Heater 1 is bound to {self.binding['heater_1']}")
+        print(f"Heater 2 is bound to {self.binding['heater_2']}")
+
+    def change_binding(self, *, heater_1: str, heater_2: str):
+        logger.warning("usually not needed, be aware of what you are doing")
+        self.binding["heater_1"] = heater_1
+        self.binding["heater_2"] = heater_2
+        self._bind_heater()
+
+    def _bind_heater(self):
+        if self.binding["heater_1"] == self.binding["heater_2"]:
+            logger.raise_error("Heater 1 and Heater 2 cannot be the same", ValueError)
+        match self.binding["heater_1"]:
+            case "sample":
+                self.ls.output_1.input_channel("A")
+            case "second_stage":
+                self.ls.output_1.input_channel("C")
+            case "sample_mount":
+                self.ls.output_1.input_channel("B")
+            case _:
+                logger.raise_error(
+                    f"Invalid heater binding: {self.binding['heater_1']}", ValueError
+                )
+        match self.binding["heater_2"]:
+            case "sample":
+                self.ls.output_2.input_channel("A")
+            case "second_stage":
+                self.ls.output_2.input_channel("C")
+            case "sample_mount":
+                self.ls.output_2.input_channel("B")
+            case _:
+                logger.raise_error(
+                    f"Invalid heater binding: {self.binding['heater_2']}", ValueError
+                )
 
     def get_temperature(self) -> float:
-        #TODO: implement this
-        pass
+        return self.sample.temperature()
 
     @property
-    def temperature_set(self, temp: float) -> None:
-        #TODO: implement this
-        pass
+    def temperature_set(self) -> float:
+        return self.heater_sample.setpoint()
 
     @temperature_set.setter
     def temperature_set(self, temp: float) -> None:
-        #TODO: implement this
-        pass
+        self.heater_sample.setpoint(temp)
 
     @property
     def pid(self) -> dict:
-        #TODO: implement this
-        pass
+        return {
+            "P": self.heater_sample.P(),
+            "I": self.heater_sample.I(),
+            "D": self.heater_sample.D(),
+        }
 
     def set_pid(self, pid_dict: dict) -> None:
-        #TODO: implement this
+        self.heater_sample.P(pid_dict["P"])
+        self.heater_sample.I(pid_dict["I"])
+        self.heater_sample.D(pid_dict["D"])
+
+    def correction_ramping(
+        self,
+        temp: float | str,
+        trend: Literal["up"]
+        | Literal["down"]
+        | Literal["up-huge"]
+        | Literal["down-huge"],
+    ):
         pass
 
-    def correction_ramping(self, temp: float, trend: Literal['up'] | Literal['down'] | Literal['up-huge'] | Literal['down-huge']):
-        pass
+    def ramp_to_temperature(
+        self,
+        temp: float | str,
+        *,
+        delta=0.02,
+        check_interval=1,
+        stability_counter=1,
+        thermalize_counter=7,
+        pid: dict | None = None,
+        ramp_rate=None,
+        wait=True,
+    ):
+        temp = convert_unit(temp, "K")[0]
+        self.temperature_set = temp
+        if pid is not None:
+            self.set_pid(pid)
+        if ramp_rate is not None:
+            self.heater_sample.setpoint_ramp_rate(ramp_rate)
+
+        self.heater_sample.output_range("low")
+        if wait:
+            self.wait_for_temperature(
+                temp,
+                check_interval=check_interval,
+                stability_counter=stability_counter,
+                thermalize_counter=thermalize_counter,
+            )
+
+    @override
+    @property
+    def status(self) -> Literal["VARYING", "HOLD"]:
+        """return the varying status of the ITC"""
+        status_return = self.cache.get_status()
+        if status_return["if_stable"] and not self.heater_sample.setpoint_ramp_status():
+            return "HOLD"
+        else:
+            return "VARYING"
+
 
 class ITCMercury(ITC):
     """
@@ -2165,9 +2307,12 @@ class ITCMercury(ITC):
         address="TCPIP0::10.97.27.13::7020::SOCKET",
         cache_length: int = 60,
         var_crit: float = 5e-4,
+        least_length: int = 13,
     ):
         self.mercury = MercuryITC("mercury_itc", address)
-        self.cache = CacheArray(cache_length=cache_length, var_crit=var_crit)
+        self.cache = CacheArray(
+            cache_length=cache_length, var_crit=var_crit, least_length=least_length
+        )
 
     @property
     def pres(self):
@@ -2236,7 +2381,6 @@ class ITCMercury(ITC):
         self,
         temp,
         *,
-        delta=0.01,
         check_interval=1,
         stability_counter=10,
         thermalize_counter=7,
@@ -2301,8 +2445,10 @@ class ITCMercury(ITC):
         else:
             if temp <= 2.3:
                 self.set_flow(2)
+            if trend == "up":
+                self.set_flow(3)
             else:
-                self.set_flow(5)
+                self.set_flow(4)
 
 
 class ITCs(ITC):
@@ -2318,12 +2464,15 @@ class ITCs(ITC):
         clear_buffer=True,
         cache_length: int = 60,
         var_crit: float = 3e-4,
+        least_length: int = 13,
     ):
         self.itc_up = ITC503(address_up, clear_buffer=clear_buffer)
         self.itc_down = ITC503(address_down, clear_buffer=clear_buffer)
         self.itc_up.control_mode = "RU"
         self.itc_down.control_mode = "RU"
-        self.cache = CacheArray(cache_length=cache_length, var_crit=var_crit)
+        self.cache = CacheArray(
+            cache_length=cache_length, var_crit=var_crit, least_length=least_length
+        )
 
     def chg_display(self, itc_name, target):
         """
