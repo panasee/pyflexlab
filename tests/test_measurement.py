@@ -280,28 +280,21 @@ def test_normal_func(measure_flow: MeasureFlow):
 if __name__ == "__main__":
     project_name = "Date-Material"
     measure_flow = MeasureFlow(project_name)
-    measure_flow.load_meter("tests", *[""]*3)
+    measure_flow.load_meter("2450", "GPIB0::17::INSTR")
+    #measure_flow.load_meter("tests", *[""]*3)
 #    test_flow(measure_flow)
 
-    measure_flow.instrs["tests"][0].ramp_output("volt", -5)
-    measure_flow.instrs["tests"][1].ramp_output("volt", -50)
-    measure_flow.measure_VswpVswp_II_BT_dsgatemapping(
-        constrained=True,
-        vds_max=1,
-        ds_map_lst=np.linspace(-5, 5, 1000),
-        ds_high=1,
-        ds_low=0,
-        ds_meter=measure_flow.instrs["tests"][0],
-        ds_compliance=1e-12,
-        vg=0,
-        gate_map_lst=np.linspace(-50, 50, 1000),
-        vg_high=1,
-        vg_meter=measure_flow.instrs["tests"][1],
-        vg_compliance=1e-12,
-        field=0,
-        temperature=300,
+    #measure_flow.instrs["tests"][0].ramp_output("volt", -5)
+    #measure_flow.instrs["tests"][1].ramp_output("volt", -50)
+    measure_flow.measure_Vswp_I_vicurve(
+        vmax=0.1,
+        vstep=0.01,
+        high=1,
+        low=0,
+        swpmode="0--max-max-0",
+        meter=measure_flow.instrs["2450"][0],
+        compliance=1e-1,
         folder_name="",
-        step_time=0.5,
+        step_time=0.2,
         individual_plot=True,
-        ds_gate_order=(0, 1),
     )
