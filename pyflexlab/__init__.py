@@ -1,15 +1,15 @@
 """Python package for flexible laboratory data analysis and visualization."""
 
 from pyomnix.omnix_logger import get_logger
-from .constants import set_envs, set_paths
+from pyflexlab.constants import set_envs, set_paths
 
 set_envs()
 set_paths()
 
-from .file_organizer import FileOrganizer
-from .measure_manager import MeasureManager
-from .data_process import DataProcess
-from .measure_flow import MeasureFlow
+from pyflexlab.file_organizer import FileOrganizer
+from pyflexlab.measure_manager import MeasureManager
+from pyflexlab.data_process import DataProcess
+from pyflexlab.measure_flow import MeasureFlow
 
 logger = get_logger(__name__)
 
@@ -20,7 +20,7 @@ def initialize_with_templates():
     import os
     import shutil
     from pathlib import Path
-    from .constants import LOCAL_DB_PATH
+    from pyflexlab.constants import LOCAL_DB_PATH
 
     if LOCAL_DB_PATH is None:
         logger.warning("LOCAL_DB_PATH is not set. Cannot copy templates.")

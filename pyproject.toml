@@ -11,7 +11,7 @@ version = "1.0"
 description = "Integrated Tools for Electronic, Cryogenic and Magnetic Measurements"
 authors = [{name="Dongkai", email="dongkai001@e.ntu.edu.sg"}]
 readme = "README.md"
-license = {text = "MIT License"}
+license = "MIT"
 urls = { Homepage = "https://github.com/panasee/pyflexlab" }
 requires-python = ">=3.11"
 keywords = [
@@ -45,7 +45,6 @@ gui = ["PyQt6"]
 
 [project.scripts]
 gui_coor_trans = "pyflexlab.auxiliary:Flakes.gui_coor_transition"
-gui_pan_color = "pyflexlab.data_plot:DataPlot.gui_pan_color"
 
 [tool.setuptools]
 include-package-data = true

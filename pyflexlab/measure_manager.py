@@ -736,6 +736,7 @@ class MeasureManager(FileOrganizer):
         vary_loop: bool = False,
         wait_before_vary: int = 7,
         source_wait: float = 0.05,
+        manual_record_columns: Optional[list[str]] = None,
     ) -> dict:
         """
         do the preset of measurements and return the generators, filepath and related info
@@ -771,6 +772,7 @@ class MeasureManager(FileOrganizer):
             vary_loop (bool): whether to loop the varying, if True, the varying will be looped
             wait_before_vary (int): the wait time before varying
             source_wait (float): the wait time after source changes
+            manual_record_columns (list[str]): the columns to be manually recorded, used for special measurement
 
         Returns:
             dict: a dictionary containing the list of generators, dataframe csv filepath and record number
@@ -860,6 +862,7 @@ class MeasureManager(FileOrganizer):
             *var_tuple,
             special_folder=special_name,
             measure_nickname=measure_nickname,
+            manual_columns=manual_record_columns,
         )
         rec_lst = [time_generator()] if with_timer else []
 

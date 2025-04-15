@@ -546,6 +546,151 @@ class MeasureFlow(MeasureManager):
         if if_plot:
             plotobj.stop_saving()
 
+    def b2_measure_VV_V1wI_BTvary_rt_lockin(
+        self,
+        *,
+        resistor: float | str,
+        vds: float,
+        ds_high: int | str,
+        ds_low: int | str,
+        ds_meter: Meter | list[Meter],
+        ds_compliance: float | str,
+        freq: float,
+        vg: float,
+        vg_high: int | str,
+        vg_meter: Meter,
+        vg_compliance: float | str,
+        field: float,
+        temperature_start: float,
+        temperature_end: float,
+        folder_name: str = "",
+        step_time: float = 0.7,
+        wait_before_vary: float = 13,
+        vary_loop: bool = False,
+        if_plot: bool = True,
+        saving_interval: float = 7,
+        no_start_vary: bool = True,
+        plotobj: Optional[DataManipulator] = None,
+    ) -> None:
+        """
+        measure the V-V and I-I curve using one or two source meters, with other info (B, T, etc.)
+
+        Args:
+            vds: float, the drain-source voltage
+            ds_high: int | str, the high terminal of the drain-source
+            ds_low: int | str, the low terminal of the drain-source
+            ds_meter: Meter | list[Meter], the meter used for both source and sense or two meters separately in a list
+            ds_compliance: float | str, the compliance of the drain-source meter
+            freq: float, the frequency
+            vg: float, the gate voltage
+            vg_high: int | str, the high terminal of the gate
+            vg_meter: Meter, the meter used for the gate
+            vg_compliance: float | str, the compliance of the gate meter
+            field: float, the field
+            temperature_start: float, the start temperature
+            temperature_end: float, the end temperature
+            folder_name: str, the folder name
+            step_time: float, the step time
+            wait_before_vary: float, the wait before vary
+            vary_loop: bool, the vary loop
+            if_plot: bool, the individual plot
+            saving_interval: float, the saving interval in seconds
+        """
+        resistor = convert_unit(resistor, "Ohm")[0]
+        if isinstance(ds_meter, list):
+            logger.validate(len(ds_meter) == 2, "ds_meter must be a list of two meters")
+            ds_src_sens_lst = ds_meter
+        else:
+            ds_src_sens_lst = [ds_meter, ds_meter]
+
+        if plotobj is None and if_plot:
+            plotobj = DataManipulator(1)
+
+        mea_dict = self.get_measure_dict(
+            (
+                "V_source_fixed_ac",
+                "V_source_fixed_dc",
+                "V_sense_ac",
+                "I_sense_dc",
+                "B_fixed",
+                "T_vary",
+            ),
+            vds,
+            freq,
+            ds_high,
+            ds_low,
+            vg,
+            vg_high,
+            0,
+            "",
+            ds_high,
+            ds_low,
+            "",
+            vg_high,
+            0,
+            field,
+            temperature_start,
+            temperature_end,
+            wrapper_lst=[
+                ds_src_sens_lst[0],
+                vg_meter,
+                ds_src_sens_lst[1],
+                vg_meter,
+            ],
+            compliance_lst=[ds_compliance, vg_compliance],
+            if_combine_gen=True,  # False for coexistence of vary and mapping
+            special_name=f"{resistor}Ohm-{folder_name}",
+            measure_nickname="rt-lockin",
+            vary_loop=vary_loop,
+            wait_before_vary=wait_before_vary,
+            no_start_vary=no_start_vary,
+            manual_record_columns=["time", "V_source", "V_source2", "X", "Y", "R", "Theta", "I", "B", "T", "TB", "TC", "TD"]
+        )
+
+        logger.info("filepath: %s", mea_dict["file_path"])
+        logger.info("no of columns(with time column): %d", mea_dict["record_num"])
+        logger.info("vary modules: %s", mea_dict["vary_mod"])
+
+        vary_lst, _, _, _ = self._extract_vary(mea_dict)
+        # modify the plot configuration
+        begin_vary = False
+        if if_plot:
+            plotobj.live_plot_init(
+                2, 2, 4, titles=[["T R", r"T $V_{lockin}$"], [r"T $I_{g}$", "t T"]]
+            )
+            plotobj.start_saving(mea_dict["plot_record_path"], saving_interval)
+
+        for gen_i in mea_dict["gen_lst"]:
+            gen_i = list(gen_i) + [self.instrs["itc"].ls.B.temperature, self.instrs["itc"].ls.C.temperature, self.instrs["itc"].ls.D.temperature]
+            self.record_update(mea_dict["file_path"], mea_dict["record_num"], gen_i)
+            time.sleep(step_time)
+            if plotobj is None:
+                continue
+            plotobj.live_plot_update(
+                [0, 0, 0, 1],
+                [0, 1, 1, 0],
+                [0, 0, 1, 0],
+                [gen_i[9], gen_i[9], gen_i[9], gen_i[9]],
+                [gen_i[5] / (gen_i[1] / resistor), gen_i[3], gen_i[4], gen_i[7]],
+                incremental=True,
+            )
+            plotobj.live_plot_update(
+                [1, 1, 1, 1], 
+                [1, 1, 1, 1],
+                [0, 1, 2, 3],
+                [gen_i[0], gen_i[0], gen_i[0], gen_i[0]],
+                [gen_i[9], gen_i[10], gen_i[11], gen_i[12]],
+                incremental=True
+                )
+
+            if not begin_vary:
+                for funci in vary_lst:
+                    funci()
+                begin_vary = True
+
+        if if_plot:
+            plotobj.stop_saving()
+
     def measure_VVswp_II_BT_gateswp(
         self,
         *,

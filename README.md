@@ -79,14 +79,14 @@ Detailed examples of a few typical measurements have been demonstrated in `assis
 ### Provided GUIs
 
 - 🔄 **gui-coor-trans**: A GUI for coordinate transformation used to locate objects using two reference points on a flat surface (linear transform solver)
-- 🎨 **gui-pan-color**: A color palette for choosing colors 
+- 🎨 **gui-pan-color**: A color palette for choosing colors. This function has been migrated to PyOmnix package, which is a dependence of this package. 
 
 ## 🔌 Supported Instruments
 
 Currently supported instruments are listed here (some are directly from or modified from PyMeasure/QCoDeS; others are self-written):
 
-- **Meters**: Keithley 2182a/2400/2401/2450/6221/6430/6500; SR830
-- **Temperature Controllers**: Oxford ITC503, Oxford Mercury ITC
+- **Meters**: Keithley 2182a/2400/2401/2450/6221/6430/6500; KeySight b2902b; SR830/860
+- **Temperature Controllers**: Oxford ITC503, Oxford Mercury ITC, LakeShore336
 - **Magnet Controllers**: Oxford IPS
 - **Other Instruments**: Probe Rotator (need C++ interface WJ_API.dll)
 
@@ -95,10 +95,9 @@ Drivers with good universality will be contributed back to PyMeasure or QCoDeS, 
 
 ## ⚠️ Known Issues
 
-- The memory management of plotly drawing remains a problem for long-time measurement. (be careful when number of points exceeds 50k)
+- The memory management of plotly drawing remains a problem for long-time measurement in jupyter inline mode. Use dash mode for long-time measurement.
 - The driver of the rotator is not working properly due to weird interaction between C++ dll and python
 - Currently no keyboard interruption actions implemented, if the measurement is interrupted, the meters would be left in the last state (data is saved in real-time, interruption won't affect data)
-- The `dash` app in Chrome would crash from time to time. (won't affect anything, just refresh the page)
 
 ## 📦 Dependencies
 
@@ -115,11 +114,12 @@ Drivers with good universality will be contributed back to PyMeasure or QCoDeS, 
   - qcodes >= 0.47.0
   - jupyter
   - dash
+  - pyomnix
 - Optional packages:
   - PyQt6
 
 ---
 
 <div align="center">
-  <sub>Built with ❤️ for scientific research</sub>
+  <sub>Built with ❤️ for science</sub>
 </div>
