@@ -2177,13 +2177,13 @@ class ITCLakeshore(ITC):
             logger.raise_error(
                 "sample related sensor is not in the binding", ValueError
             )
-        heater_sample_str = (
+        self.heater_sample_str = (
             self.binding_inv["sample"]
             if "sample" in self.binding_inv
             else self.binding_inv["sample_mount"]
         )
         self.heater_sample = (
-            self.ls.output_1 if heater_sample_str == "sample" else self.ls.output_2
+            self.ls.output_1 if self.heater_sample_str == "heater_1" else self.ls.output_2
         )
 
     def get_binding(self):
@@ -2275,7 +2275,7 @@ class ITCLakeshore(ITC):
         if ramp_rate is not None:
             self.heater_sample.setpoint_ramp_rate(ramp_rate)
 
-        self.heater_sample.output_range("low")
+        self.heater_sample.output_range("medium")
         if wait:
             self.wait_for_temperature(
                 temp,
