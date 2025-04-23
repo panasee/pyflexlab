@@ -5,6 +5,7 @@ initialzed right before the measurement, as there may be a long time between loa
 possibilities of parameter changing"""
 
 import copy
+import shutil
 from itertools import product
 from typing import Literal, Generator, Optional, Sequence, Callable
 import numpy as np
@@ -533,7 +534,7 @@ class MeasureManager(FileOrganizer):
                 while (
                     instr.status == "VARYING"
                     or not if_trigger
-                    #or abs(instr.temperature - trigger_val) > 0.03
+                    or abs(instr.temperature - trigger_val) > 0.03
                     or timer_from_trigger.count_down()
                     or timer_before_vary.count_down()
                 ):
@@ -630,6 +631,13 @@ class MeasureManager(FileOrganizer):
         file_path.parent.mkdir(parents=True, exist_ok=True)
         self.add_measurement(*measure_mods)
         logger.info(f"Filename is: {file_path.name}")
+
+        if file_path.exists():
+            logger.warning(f"{file_path} already exists, will be overwritten")
+            bak_path = file_path.parent / f"{file_path.name}.bak"
+            shutil.copy2(file_path, bak_path)
+            logger.warning(f"{file_path} has been backed up to {bak_path}")
+
 
         mainname_str, _, mod_detail_lst = FileOrganizer.name_fstr_gen(
             *measure_mods, require_detail=True
