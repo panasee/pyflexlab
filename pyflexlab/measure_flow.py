@@ -129,6 +129,8 @@ class MeasureFlow(MeasureManager):
         if if_plot:
             plotobj.stop_saving()
 
+        src_sens_lst[0].output_switch("off")
+
     def measure_Vswp_Vnw_vrcurve_lockin(
         self,
         *,
@@ -1347,6 +1349,8 @@ class MeasureFlow(MeasureManager):
 
         if if_plot:
             plotobj.stop_saving()
+        ds_src_sens_lst[0].output_switch("off")
+        vg_meter.output_switch("off")
 
     def measure_VV_II_BvaryT_rhloop(
         self,
