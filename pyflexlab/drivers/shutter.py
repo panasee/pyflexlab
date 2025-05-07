@@ -3,7 +3,6 @@ import os
 from pyflexlab.constants import LOCAL_DB_PATH
 from pyomnix.omnix_logger import get_logger
 
-clr.AddReference("System")
 from System import Enum  # Import Enum from the System namespace
 
 logger = get_logger(__name__)
@@ -19,16 +18,17 @@ class Shutter:
     TPOLLING = 250  # Default polling time, in ms
     TIMEOUTSETTINGS = 5000  # Default timeout time for settings change
 
-    def __init__(self, serialno: str):
+    def __init__(self, serialno: str | None = None):
         """Constructor - Instantiate shutter object"""
         self.load_dlls()  # Load DLLs (if not already loaded)
-        serial_numbers = self.list_devices()  # Build device list
+        if serialno is None:
+            serial_numbers = self.list_devices()  # Build device list
 
-        if not serial_numbers:
-            raise Exception("No compatible Thorlabs K-Cube devices found!")
+            if not serial_numbers:
+                raise Exception("No compatible Thorlabs K-Cube devices found!")
 
         # Initialize properties
-        self.serialnumber = None
+        self.serialnumber = serialno
         self.controllername = None
         self.controllerdescription = None
         self.stagename = None
