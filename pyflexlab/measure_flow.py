@@ -5,7 +5,7 @@ The non-individual plot options have not been written yet
 import time
 from typing import Sequence, Callable, Optional, Literal
 from .measure_manager import MeasureManager
-from .equip_wrapper import Meter
+from .equip_wrapper import Meter, SourceMeter
 from pyomnix.data_process import DataManipulator
 from pyomnix.omnix_logger import get_logger
 from pyomnix.utils import next_lst_gen, convert_unit
@@ -34,7 +34,10 @@ class MeasureFlow(MeasureManager):
         if_plot: bool = True,
         saving_interval: float = 7,
         plotobj: DataManipulator = None,
+        source_wait: float = 0.1,
         use_dash: bool = False,
+        sense_range: float | None = None,
+        source_range: float | None = None,
     ) -> None:
         """
         measure the V-I curve using ONE DC source meter, no other info (B, T, etc.). Use freq to indicate ac measurement
@@ -53,6 +56,7 @@ class MeasureFlow(MeasureManager):
             if_plot: bool, the individual plot
             saving_interval: float, the saving interval in seconds
         """
+        src_sens_lst: list[SourceMeter, Meter]
         if isinstance(meter, list):
             logger.validate(len(meter) == 2, "meter must be a list of two meters")
             src_sens_lst = meter
@@ -73,6 +77,7 @@ class MeasureFlow(MeasureManager):
                 compliance_lst=[compliance],
                 special_name=folder_name,
                 measure_nickname="vi-curve-dc",
+                source_wait=source_wait,
             )
         else:
             mea_dict = self.get_measure_dict(
@@ -96,6 +101,12 @@ class MeasureFlow(MeasureManager):
 
         logger.info("filepath: %s", mea_dict["file_path"])
         logger.info("no of columns(with time column): %d", mea_dict["record_num"])
+        if sense_range is not None:
+            src_sens_lst[1].sense_range_volt = sense_range
+            logger.info("sense range: %f", sense_range)
+        if source_range is not None:
+            src_sens_lst[0].source_range = source_range
+            logger.info("source range: %f", source_range)
 
         if if_plot:
             plotobj.live_plot_init(

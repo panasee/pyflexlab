@@ -1,14 +1,14 @@
-from itcs import (
+from .itcs import (
     ITC,
     ITCs,
     ITCMercury,
     ITCLakeshore,
 )
-from magnets import (
+from .magnets import (
     Magnet,
     WrapperIPS,
 )
-from meters import (
+from .meters import (
     Meter,
     SourceMeter,
     ACSourceMeter,
@@ -22,3 +22,5 @@ from meters import (
     WrapperSR830,
     WrapperSR860,
 )
+
+from .laser_sys import LaserSys
