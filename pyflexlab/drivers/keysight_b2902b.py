@@ -341,6 +341,15 @@ class KeysightB2902BChannel(InstrumentChannel):
         )
         """Parameter sense_voltage_range"""
 
+        self.remote_sensing = self.add_parameter(
+            "remote_sensing",
+            get_cmd=f":SENS{self.channel}:REM?",
+            set_cmd=f":SENS{self.channel}:REM {{}}",
+            docstring="remote sensing",
+            val_mapping=on_off_vals,
+        )
+        """Parameter remote_sensing"""
+
         self.sense_resistance_range = self.add_parameter(
             "sense_resistance_range",
             get_cmd=f"SENS{self.channel}:RES:RANG:UPP?",

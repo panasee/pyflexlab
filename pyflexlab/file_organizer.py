@@ -208,6 +208,7 @@ class FileOrganizer:
         tmpfolder: str = "",
         plot: bool = False,
         suffix: str = ".csv",
+        appendix_str: str = "",
     ) -> SafePath:
         """
         Get the filepath of the measurement file. suffix would be overwritten by plot (to ".png")
@@ -234,6 +235,8 @@ class FileOrganizer:
 
         try:
             filename = FileOrganizer.filename_format(name_fstr, *var_tuple)
+            if appendix_str:
+                filename = f"{filename}-{appendix_str}"
 
             filepath = (
                 self._out_database_dir_proj
@@ -464,9 +467,6 @@ class FileOrganizer:
         )
         logger.info(f"{measurename_main} has been added to the project record file.")
 
-        # add the measurement folder if not exists
-        self.create_folder(measurename_main)
-        logger.info(f"{measurename_main} folder has been created in the project folder.")
         # sync the project record file
         FileOrganizer._sync_json("proj_rec")
 

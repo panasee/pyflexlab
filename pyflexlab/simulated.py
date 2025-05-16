@@ -25,6 +25,32 @@ class SimMeter(ACSourceMeter, DCSourceMeter):
         }
         self.output_target = 0
         self.safe_step = {"curr": 2e-6, "volt": 1e-2}
+        self._source_range = 1
+        self.sense_range = {"curr": 1, "volt": 1}
+
+    @property
+    def sense_range_curr(self):
+        return self.sense_range["curr"]
+
+    @sense_range_curr.setter
+    def sense_range_curr(self, value: float):
+        self.sense_range["curr"] = value
+        
+    @property
+    def sense_range_volt(self):
+        return self.sense_range["volt"]
+
+    @sense_range_volt.setter
+    def sense_range_volt(self, value: float):
+        self.sense_range["volt"] = value
+
+    @property
+    def source_range(self):
+        return self._source_range
+
+    @source_range.setter
+    def source_range(self, value: float):
+        self._source_range = value
 
     def info_sync(self):
         pass
