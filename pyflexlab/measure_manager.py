@@ -597,6 +597,7 @@ class MeasureManager(FileOrganizer):
         special_folder: str = "",
         measure_nickname: str = "",
         with_timer: bool = True,
+        appendix_str: str = "",
     ) -> tuple[SafePath, int, SafePath] | tuple[SafePath, int, pd.DataFrame, SafePath]:
         """
         initialize the record of the measurement and the csv file;
@@ -619,14 +620,16 @@ class MeasureManager(FileOrganizer):
             *var_tuple,
             tmpfolder=special_folder,
             parent_folder=measure_nickname,
+            appendix_str=appendix_str,
         )
         tmp_plot_path = self.get_filepath(
             measure_mods,
             *var_tuple,
             parent_folder=measure_nickname,
-            tmpfolder=f"{special_folder}/record_plot",
+            tmpfolder=special_folder,
             plot=True,
             suffix=".png",
+            appendix_str=appendix_str,
         )
         file_path.parent.mkdir(parents=True, exist_ok=True)
         self.add_measurement(*measure_mods)
@@ -680,7 +683,7 @@ class MeasureManager(FileOrganizer):
         record_tuple: tuple[float],
         target_df: Optional[pd.DataFrame] = None,
         force_write: bool = False,
-        nocache: bool = False,
+        nocache: bool = True,
     ) -> None:
         """
         update the record of the measurement and also control the size of dataframe
@@ -703,7 +706,7 @@ class MeasureManager(FileOrganizer):
         else:
             curr_df = target_df
 
-        assert len(record_tuple) == record_num, "The number of columns does not match"
+        logger.validate(len(record_tuple) == record_num, "The number of columns does not match")
         curr_df.loc[len(curr_df)] = list(record_tuple)
         length = len(curr_df)
         if nocache:
@@ -745,6 +748,7 @@ class MeasureManager(FileOrganizer):
         wait_before_vary: int = 7,
         source_wait: float = 0.05,
         manual_record_columns: Optional[list[str]] = None,
+        appendix_str: str = "",
     ) -> dict:
         """
         do the preset of measurements and return the generators, filepath and related info
@@ -871,6 +875,7 @@ class MeasureManager(FileOrganizer):
             special_folder=special_name,
             measure_nickname=measure_nickname,
             manual_columns=manual_record_columns,
+            appendix_str=appendix_str,
         )
         rec_lst = [time_generator()] if with_timer else []
 
