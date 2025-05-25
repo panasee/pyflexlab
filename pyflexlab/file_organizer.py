@@ -224,6 +224,8 @@ class FileOrganizer:
                 Whether the file is a plot file, default is False
             suffix: str
                 The suffix of the file, default is ".csv"
+            appendix_str: str
+                The appendix string of the file, default is empty 
         """
         measure_name, name_fstr = FileOrganizer.name_fstr_gen(*measure_mods)
         if plot:
@@ -238,6 +240,7 @@ class FileOrganizer:
             if appendix_str:
                 filename = f"{filename}-{appendix_str}"
 
+            filename = filename + suffix
             filepath = (
                 self._out_database_dir_proj
                 / plot_folder
@@ -358,7 +361,7 @@ class FileOrganizer:
 
     @staticmethod
     def filename_format(name_str: str, *var_tuple) -> str:
-        """This method is used to format the filename, csv suffix is added automatically"""
+        """This method is used to format the filename"""
         def remove_trailing_zeros(num):
             if isinstance(num, str):
                 return num
@@ -372,7 +375,7 @@ class FileOrganizer:
                 "The name_str still contains {}, please check the variables.",
                 ValueError,
             )
-        return name_str + ".csv"
+        return name_str
 
     @staticmethod
     def open_folder(path: str | SafePath) -> None:

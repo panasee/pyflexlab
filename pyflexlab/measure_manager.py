@@ -41,8 +41,9 @@ from .equip_wrapper import (
     WrapperIPS,
     WrapperB2902Bchannel,
     ITCLakeshore,
+    LaserSys,
 )
-from .simulated import SimMeter, SimMag, SimITC, FakeMag, FakeITC
+from .equip_wrapper.simulated import SimMeter, SimMag, SimITC, FakeMag, FakeITC
 from .constants import SafePath, BoundedCounter
 
 logger = get_logger(__name__)
@@ -157,6 +158,12 @@ class MeasureManager(FileOrganizer):
             address, if_print=if_print, limit_sphere=limit_sphere
         )
 
+    def load_laser(self) -> None:
+        """
+        load the laser instrument, store it in self.instrs["laser"]
+        """
+        self.instrs["laser"] = LaserSys()
+
     def load_mercury_itc(
         self,
         address: str = "TCPIP0::10.101.28.24::7020::SOCKET",
@@ -217,6 +224,7 @@ class MeasureManager(FileOrganizer):
         sweep_table: Optional[list[float | str, ...]] = None,
         ramp_step: bool = False,
         source_wait: float = 0.1,
+        allow_large_jump: bool = False,
     ) -> Generator[float, None, None]:
         """
         source the current using the source meter, initializations will be done automatically
@@ -239,6 +247,14 @@ class MeasureManager(FileOrganizer):
         """
         # load the instrument needed
         source_type = source_type.replace("V", "volt").replace("I", "curr")
+
+        if not allow_large_jump and sweepmode == "manual":
+            largest_jump = np.abs(np.diff(sweep_table)).max()
+            if source_type == "volt":
+                logger.validate(largest_jump < 0.5, f"large jump {largest_jump} in sweep table, if want to force the sweep, set allow_large_jump to True")
+            else:
+                logger.validate(largest_jump < 0.01, f"large jump {largest_jump} in sweep table, if want to force the sweep, set allow_large_jump to True")
+
         if meter == "6221" and source_type == "volt":
             raise ValueError("6221 cannot source voltage")
         # for string meter param, could be like "6430"(call the first meter under the type)
@@ -749,6 +765,7 @@ class MeasureManager(FileOrganizer):
         source_wait: float = 0.05,
         manual_record_columns: Optional[list[str]] = None,
         appendix_str: str = "",
+        allow_large_jump: bool = False,
     ) -> dict:
         """
         do the preset of measurements and return the generators, filepath and related info
@@ -835,6 +852,8 @@ class MeasureManager(FileOrganizer):
                     measure_nickname=measure_nickname,
                     wait_before_vary=wait_before_vary,
                     source_wait=source_wait,
+                    appendix_str=appendix_str,
+                    allow_large_jump=allow_large_jump,
                 )
             elif isinstance(sweep_tables, np.ndarray):
                 return self.get_measure_dict(
@@ -856,6 +875,8 @@ class MeasureManager(FileOrganizer):
                     measure_nickname=measure_nickname,
                     wait_before_vary=wait_before_vary,
                     source_wait=source_wait,
+                    appendix_str=appendix_str,
+                    allow_large_jump=allow_large_jump,
                 )
             else:
                 raise TypeError("unsupported sweep_tables type")
@@ -938,6 +959,7 @@ class MeasureManager(FileOrganizer):
                         resistor=sr830_current_resistor,
                         sweep_table=sweep_table,
                         source_wait=source_wait,
+                        allow_large_jump=allow_large_jump,
                     )
                 )
                 sweep_idx.append(idx)
