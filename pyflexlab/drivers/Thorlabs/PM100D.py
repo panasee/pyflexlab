@@ -185,6 +185,6 @@ class Thorlab_PM100D(VisaInstrument):
         self.write(f"STAT:OPER:PTR {positive}")
         sleep(0.2)
         self.write(f"STAT:OPER:NTR {negative}")
-        sleep(5)
-        self.ask("STAT:OPER?")  # clear register
-        sleep(0.2)
+        sleep(3) # 5 
+        #self.ask("STAT:OPER?")  # clear register
+        #sleep(0.2)

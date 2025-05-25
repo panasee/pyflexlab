@@ -260,6 +260,7 @@ class ITCLakeshore(ITC):
             if self.heater_sample_str == "heater_1"
             else self.ls.output_2
         )
+        self._bind_heater()
 
     def get_binding(self):
         print(f"Heater 1 is bound to {self.binding['heater_1']}")

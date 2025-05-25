@@ -2,7 +2,7 @@ from typing import Literal
 import threading
 import numpy as np
 import time
-from .equip_wrapper import ACSourceMeter, DCSourceMeter, ITC, Magnet
+from . import ACSourceMeter, DCSourceMeter, ITC, Magnet
 from pyomnix.omnix_logger import get_logger
 from pyomnix.utils.math import SWITCH_DICT
 from pyomnix.utils import CacheArray
@@ -24,7 +24,7 @@ class SimMeter(ACSourceMeter, DCSourceMeter):
             },
         }
         self.output_target = 0
-        self.safe_step = {"curr": 2e-6, "volt": 1e-2}
+        self.safe_step = {"curr": 2e-3, "volt": 1e-1}
         self._source_range = 1
         self.sense_range = {"curr": 1, "volt": 1}
 
@@ -98,6 +98,7 @@ class SimMeter(ACSourceMeter, DCSourceMeter):
         compliance: float | str | None = None,
         fix_range: float | str | None = None,
         type_str: Literal["curr"] | Literal["volt"],
+        alter_range: bool = False,
     ) -> float:
         if freq is not None and self.info_dict["ac_dc"] == "dc":
             raise ValueError("freq should be None for dc output")
