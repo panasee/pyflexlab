@@ -207,6 +207,41 @@ class MeasureManager(FileOrganizer):
         )
         self.instrs["itc"] = self.instrs["lakeshore"]
 
+    def source_fixed_apply(self,
+                           source_type: Literal["volt", "curr", "V", "I"],
+                           value: float | str,
+                           *,
+                           meter: SourceMeter,
+                           compliance: float | str = None,
+                           freq: float | str = None,
+                           ramp_interval: float | None = None,
+                           source_wait: float = 0.1,
+                           ) -> Generator[float, None, None]:
+        """
+        source a fixed value
+        """
+        #if isinstance(meter, Wrapper6430 | Wrapper2450):
+        #    if source_type == "curr":
+        #        meter.setup(function="sense", sense_type="volt")
+        #    elif source_type == "volt":
+        #        meter.setup(function="sense", sense_type="curr")
+        if freq is not None:
+            freq = convert_unit(freq, "Hz")[0]
+        if compliance is not None:
+            compliance = convert_unit(compliance, "")[0]
+        value = convert_unit(value, "")[0]
+        meter.ramp_output(
+            source_type,
+            value,
+            freq=freq,
+            compliance=compliance,
+            interval=ramp_interval,
+            )
+        time.sleep(source_wait)
+        while True:
+            yield value
+
+
     def source_sweep_apply(
         self,
         source_type: Literal["volt", "curr", "V", "I"],
@@ -925,22 +960,17 @@ class MeasureManager(FileOrganizer):
             if src_mod[mod_i]["sweep_fix"] == "fixed":
                 if ramp_intervals is not None:
                     interval = ramp_intervals.pop(0)
-                    wrapper_lst[idx].ramp_output(
-                        mod_i,
-                        src_mod[mod_i]["fix"],
-                        freq=src_mod[mod_i]["freq"],
-                        compliance=compliance_lst[idx],
-                        interval=interval,
-                    )
                 else:
-                    wrapper_lst[idx].ramp_output(
-                        mod_i,
-                        src_mod[mod_i]["fix"],
-                        freq=src_mod[mod_i]["freq"],
-                        compliance=compliance_lst[idx],
-                    )
-                rec_lst.append(constant_generator(src_mod[mod_i]["fix"]))
-                time.sleep(source_wait)
+                    interval = None
+                rec_lst.append(self.source_fixed_apply(
+                    mod_i,
+                    src_mod[mod_i]["fix"],
+                    meter=wrapper_lst[idx],
+                    compliance=compliance_lst[idx],
+                    freq=src_mod[mod_i]["freq"],
+                    source_wait=source_wait,
+                    ramp_interval=interval,
+                ))
             elif src_mod[mod_i]["sweep_fix"] == "sweep":
                 if src_mod[mod_i]["mode"] == "manual":
                     sweep_table = sweep_tables.pop(0)
@@ -972,7 +1002,8 @@ class MeasureManager(FileOrganizer):
                     input_grounding="Ground",
                 )
             else:
-                wrapper_lst[idx + len(src_lst)].setup(function="sense")
+                sense_type = sense_mod["type"].replace("I", "curr").replace("V", "volt")
+                wrapper_lst[idx + len(src_lst)].setup(function="sense", sense_type=sense_type)
 
             rec_lst.append(
                 self.sense_apply(sense_mod["type"], wrapper_lst[idx + len(src_lst)])

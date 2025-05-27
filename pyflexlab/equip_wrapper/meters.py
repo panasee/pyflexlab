@@ -113,7 +113,9 @@ class Meter(ABC):
     def sense_range_curr(self, fix_range: float):
         pass
 
-    def chg_sense_range(self, fix_range: float | str, type_str: Literal["curr", "volt", "all"] = "all") -> float | list:
+    def chg_sense_range(
+        self, fix_range: float | str, type_str: Literal["curr", "volt", "all"] = "all"
+    ) -> float | list:
         """
         change the sense range of the meter
         type_str: "curr" or "volt" or "all"
@@ -233,7 +235,13 @@ class SourceMeter(Meter):
 
         curr_val = self.get_output_status()[0]
         if curr_val == value:
-            self.uni_output(value, freq=freq, type_str=type_str, compliance=compliance, alter_range=True)
+            self.uni_output(
+                value,
+                freq=freq,
+                type_str=type_str,
+                compliance=compliance,
+                alter_range=True,
+            )
             return
         if interval is None:
             if abs(curr_val - value) > 20:
@@ -251,7 +259,9 @@ class SourceMeter(Meter):
             )
 
         for idx, i in enumerate(arr):
-            self.uni_output(i, freq=freq, type_str=type_str, compliance=compliance, alter_range=True)
+            self.uni_output(
+                i, freq=freq, type_str=type_str, compliance=compliance, alter_range=True
+            )
             if not no_progress:
                 print_progress_bar(
                     (idx + 1) / len(arr) * 100, 100, prefix="Ramping Meter:"
@@ -324,6 +334,7 @@ class Wrapper6221(ACSourceMeter, DCSourceMeter):
         self.info_dict.update(
             {
                 "source_range": self.meter.source_range,
+                "source_range_set": 0,
                 "output_value": max(
                     self.meter.source_current, self.meter.waveform_amplitude
                 ),
@@ -344,6 +355,7 @@ class Wrapper6221(ACSourceMeter, DCSourceMeter):
     @source_range.setter
     def source_range(self, fix_range: float):
         self.meter.source_range = fix_range
+        self.info_dict["source_range_set"] = fix_range
 
     def setup(
         self,
@@ -365,6 +377,7 @@ class Wrapper6221(ACSourceMeter, DCSourceMeter):
         | None = None,
         mea_mode: Literal["normal", "delta", "pulse-delta", "differential"] = "normal",
         reset: bool = False,
+        sense_type: Literal["curr", "volt"] = "curr",
     ) -> None:
         """
         set up the Keithley 6221 instruments, overwrite the specific settings here, other settings will all be
@@ -383,8 +396,9 @@ class Wrapper6221(ACSourceMeter, DCSourceMeter):
         if reset:
             source_6221.write("*RST")
         if mea_mode == "normal":
-            assert function == "source", (
-                "6221 is a source meter, so the function should be source"
+            logger.validate(
+                function == "source",
+                "6221 is a source meter, so the function should be source",
             )
         if mea_mode == "delta":
             logger.info(
@@ -520,8 +534,13 @@ class Wrapper6221(ACSourceMeter, DCSourceMeter):
                     self.output_switch(
                         "off"
                     )  # turn off the output before changing the range for ac mode
-                if fix_range is not None:
+                if (
+                    fix_range is not None
+                    and self.info_dict["source_range_set"] != fix_range
+                ):
+                    fix_range = convert_unit(fix_range, "")[0]
                     self.source_range = fix_range
+                    self.info_dict["source_range_set"] = fix_range
                 elif alter_range:
                     self.source_range = value
                 else:
@@ -593,9 +612,7 @@ class Wrapper6221(ACSourceMeter, DCSourceMeter):
         if not self.info_dict["output_status"]:
             if compliance is not None:
                 compliance = convert_unit(compliance, "")[0]
-            else:
-                compliance = value_p2p * 100000
-            self.meter.source_compliance = compliance
+                self.meter.source_compliance = compliance
             self.meter.waveform_amplitude = value_p2p
             self.output_switch("on")
 
@@ -608,7 +625,6 @@ class Wrapper6221(ACSourceMeter, DCSourceMeter):
         *,
         compliance: Optional[float | str] = None,
         type_str: Literal["curr"] = "curr",
-        fix_range: Optional[float | str] = None,
     ):
         """
         6221 is a current source, so the output is always current
@@ -627,14 +643,7 @@ class Wrapper6221(ACSourceMeter, DCSourceMeter):
 
         if compliance is not None:
             compliance = convert_unit(compliance, "")[0]
-        else:
-            compliance = abs(
-                value * 100000
-            )  # 6221 will automatically switch to lowest compliance if too low
-
-        if fix_range is not None:
-            self.meter.source_range = fix_range
-        self.meter.source_compliance = compliance
+            self.meter.source_compliance = compliance
         self.meter.source_current = value
         self.output_switch("on")
 
@@ -670,6 +679,7 @@ class Wrapper2182(Meter):
         *,
         channel: Literal[0, 1, 2] = 1,
         reset: bool = False,
+        sense_type: Literal["volt"] = "volt",
     ) -> None:
         if reset:
             self.meter.reset()
@@ -679,7 +689,7 @@ class Wrapper2182(Meter):
         # source_2182.ch_1.voltage_offset_enabled = True
         # source_2182.ch_1.acquire_voltage_reference()
         self.meter.ch_1.setup_voltage(auto_range=True, nplc=10)
-        self.meter.voltage_nplc = 10 
+        self.meter.voltage_nplc = 10
 
     def info_sync(self):
         """
@@ -860,6 +870,7 @@ class WrapperSR830(ACSourceMeter):
         reserve=None,
         filter_synchronous=None,
         reset: bool = False,
+        sense_type: Literal["curr", "volt"] = "volt",
     ) -> None:
         """
         setup the SR830 instruments using pre-stored setups here, this function will not fully reset the instruments,
@@ -964,7 +975,13 @@ class WrapperSR830(ACSourceMeter):
         """fix_range is not used for sr830"""
         if value > 5:
             logger.warning("exceed SR830 max output")
-        self.rms_output(value, freq=freq, compliance=compliance, type_str=type_str, alter_range=alter_range)
+        self.rms_output(
+            value,
+            freq=freq,
+            compliance=compliance,
+            type_str=type_str,
+            alter_range=alter_range,
+        )
         self.output_target = convert_unit(value, "V")[0]
         return self.get_output_status()[0]
 
@@ -980,7 +997,7 @@ class WrapperSR830(ACSourceMeter):
         if not self.warning_printed:
             logger.warning("compliance does not works for SR830")
             self.warning_printed = True
-        
+
         assert type_str == "volt", (
             "SR830 is a voltage source, so the output is always voltage"
         )
@@ -1041,6 +1058,7 @@ class WrapperSR860(ACSourceMeter):
         sine_voltage=None,
         filter_synchronous=None,
         reset: bool = False,
+        sense_type: Literal["curr", "volt"] = "volt",
     ) -> None:
         """
         setup the SR830 instruments using pre-stored setups here, this function will not fully reset the instruments,
@@ -1159,7 +1177,13 @@ class WrapperSR860(ACSourceMeter):
         """fix_range is not used for sr830"""
         if value > 2:
             logger.warning("exceed SR860 max output")
-        self.rms_output(value, freq=freq, compliance=compliance, type_str=type_str, alter_range=alter_range)
+        self.rms_output(
+            value,
+            freq=freq,
+            compliance=compliance,
+            type_str=type_str,
+            alter_range=alter_range,
+        )
         self.output_target = convert_unit(value, "V")[0]
         return self.get_output_status()[0]
 
@@ -1221,6 +1245,8 @@ class Wrapper6430(DCSourceMeter):
                 "sense_resist_range": self.meter.sense_resistance_range(),
                 "sense_resist_offset_comp": self.meter.sense_resistance_offset_comp_enabled(),
                 "autozero": self.meter.autozero(),
+                "source_range_set": 0,
+                "sense_range_set": 0,
             }
         )
 
@@ -1230,6 +1256,7 @@ class Wrapper6430(DCSourceMeter):
         *,
         auto_zero: str = "on",
         reset: bool = False,
+        sense_type: Literal["curr", "volt"] = "volt",
     ):
         if function == "source":
             if reset:
@@ -1242,6 +1269,10 @@ class Wrapper6430(DCSourceMeter):
                 self.meter.reset()
                 self.meter.sense_autorange(True)
             self.meter.autozero(auto_zero)
+            if sense_type == "curr":
+                self.meter.sense_mode("CURR:DC")
+            elif sense_type == "volt":
+                self.meter.sense_mode("VOLT:DC")
         else:
             raise ValueError("function should be either source or sense")
         self.info_sync()
@@ -1273,21 +1304,29 @@ class Wrapper6430(DCSourceMeter):
     def source_range(self, fix_range: float):
         if self.info_dict["output_type"] == "curr":
             self.meter.source_current_range(fix_range)
+            self.info_dict["source_range_set"] = fix_range
         elif self.info_dict["output_type"] == "volt":
             self.meter.source_voltage_range(fix_range)
+            self.info_dict["source_range_set"] = fix_range
 
     def sense(self, type_str: Literal["curr", "volt", "resist"]) -> float:
         if self.info_dict["output_status"] == False:
             self.output_switch("on")
 
         if type_str == "curr":
-            self.meter.sense_mode("CURR:DC")
+            if self.info_dict["sense_type"] != "curr":
+                self.meter.sense_mode("CURR:DC")
+                self.info_sync()
             return self.meter.sense_current()
         elif type_str == "volt":
-            self.meter.sense_mode("VOLT:DC")
+            if self.info_dict["sense_type"] != "volt":
+                self.meter.sense_mode("VOLT:DC")
+                self.info_sync()
             return self.meter.sense_voltage()
         elif type_str == "resist":
-            self.meter.sense_mode("RES")
+            if self.info_dict["sense_type"] != "resist":
+                self.meter.sense_mode("RES")
+                self.info_sync()
             return self.meter.sense_resistance()
 
     def output_switch(self, switch: bool | Literal["on", "off", "ON", "OFF"]):
@@ -1328,7 +1367,11 @@ class Wrapper6430(DCSourceMeter):
         alter_range: bool = False,
     ) -> float:
         self.dc_output(
-            value, compliance=compliance, type_str=type_str, fix_range=fix_range, alter_range=alter_range
+            value,
+            compliance=compliance,
+            type_str=type_str,
+            fix_range=fix_range,
+            alter_range=alter_range,
         )
         self.output_target = convert_unit(value, "")[0]
         return self.get_output_status()[0]
@@ -1343,6 +1386,10 @@ class Wrapper6430(DCSourceMeter):
         alter_range: bool = False,
     ):
         value = convert_unit(value, "")[0]
+        if fix_range is not None:
+            fix_range = convert_unit(fix_range, "")[0]
+        if compliance is not None:
+            compliance = convert_unit(compliance, "")[0]
         # add shortcut for zero output (no need to care about output type, just set current output to 0)
         if value == 0:
             if self.info_dict["output_type"] == "curr":
@@ -1357,11 +1404,13 @@ class Wrapper6430(DCSourceMeter):
             self.meter.source_mode(type_str.upper())
 
         if type_str == "curr":
-            if fix_range is not None:
-                new_range = convert_unit(fix_range, "A")[0]
-                if new_range != self.meter.source_current_range():
-                    self.meter.source_current_range(new_range)
-                    time.sleep(0.5)
+            if (
+                fix_range is not None
+                and self.info_dict["source_range_set"] != fix_range
+            ):
+                self.meter.source_current_range(fix_range)
+                self.info_dict["source_range_set"] = fix_range
+                time.sleep(0.5)
             elif alter_range:
                 if (
                     abs(value) <= self.meter.source_current_range() / 100
@@ -1369,26 +1418,25 @@ class Wrapper6430(DCSourceMeter):
                 ):
                     new_range = abs(value) if abs(value) > 1e-12 else 1e-12
                     self.meter.source_current_range(new_range)
+                    self.info_dict["source_range_set"] = new_range
                     time.sleep(0.5)
-            if compliance is None:
-                if (
-                    abs(value * 100000) < 1e-3
-                ):  # this limit is only for 2400 (compliancev > 1E-3)
-                    compliance = 1e-3
-                else:
-                    compliance = abs(value * 100000)
-            if compliance != self.meter.source_voltage_compliance():
-                self.meter.sense_voltage_range(convert_unit(compliance, "V")[0])
-                self.meter.sense_autorange(True)
-                self.meter.source_voltage_compliance(convert_unit(compliance, "V")[0])
+            if (
+                compliance is not None
+                and compliance != self.meter.source_voltage_compliance()
+            ):
+                # self.meter.sense_voltage_range(convert_unit(compliance, "V")[0])
+                # self.meter.sense_autorange(True)
+                self.meter.source_voltage_compliance(compliance)
             self.meter.source_current(value)
 
         elif type_str == "volt":
-            if fix_range is not None:
-                new_range = convert_unit(fix_range, "V")[0]
-                if new_range != self.meter.source_voltage_range():
-                    self.meter.source_voltage_range(new_range)
-                    time.sleep(0.5)
+            if (
+                fix_range is not None
+                and self.info_dict["source_range_set"] != fix_range
+            ):
+                self.meter.source_voltage_range(fix_range)
+                self.info_dict["source_range_set"] = fix_range
+                time.sleep(0.5)
             elif alter_range:
                 if (
                     abs(value) <= self.meter.source_voltage_range() / 100
@@ -1396,16 +1444,15 @@ class Wrapper6430(DCSourceMeter):
                 ):
                     new_range = abs(value) if abs(value) > 0.2 else 0.2
                     self.meter.source_voltage_range(new_range)
+                    self.info_dict["source_range_set"] = new_range
                     time.sleep(0.5)
-            if compliance is None:
-                if abs(value / 1000) < 1e-6:
-                    compliance = 1e-6
-                else:
-                    compliance = abs(value / 1000)
-            if compliance != self.meter.source_current_compliance():
-                self.meter.sense_current_range(convert_unit(compliance, "A")[0])
-                self.meter.sense_autorange(True)
-                self.meter.source_current_compliance(convert_unit(compliance, "A")[0])
+            if (
+                compliance is not None
+                and compliance != self.meter.source_current_compliance()
+            ):
+                # self.meter.sense_current_range(convert_unit(compliance, "A")[0])
+                # self.meter.sense_autorange(True)
+                self.meter.source_current_compliance(compliance)
             self.meter.source_voltage(value)
 
         self.info_dict["output_type"] = type_str
@@ -1446,11 +1493,16 @@ class WrapperB2902Bchannel(DCSourceMeter):
                 "sense_curr_range": self.meter.sense_current_range(),
                 "sense_volt_range": self.meter.sense_voltage_range(),
                 "sense_resist_range": self.meter.sense_resistance_range(),
+                "source_range_set": 0,
+                "sense_range_set": 0,
             }
         )
 
     def setup(
-        self, function: Literal["sense", "source"] = "sense", reset: bool = False
+        self,
+        function: Literal["sense", "source"] = "sense",
+        reset: bool = False,
+        sense_type: Literal["curr", "volt"] = "volt",
     ):
         if reset:
             self.meter_all.reset()
@@ -1458,7 +1510,7 @@ class WrapperB2902Bchannel(DCSourceMeter):
             self.meter_all.ch2.nplc(10)
             self.meter_all.ch1.write("*ESE 60; *SRE 48; *CLS;")
             self.meter_all.ch2.write("*ESE 60; *SRE 48; *CLS;")
-            
+
         if function == "sense":
             if reset:
                 self.meter.sense_current_autorange(True)
@@ -1506,9 +1558,11 @@ class WrapperB2902Bchannel(DCSourceMeter):
     def source_range(self, fix_range: float):
         if self.info_dict["output_type"] == "curr":
             self.meter.source_current_range(fix_range)
+            self.info_dict["source_range_set"] = fix_range
         elif self.info_dict["output_type"] == "volt":
             self.meter.source_voltage_range(fix_range)
-    
+            self.info_dict["source_range_set"] = fix_range
+
     def sense(self, type_str: Literal["curr", "volt", "resist"]) -> float:
         # if self.info_dict["output_status"] is False:
         #    self.output_switch("on")
@@ -1562,7 +1616,11 @@ class WrapperB2902Bchannel(DCSourceMeter):
         alter_range: bool = False,
     ) -> float:
         self.dc_output(
-            value, compliance=compliance, type_str=type_str, fix_range=fix_range, alter_range=alter_range
+            value,
+            compliance=compliance,
+            type_str=type_str,
+            fix_range=fix_range,
+            alter_range=alter_range,
         )
         self.output_target = convert_unit(value, "")[0]
         return self.get_output_status()[0]
@@ -1577,6 +1635,10 @@ class WrapperB2902Bchannel(DCSourceMeter):
         alter_range: bool = False,
     ):
         value = convert_unit(value, "")[0]
+        if fix_range is not None:
+            fix_range = convert_unit(fix_range, "")[0]
+        if compliance is not None:
+            compliance = convert_unit(compliance, "")[0]
         # add shortcut for zero output (no need to care about output type, just set current output to 0)
         if value == 0:
             if self.info_dict["output_type"] == "curr":
@@ -1591,11 +1653,13 @@ class WrapperB2902Bchannel(DCSourceMeter):
             self.meter.source_mode(type_str.upper())
 
         if type_str == "curr":
-            if fix_range is not None:
-                new_range = convert_unit(fix_range, "A")[0]
-                if new_range != self.meter.source_current_range():
-                    self.meter.source_current_range(new_range)
-                    time.sleep(0.5)
+            if (
+                fix_range is not None
+                and self.info_dict["source_range_set"] != fix_range
+            ):
+                self.meter.source_current_range(fix_range)
+                self.info_dict["source_range_set"] = fix_range
+                time.sleep(0.5)
             elif alter_range:
                 if (
                     abs(value) <= self.meter.source_current_range() / 100
@@ -1603,26 +1667,25 @@ class WrapperB2902Bchannel(DCSourceMeter):
                 ):
                     new_range = abs(value) if abs(value) > 1e-12 else 1e-12
                     self.meter.source_current_range(new_range)
+                    self.info_dict["source_range_set"] = new_range
                     time.sleep(0.5)
-            if compliance is None:
-                if (
-                    abs(value * 100000) < 1e-3
-                ):  # this limit is only for 2400 (compliancev > 1E-3)
-                    compliance = 1e-3
-                else:
-                    compliance = abs(value * 100000)
-            if compliance != self.meter.source_voltage_compliance():
-                self.meter.sense_voltage_range(convert_unit(compliance, "V")[0])
-                self.meter.sense_voltage_autorange(True)
-                self.meter.source_voltage_compliance(convert_unit(compliance, "V")[0])
+            if (
+                compliance is not None
+                and compliance != self.meter.source_voltage_compliance()
+            ):
+                # self.meter.sense_voltage_range(convert_unit(compliance, "V")[0])
+                # self.meter.sense_voltage_autorange(True)
+                self.meter.source_voltage_compliance(compliance)
             self.meter.source_current(value)
 
         elif type_str == "volt":
-            if fix_range is not None:
-                new_range = convert_unit(fix_range, "V")[0]
-                if new_range != self.meter.source_voltage_range():
-                    self.meter.source_voltage_range(new_range)
-                    time.sleep(0.5)
+            if (
+                fix_range is not None
+                and self.info_dict["source_range_set"] != fix_range
+            ):
+                self.meter.source_voltage_range(fix_range)
+                self.info_dict["source_range_set"] = fix_range
+                time.sleep(0.5)
             elif alter_range:
                 if (
                     abs(value) <= self.meter.source_voltage_range() / 100
@@ -1630,15 +1693,14 @@ class WrapperB2902Bchannel(DCSourceMeter):
                 ):
                     new_range = abs(value) if abs(value) > 0.2 else 0.2
                     self.meter.source_voltage_range(new_range)
+                    self.info_dict["source_range_set"] = new_range
                     time.sleep(0.5)
-            if compliance is None:
-                if abs(value / 1000) < 1e-6:
-                    compliance = 1e-6
-                else:
-                    compliance = abs(value / 1000)
-            if compliance != self.meter.source_current_compliance():
-                self.meter.sense_current_range(convert_unit(compliance, "A")[0])
-                self.meter.sense_current_autorange(True)
+            if (
+                compliance is not None
+                and compliance != self.meter.source_current_compliance()
+            ):
+                # self.meter.sense_current_range(convert_unit(compliance, "A")[0])
+                # self.meter.sense_current_autorange(True)
                 self.meter.source_current_compliance(convert_unit(compliance, "A")[0])
             self.meter.source_voltage(value)
 
@@ -1673,11 +1735,16 @@ class Wrapper2400(DCSourceMeter):
                 "sense_curr_range": self.meter.rangei(),
                 "sense_volt_range": self.meter.rangev(),
                 "sense_type": self.meter.sense().lower(),
+                "source_range_set": 0,
+                "sense_range_set": 0,
             }
         )
 
     def setup(
-        self, function: Literal["sense", "source"] = "sense", reset: bool = False
+        self,
+        function: Literal["sense", "source"] = "sense",
+        reset: bool = False,
+        sense_type: Literal["curr", "volt"] = "volt",
     ):
         if reset:  # reset will also reset the GPIB
             self.meter.write("*RST")
@@ -1731,8 +1798,10 @@ class Wrapper2400(DCSourceMeter):
     def source_range(self, fix_range: float):
         if self.info_dict["output_type"] == "curr":
             self.meter.rangei(fix_range)
+            self.info_dict["source_range_set"] = fix_range
         elif self.info_dict["output_type"] == "volt":
             self.meter.rangev(fix_range)
+            self.info_dict["source_range_set"] = fix_range
 
     def sense(self, type_str: Literal["curr", "volt", "resist"]) -> float:
         if type_str == "curr":
@@ -1780,7 +1849,11 @@ class Wrapper2400(DCSourceMeter):
         alter_range: bool = False,
     ) -> float:
         self.dc_output(
-            value, compliance=compliance, type_str=type_str, fix_range=fix_range, alter_range=alter_range
+            value,
+            compliance=compliance,
+            type_str=type_str,
+            fix_range=fix_range,
+            alter_range=alter_range,
         )
         self.output_target = convert_unit(value, "")[0]
         return self.get_output_status()[0]
@@ -1795,6 +1868,10 @@ class Wrapper2400(DCSourceMeter):
         alter_range: bool = False,
     ):
         value = convert_unit(value, "")[0]
+        if fix_range is not None:
+            fix_range = convert_unit(fix_range, "")[0]
+        if compliance is not None:
+            compliance = convert_unit(compliance, "")[0]
         # add shortcut for zero output (no need to care about output type, just set current output to 0)
         if value == 0:
             if self.info_dict["output_type"] == "curr":
@@ -1809,11 +1886,13 @@ class Wrapper2400(DCSourceMeter):
             self.meter.mode(type_str.upper())
 
         if type_str == "curr":
-            if fix_range is not None:
-                new_range = convert_unit(fix_range, "A")[0]
-                if new_range != self.meter.rangei():
-                    self.meter.rangei(new_range)
-                    time.sleep(0.5)
+            if (
+                fix_range is not None
+                and self.info_dict["source_range_set"] != fix_range
+            ):
+                self.meter.rangei(fix_range)
+                self.info_dict["source_range_set"] = fix_range
+                time.sleep(0.5)
             elif alter_range:
                 if (
                     abs(value) <= self.meter.rangei() / 100
@@ -1821,24 +1900,20 @@ class Wrapper2400(DCSourceMeter):
                 ):
                     new_range = value if abs(value) > 1e-6 else 1e-6
                     self.meter.rangei(new_range)
+                    self.info_dict["source_range_set"] = new_range
                     time.sleep(0.5)
-            if compliance is None:
-                if (
-                    abs(value * 1000) < 1e-3
-                ):  # this limit is only for 2400 (compliancev > 1E-3)
-                    compliance = 1e-3
-                else:
-                    compliance = abs(value * 100000)
-            if compliance != self.meter.compliancev():
-                self.meter.compliancev(convert_unit(compliance, "V")[0])
+            if compliance is not None and compliance != self.meter.compliancev():
+                self.meter.compliancev(compliance)
             self.meter.curr(value)
 
         elif type_str == "volt":
-            if fix_range is not None:
-                new_range = convert_unit(fix_range, "V")[0]
-                if new_range != self.meter.rangev():
-                    self.meter.rangev(new_range)
-                    time.sleep(0.5)
+            if (
+                fix_range is not None
+                and self.info_dict["source_range_set"] != fix_range
+            ):
+                self.meter.rangev(fix_range)
+                self.info_dict["source_range_set"] = fix_range
+                time.sleep(0.5)
             elif alter_range:
                 if (
                     abs(value) <= self.meter.rangev() / 100
@@ -1846,13 +1921,10 @@ class Wrapper2400(DCSourceMeter):
                 ):
                     new_range = value if abs(value) > 0.2 else 0.2
                     self.meter.rangev(new_range)
+                    self.info_dict["source_range_set"] = new_range
                     time.sleep(0.5)
-            if compliance is None:
-                if abs(value / 1000) < 1e-6:
-                    compliance = 1e-6
-                else:
-                    compliance = abs(value / 1000)
-            self.meter.compliancei(convert_unit(compliance, "A")[0])
+            if compliance is not None and compliance != self.meter.compliancei():
+                self.meter.compliancei(compliance)
             self.meter.volt(value)
 
         self.info_dict["output_type"] = type_str
@@ -1894,13 +1966,18 @@ class Wrapper2450(DCSourceMeter):
                 .replace("voltage", "volt")
                 .replace("resistance", "resist"),
                 "sense_autozero": self.meter.sense.auto_zero_enabled(),
+                "source_range_set": 0,
+                "sense_range_set": 0,
             }
         )
 
     def setup(
-        self, function: Literal["sense", "source"] = "sense", *,
+        self,
+        function: Literal["sense", "source"] = "sense",
+        *,
         terminal: Literal["front", "rear"] = "rear",
-        reset: bool = False
+        reset: bool = False,
+        sense_type: Literal["curr", "volt"] = "curr",
     ):
         if reset:
             self.meter.reset()
@@ -1915,6 +1992,10 @@ class Wrapper2450(DCSourceMeter):
         if function == "source":
             if reset:
                 self.meter.source.auto_range(True)
+        if function == "sense":
+            self.meter.sense.function(
+                sense_type.replace("curr", "current").replace("volt", "voltage")
+            )
         self.info_sync()
 
     def set_terminal(self, terminal: Literal["front", "rear"]):
@@ -1960,6 +2041,7 @@ class Wrapper2450(DCSourceMeter):
     @source_range.setter
     def source_range(self, fix_range: float):
         self.meter.source.range(fix_range)
+        self.info_dict["source_range_set"] = fix_range
 
     def sense(self, type_str: Literal["curr", "volt", "resist"]) -> float:
         if self.info_dict["sense_type"] == type_str:
@@ -1970,7 +2052,7 @@ class Wrapper2450(DCSourceMeter):
                 .replace("volt", "voltage")
                 .replace("resist", "resistance")
             )
-            self.info_dict["sense_type"] = type_str
+            self.info_sync()
         return self.meter.sense._measure()
 
     @property
@@ -1992,11 +2074,24 @@ class Wrapper2450(DCSourceMeter):
         if not self.info_dict["output_status"]:
             return 0, self.output_target, self.meter.source.range()
         if self.meter.source.function() == "current":
-            return self.meter.source.current(), self.output_target, self.meter.source.range()
+            return (
+                self.meter.source.current(),
+                self.output_target,
+                self.meter.source.range(),
+            )
         elif self.meter.source.function() == "voltage":
-            return self.meter.source.voltage(), self.output_target, self.meter.source.range()
+            return (
+                self.meter.source.voltage(),
+                self.output_target,
+                self.meter.source.range(),
+            )
 
-    def output_switch(self, switch: bool | Literal["on", "off", "ON", "OFF"], *, force_sync: bool = True):
+    def output_switch(
+        self,
+        switch: bool | Literal["on", "off", "ON", "OFF"],
+        *,
+        force_sync: bool = True,
+    ):
         if force_sync:
             self.info_sync()
         switch = SWITCH_DICT.get(switch, False) if isinstance(switch, str) else switch
@@ -2018,7 +2113,11 @@ class Wrapper2450(DCSourceMeter):
         alter_range: bool = False,
     ) -> float:
         self.dc_output(
-            value, compliance=compliance, type_str=type_str, fix_range=fix_range, alter_range=alter_range
+            value,
+            compliance=compliance,
+            type_str=type_str,
+            fix_range=fix_range,
+            alter_range=alter_range,
         )
         self.output_target = convert_unit(value, "")[0]
         return self.get_output_status()[0]
@@ -2033,6 +2132,10 @@ class Wrapper2450(DCSourceMeter):
         alter_range: bool = False,
     ):
         value = convert_unit(value, "")[0]
+        if fix_range is not None:
+            fix_range = convert_unit(fix_range, "")[0]
+        if compliance is not None:
+            compliance = convert_unit(compliance, "")[0]
         # close and reopen the source meter to avoid error when switching source type
         if self.info_dict["output_type"] != type_str:
             self.output_switch("off")
@@ -2040,49 +2143,23 @@ class Wrapper2450(DCSourceMeter):
                 type_str.replace("curr", "current").replace("volt", "voltage")
             )
             self.info_dict["output_type"] = type_str
-        # add shortcut for zero output (no need to care about output type, just set current output to 0)
-        #if value == 0:
-        #    if self.info_dict["output_type"] == "curr":
-        #        self.meter.source.current(0)
-        #    elif self.info_dict["output_type"] == "volt":
-        #        self.meter.source.voltage(0)
-        #    # open the output to avoid error when sensing
-        #    self.output_switch("on")  # careful about inf loop
-        #    return
-
-        range_limit_dict = {"curr": 1e-8, "volt": 0.02}
-        if fix_range is not None:
-            new_range = convert_unit(fix_range, "")[0]
-            if new_range != self.meter.source.range():
-                self.meter.source.range(new_range)
-                time.sleep(0.5)
-        elif alter_range:
+        if alter_range and fix_range is None:
             if (
                 abs(value) <= self.meter.source.range() / 100
                 or abs(value) >= self.meter.source.range()
             ):
-                new_range = (
-                    value
-                    if abs(value) > range_limit_dict[type_str]
-                    else range_limit_dict[type_str]
-                )
-                self.meter.source.range(new_range)
-                time.sleep(0.5)
+                fix_range = value
+        if fix_range is not None and self.info_dict["source_range_set"] != fix_range:
+            self.source_range = fix_range
+            time.sleep(0.5)
+
+        if compliance is not None and compliance != self.meter.source.limit():
+            self.meter.source.limit(compliance)
 
         if type_str == "curr":
-            if compliance is None:
-                compliance = (
-                    abs(value * 100000) if abs(value * 100000) >= 0.02 else 0.02
-                )
-            if compliance != self.meter.source.limit() and compliance != 0:
-                self.meter.source.limit(convert_unit(compliance, "V")[0])
             self.meter.source.current(value)
 
         elif type_str == "volt":
-            if compliance is None:
-                compliance = abs(value / 1000) if abs(value / 1000) >= 1e-8 else 1e-8
-            if compliance != self.meter.source.limit():
-                self.meter.source.limit(convert_unit(compliance, "A")[0])
             self.meter.source.voltage(value)
 
         self.info_dict["output_type"] = type_str
