@@ -161,6 +161,14 @@ class SourceMeter(Meter):
     def source_range(self, fix_range: float):
         logger.warning("source_range.setter not implemented")
 
+    @property
+    def compliance(self) -> float:
+        logger.warning("compliance not implemented")
+
+    @compliance.setter
+    def compliance(self, fix_compliance: float):
+        logger.warning("compliance.setter not implemented")
+
     @abstractmethod
     def uni_output(
         self,
@@ -335,6 +343,7 @@ class Wrapper6221(ACSourceMeter, DCSourceMeter):
             {
                 "source_range": self.meter.source_range,
                 "source_range_set": 0,
+                "source_compliance_set": 0,
                 "output_value": max(
                     self.meter.source_current, self.meter.waveform_amplitude
                 ),
@@ -348,14 +357,41 @@ class Wrapper6221(ACSourceMeter, DCSourceMeter):
         )
 
     @property
+    def sense_range_volt(self) -> float:
+        logger.warning("sense_range_volt not implemented for 6221")
+
+    @sense_range_volt.setter
+    def sense_range_volt(self, fix_range: float):
+        logger.warning("sense_range_volt.setter not implemented for 6221")
+
+    @property
+    def sense_range_curr(self) -> float:
+        logger.warning("sense_range_curr not implemented for 6221")
+
+    @sense_range_curr.setter
+    def sense_range_curr(self, fix_range: float):
+        logger.warning("sense_range_curr.setter not implemented for 6221")
+
+    @property
+    def compliance(self) -> float:
+        return self.meter.source_compliance
+
+    @compliance.setter
+    def compliance(self, fix_compliance: float):
+        if self.info_dict["source_compliance_set"] != fix_compliance:
+            self.meter.source_compliance = fix_compliance
+            self.info_dict["source_compliance_set"] = fix_compliance
+
+    @property
     def source_range(self) -> float:
         self.info_dict.update({"source_range": self.meter.source_range})
         return self.meter.source_range
 
     @source_range.setter
     def source_range(self, fix_range: float):
-        self.meter.source_range = fix_range
-        self.info_dict["source_range_set"] = fix_range
+        if self.info_dict["source_range_set"] != fix_range:
+            self.meter.source_range = fix_range
+            self.info_dict["source_range_set"] = fix_range
 
     def setup(
         self,
@@ -727,6 +763,7 @@ class Wrapper6500(Meter):
     """
 
     def __init__(self, GPIB: str = "GPIB0::16::INSTR"):
+        logger.raise_error("6500 is not implemented", NotImplementedError)
         super().__init__()
         self.meter = KeithleyDMM6500(GPIB)
         self.setup("sense")
@@ -1302,12 +1339,28 @@ class Wrapper6430(DCSourceMeter):
 
     @source_range.setter
     def source_range(self, fix_range: float):
+        if self.info_dict["source_range_set"] != fix_range:
+            if self.info_dict["output_type"] == "curr":
+                self.meter.source_current_range(fix_range)
+            elif self.info_dict["output_type"] == "volt":
+                self.meter.source_voltage_range(fix_range)
+            self.info_dict["source_range_set"] = fix_range
+
+    @property
+    def compliance(self) -> float:
         if self.info_dict["output_type"] == "curr":
-            self.meter.source_current_range(fix_range)
-            self.info_dict["source_range_set"] = fix_range
+            return self.meter.source_current_compliance()
         elif self.info_dict["output_type"] == "volt":
-            self.meter.source_voltage_range(fix_range)
-            self.info_dict["source_range_set"] = fix_range
+            return self.meter.source_voltage_compliance()
+
+    @compliance.setter
+    def compliance(self, compliance: float):
+        if self.info_dict["source_compliance_set"] != compliance:
+            if self.info_dict["output_type"] == "curr":
+                self.meter.source_current_compliance(compliance)
+            elif self.info_dict["output_type"] == "volt":
+                self.meter.source_voltage_compliance(compliance)
+            self.info_dict["source_compliance_set"] = compliance
 
     def sense(self, type_str: Literal["curr", "volt", "resist"]) -> float:
         if self.info_dict["output_status"] == False:
@@ -1494,6 +1547,7 @@ class WrapperB2902Bchannel(DCSourceMeter):
                 "sense_volt_range": self.meter.sense_voltage_range(),
                 "sense_resist_range": self.meter.sense_resistance_range(),
                 "source_range_set": 0,
+                "source_compliance_set": 0,
                 "sense_range_set": 0,
             }
         )
@@ -1556,12 +1610,28 @@ class WrapperB2902Bchannel(DCSourceMeter):
 
     @source_range.setter
     def source_range(self, fix_range: float):
+        if self.info_dict["source_range_set"] != fix_range:
+            if self.info_dict["output_type"] == "curr":
+                self.meter.source_current_range(fix_range)
+            elif self.info_dict["output_type"] == "volt":
+                self.meter.source_voltage_range(fix_range)
+            self.info_dict["source_range_set"] = fix_range
+
+    @property
+    def compliance(self) -> float:
         if self.info_dict["output_type"] == "curr":
-            self.meter.source_current_range(fix_range)
-            self.info_dict["source_range_set"] = fix_range
+            return self.meter.source_current_compliance()
         elif self.info_dict["output_type"] == "volt":
-            self.meter.source_voltage_range(fix_range)
-            self.info_dict["source_range_set"] = fix_range
+            return self.meter.source_voltage_compliance()
+
+    @compliance.setter
+    def compliance(self, compliance: float):
+        if self.info_dict["source_compliance_set"] != compliance:
+            if self.info_dict["output_type"] == "curr":
+                self.meter.source_current_compliance(compliance)
+            elif self.info_dict["output_type"] == "volt":
+                self.meter.source_voltage_compliance(compliance)
+            self.info_dict["source_compliance_set"] = compliance
 
     def sense(self, type_str: Literal["curr", "volt", "resist"]) -> float:
         # if self.info_dict["output_status"] is False:
@@ -1736,6 +1806,7 @@ class Wrapper2400(DCSourceMeter):
                 "sense_volt_range": self.meter.rangev(),
                 "sense_type": self.meter.sense().lower(),
                 "source_range_set": 0,
+                "source_compliance_set": 0,
                 "sense_range_set": 0,
             }
         )
@@ -1796,12 +1867,28 @@ class Wrapper2400(DCSourceMeter):
 
     @source_range.setter
     def source_range(self, fix_range: float):
+        if self.info_dict["source_range_set"] != fix_range:
+            if self.info_dict["output_type"] == "curr":
+                self.meter.rangei(fix_range)
+            elif self.info_dict["output_type"] == "volt":
+                self.meter.rangev(fix_range)
+            self.info_dict["source_range_set"] = fix_range
+
+    @property
+    def compliance(self) -> float:
         if self.info_dict["output_type"] == "curr":
-            self.meter.rangei(fix_range)
-            self.info_dict["source_range_set"] = fix_range
+            return self.meter.compliancei()
         elif self.info_dict["output_type"] == "volt":
-            self.meter.rangev(fix_range)
-            self.info_dict["source_range_set"] = fix_range
+            return self.meter.compliancev()
+
+    @compliance.setter
+    def compliance(self, compliance: float):
+        if self.info_dict["source_compliance_set"] != compliance:
+            if self.info_dict["output_type"] == "curr":
+                self.meter.compliancei(compliance)
+            elif self.info_dict["output_type"] == "volt":
+                self.meter.compliancev(compliance)
+            self.info_dict["source_compliance_set"] = compliance
 
     def sense(self, type_str: Literal["curr", "volt", "resist"]) -> float:
         if type_str == "curr":
@@ -1967,6 +2054,7 @@ class Wrapper2450(DCSourceMeter):
                 .replace("resistance", "resist"),
                 "sense_autozero": self.meter.sense.auto_zero_enabled(),
                 "source_range_set": 0,
+                "source_compliance_set": 0,
                 "sense_range_set": 0,
             }
         )
@@ -2040,8 +2128,19 @@ class Wrapper2450(DCSourceMeter):
 
     @source_range.setter
     def source_range(self, fix_range: float):
-        self.meter.source.range(fix_range)
-        self.info_dict["source_range_set"] = fix_range
+        if self.info_dict["source_range_set"] != fix_range:
+            self.meter.source.range(fix_range)
+            self.info_dict["source_range_set"] = fix_range
+
+    @property
+    def compliance(self) -> float:
+        return self.meter.source.limit()
+
+    @compliance.setter
+    def compliance(self, compliance: float):
+        if self.info_dict["source_compliance_set"] != compliance:
+            self.meter.source.limit(compliance)
+            self.info_dict["source_compliance_set"] = compliance
 
     def sense(self, type_str: Literal["curr", "volt", "resist"]) -> float:
         if self.info_dict["sense_type"] == type_str:
