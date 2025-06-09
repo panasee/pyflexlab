@@ -377,7 +377,7 @@ class PiezoBase(object):
         return self.GetPos()
     
 
-class MarzhauserTango(PiezoBase):
+class Tango(PiezoBase):
     """
     Marzhauser Tango stage. The dll API supports 4 axes (x, y, z, a), all of
     which are exposed/supported by this class. For stages only supporting (x, y)
@@ -394,14 +394,14 @@ class MarzhauserTango(PiezoBase):
         self.lsid = ctypes.c_int(0)
         CreateLSID(ctypes.byref(self.lsid))
         # ConnectSimple(1, -1, NULL, 57600, TRUE); // Autoconnect with the first found USB or PCI TANGO in the system
-        ConnectSimple(self.lsid, ctypes.c_int(-1), None, ctypes.c_int(57600), ctypes.c_bool(False))  # baud doesn't matter for dll usage
+        ConnectSimple(self.lsid, ctypes.c_int(-1), None, ctypes.c_int(57600), ctypes.c_bool(True))  # baud doesn't matter for dll usage
 
         SetDimensions(self.lsid, ctypes.c_int(1), ctypes.c_int(1), 
                       ctypes.c_int(1), ctypes.c_int(1))  # put all axes in [um]
 
         self._allocate_memory()
         
-        self._joystick_enabled = False
+        self._joystick_enabled = True
         self.SetJoystick(True)
     
     def _allocate_memory(self):
@@ -480,7 +480,7 @@ class MarzhauserTango(PiezoBase):
         return self.GetPos(0), self.GetPos(1)
 
     @position.setter
-    def position(self, *value: float | int):
+    def position(self, value: float | int):
         """
         Set the position of the stage.
         unit is um
@@ -659,7 +659,7 @@ class MarzhauserTango(PiezoBase):
                         self._c_limits['active'][axis])
 
 
-class MarzhauserTangoXY(MarzhauserTango):
+class MarzhauserTangoXY(Tango):
     """
     Marzhauser tango stage set up only for lateral (x, y) positioning
     """

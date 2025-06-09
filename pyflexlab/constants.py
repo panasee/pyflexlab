@@ -137,7 +137,7 @@ def set_paths(
             logger.warning("PYLAB_DB_LOCAL not set")
         else:
             LOCAL_DB_PATH = Path(os.getenv("PYLAB_DB_LOCAL"))
-            logger.info(f"read from PYLAB_DB_LOCAL:{LOCAL_DB_PATH}")
+            logger.info("read from PYLAB_DB_LOCAL: %s", LOCAL_DB_PATH)
 
     if out_db_path is not None:
         OUT_DB_PATH = Path(out_db_path)
@@ -146,7 +146,7 @@ def set_paths(
             logger.warning("PYLAB_DB_OUT not set")
         else:
             OUT_DB_PATH = Path(os.getenv("PYLAB_DB_OUT"))
-            logger.info(f"read from PYLAB_DB_OUT:{OUT_DB_PATH}")
+            logger.info("read from PYLAB_DB_OUT: %s", OUT_DB_PATH)
 
 
 # define constants
