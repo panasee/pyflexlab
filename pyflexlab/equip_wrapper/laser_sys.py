@@ -14,7 +14,7 @@ logger = get_logger(__name__)
 class LaserSys:
     def __init__(self):
         logger.info(
-            "Initializing LasorSys, the connection ports and the serial numbers are statically set in the code."
+            "Initializing LaserSys, the connection ports and the serial numbers are statically set in the code."
         )
         self.ports = {
             "PM100D": "USB0::0x1313::0x8078::P0032564::0::INSTR",
@@ -108,14 +108,14 @@ class LaserSys:
         laser_change: bool = False,
     ) -> None:
         """
-        Align the power to a certain value (in uW) at a certain wavelength (in nm)
+        USE SI UNIT
+        Align the power to a certain value at a certain wavelength
         The powermeter used depends on the wavelength
         Use shutter instead of laser emission switch to protect the laser and allow for faster response
         """
 
         wavelength = convert_unit(wavelength, "nm")[0]
         power = convert_unit(power, "uW")[0]
-        Pfactor = 1e6
         if 400 <= wavelength < 1100:
             self.pm100d_2.wavelength(wavelength)
             self.kdc101.move_to(60)
@@ -137,20 +137,20 @@ class LaserSys:
         # self.laser_off()
         self.shutter_close()
         time.sleep(2)
-        outcell = _get_power()
-        darkpower = outcell * Pfactor
+        outcell = convert_unit(_get_power(), "uW")[0]
+        darkpower = outcell
         time.sleep(1)
 
         # max power
         # self.laser.emission_on()
         self.k10cr1.position(0)
         time.sleep(0.1)
-        self.laser.set_power_level(100)
+        #self.laser.set_power_level(100)
         time.sleep(2)
         self.shutter_open()
         time.sleep(2)
-        outcell = _get_power()
-        maxpower = outcell * Pfactor
+        outcell = convert_unit(_get_power(), "uW")[0]
+        maxpower = outcell
         time.sleep(1)
         logger.info(f"Dark power: {darkpower:.3f}, max power: {maxpower:.1f}")
 
@@ -167,29 +167,36 @@ class LaserSys:
         inP = 0
         # self.laser.set_power_level(inP)
         # time.sleep(0.5)
-        outcell = _get_power()
-        rPower = outcell * Pfactor - darkpower
+        outcell = convert_unit(_get_power(), "uW")[0]
+        rPower = outcell - darkpower
         setPower = power
         while True:
             time.sleep(0.1)
             if rPower - setPower >= 50:
-                inP = inP + 12
+                inP = inP + 17
             elif rPower - setPower <= -50:
-                inP = inP - 12
+                inP = inP - 17
             elif 10 <= rPower - setPower < 50:
-                inP = inP + 5
+                inP = inP + 7
             elif -50 < rPower - setPower <= -10:
-                inP = inP - 5
+                inP = inP - 7
             elif 3 <= rPower - setPower < 10:
-                inP = inP + 1
+                inP = inP + 2
             elif -10 < rPower - setPower <= -3:
-                inP = inP - 1
+                inP = inP - 2
             elif 0.6 <= rPower - setPower < 3:
-                inP = inP + 0.05
+                inP = inP + 0.3
             elif -3 < rPower - setPower <= -0.6:
-                inP = inP - 0.05
-            elif -0.6 < rPower - setPower < 0.6:
-                self.laser.set_power_level(inP)
+                inP = inP - 0.3
+            elif 0.1 <= rPower - setPower < 0.6:
+                inP = inP + 0.1
+            elif -0.6 < rPower - setPower <= -0.1:
+                inP = inP - 0.1
+            elif 0.03 <= rPower - setPower < 0.1:
+                inP = inP + 0.03
+            elif -0.1 < rPower - setPower <= -0.03:
+                inP = inP - 0.03
+            elif -0.03 < rPower - setPower < 0.03:
                 break
             else:
                 logger.raise_error(
@@ -201,8 +208,8 @@ class LaserSys:
             self.k10cr1.position(inP)
             #self.laser.set_power_level(inP)
             time.sleep(0.1)
-            outcell = _get_power()
-            rPower = outcell * Pfactor - darkpower
+            outcell = convert_unit(_get_power(), "uW")[0]
+            rPower = outcell - darkpower
             time.sleep(0.5)
             logger.info(f"Current power: {rPower:.1f}")
 

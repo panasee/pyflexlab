@@ -168,7 +168,7 @@ class Thorlab_PM100D(VisaInstrument):
         """Set configuration to power mode"""
         self.write("CONF:POW")  # set config to power mode
         self.write("ABOR")
-        self.ask(":STAT:OPER?")
+        #self.ask(":STAT:OPER?")
         self.write("INIT")
         return None
 

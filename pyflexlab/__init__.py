@@ -1,10 +1,14 @@
 """Python package for flexible laboratory data analysis and visualization."""
 
+import os
 from pyomnix.omnix_logger import get_logger
 from pyflexlab.constants import set_envs, set_paths
 
-set_envs()
-set_paths()
+if "PYLAB_LOCAL_SPECIFIC" in os.environ and "PYLAB_OUT_SPECIFIC" in os.environ:
+    set_paths(local_db_path=os.getenv("PYLAB_LOCAL_SPECIFIC"), out_db_path=os.getenv("PYLAB_OUT_SPECIFIC"))
+else:
+    set_envs()
+    set_paths()
 
 from pyflexlab.file_organizer import FileOrganizer
 from pyflexlab.measure_manager import MeasureManager
