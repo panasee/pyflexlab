@@ -73,7 +73,7 @@ class Meter(ABC):
         self.meter = None
 
     @abstractmethod
-    def setup(self, function: Literal["sense", "source"], *vargs, **kwargs):
+    def setup(self, function: Literal["sense", "source"], *vargs, sense_type: Literal["curr", "volt", "I", "V"] | None = None, **kwargs):
         pass
 
     def info(self, *, sync=True):
@@ -145,6 +145,10 @@ class SourceMeter(Meter):
         self.info_dict.update({"output_type": "curr"})
         self.output_target = 0
         self.safe_step = 1e-6  # step threshold, used for a default ramp
+
+    @abstractmethod
+    def setup(self, function: Literal["sense", "source"], *vargs, source_type: Literal["curr", "volt", "I", "V"] | None = None, sense_type: Literal["curr", "volt", "I", "V"] | None = None, **kwargs):
+        pass
 
     @abstractmethod
     def output_switch(self, switch: bool | Literal["on", "off", "ON", "OFF"]):
@@ -398,6 +402,7 @@ class Wrapper6221(ACSourceMeter, DCSourceMeter):
         function: Literal["source", "sense"] = "source",
         mode: Literal["ac", "dc"] = "ac",
         *,
+        source_type: Literal["curr", "volt", "I", "V"] | None = "curr",
         offset: float | None = None,
         source_auto_range: bool | None = None,
         low_grounded: bool | None = None,
@@ -419,6 +424,10 @@ class Wrapper6221(ACSourceMeter, DCSourceMeter):
         set up the Keithley 6221 instruments, overwrite the specific settings here, other settings will all be
         reserved. Note that the waveform will not begin here
         """
+        logger.validate(
+            source_type in ["curr", "I"],
+            "source_type can only be current",
+        )
         if reset:
             offset = 0
             source_auto_range = True
@@ -717,6 +726,10 @@ class Wrapper2182(Meter):
         reset: bool = False,
         sense_type: Literal["volt"] = "volt",
     ) -> None:
+        logger.validate(
+            sense_type in ["volt", "V"],
+            "sense_type can only be voltage",
+        )
         if reset:
             self.meter.reset()
         self.meter.active_channel = channel
@@ -908,6 +921,7 @@ class WrapperSR830(ACSourceMeter):
         filter_synchronous=None,
         reset: bool = False,
         sense_type: Literal["curr", "volt"] = "volt",
+        source_type: Literal["volt", "V"] = "V",
     ) -> None:
         """
         setup the SR830 instruments using pre-stored setups here, this function will not fully reset the instruments,
@@ -949,6 +963,10 @@ class WrapperSR830(ACSourceMeter):
             self.info_sync()
 
         elif function == "source":
+            logger.validate(
+                source_type in ["volt", "V"],
+                "source_type can only be voltage",
+            )
             if sine_voltage is not None:
                 self.meter.sine_voltage = sine_voltage
             self.meter.reference_source = "Internal"
@@ -1095,6 +1113,7 @@ class WrapperSR860(ACSourceMeter):
         sine_voltage=None,
         filter_synchronous=None,
         reset: bool = False,
+        source_type: Literal["volt", "V"] | None = "V",
         sense_type: Literal["curr", "volt"] = "volt",
     ) -> None:
         """
@@ -1129,6 +1148,10 @@ class WrapperSR860(ACSourceMeter):
                 self.if_source = False  # restore the if_source to False for the next initialization, would cause unexpected behavior if called twice in one measurement
             self.info_sync()
         elif function == "source":
+            logger.validate(
+                source_type in ["volt", "V"],
+                "source_type can only be voltage",
+            )
             if sine_voltage is not None:
                 self.meter.sine_voltage = sine_voltage
             self.meter.reference_source = "INT"
@@ -1293,7 +1316,8 @@ class Wrapper6430(DCSourceMeter):
         *,
         auto_zero: str = "on",
         reset: bool = False,
-        sense_type: Literal["curr", "volt"] = "volt",
+        sense_type: Literal["curr", "volt"] | None = None,
+        source_type: Literal["curr", "volt", "I", "V"] | None = None,
     ):
         if function == "source":
             if reset:
@@ -1301,15 +1325,21 @@ class Wrapper6430(DCSourceMeter):
                 self.meter.output_enabled(False)
                 self.meter.nplc(10)
             self.meter.autozero(auto_zero)
+            if source_type is not None:
+                if source_type in ["I", "curr"]:
+                    self.meter.source_mode("CURR")
+                elif source_type in ["V", "volt"]:
+                    self.meter.source_mode("VOLT")
         elif function == "sense":
             if reset:
                 self.meter.reset()
                 self.meter.sense_autorange(True)
             self.meter.autozero(auto_zero)
-            if sense_type == "curr":
-                self.meter.sense_mode("CURR:DC")
-            elif sense_type == "volt":
-                self.meter.sense_mode("VOLT:DC")
+            if sense_type is not None:
+                if sense_type == "curr":
+                    self.meter.sense_mode("CURR:DC")
+                elif sense_type == "volt":
+                    self.meter.sense_mode("VOLT:DC")
         else:
             raise ValueError("function should be either source or sense")
         self.info_sync()
@@ -1320,6 +1350,11 @@ class Wrapper6430(DCSourceMeter):
 
     @sense_range_curr.setter
     def sense_range_curr(self, fix_range: float):
+        if self.info_dict["output_type"] == "volt":
+            if not (0.01*fix_range <= self.compliance <= fix_range):
+                logger.warning(
+                    "sense range and compliance are not compatible, please check settings."
+                )
         self.meter.sense_current_range(fix_range)
 
     @property
@@ -1328,6 +1363,11 @@ class Wrapper6430(DCSourceMeter):
 
     @sense_range_volt.setter
     def sense_range_volt(self, fix_range: float):
+        if self.info_dict["output_type"] == "curr":
+            if not (0.01*fix_range <= self.compliance <= fix_range):
+                logger.warning(
+                    "sense range and compliance are not compatible, please check settings."
+                )
         self.meter.sense_voltage_range(fix_range)
 
     @property
@@ -1349,17 +1389,25 @@ class Wrapper6430(DCSourceMeter):
     @property
     def compliance(self) -> float:
         if self.info_dict["output_type"] == "curr":
-            return self.meter.source_current_compliance()
-        elif self.info_dict["output_type"] == "volt":
             return self.meter.source_voltage_compliance()
+        elif self.info_dict["output_type"] == "volt":
+            return self.meter.source_current_compliance()
 
     @compliance.setter
     def compliance(self, compliance: float):
         if self.info_dict["source_compliance_set"] != compliance:
             if self.info_dict["output_type"] == "curr":
-                self.meter.source_current_compliance(compliance)
-            elif self.info_dict["output_type"] == "volt":
+                if not (0.01*self.sense_range_volt <= compliance <= self.sense_range_volt):
+                    logger.warning(
+                        "compliance and sense range are not compatible, please check settings."
+                    )
                 self.meter.source_voltage_compliance(compliance)
+            elif self.info_dict["output_type"] == "volt":
+                if not (0.01*self.sense_range_curr <= compliance <= self.sense_range_curr):
+                    logger.warning(
+                        "compliance and sense range are not compatible, please check settings."
+                    )
+                self.meter.source_current_compliance(compliance)
             self.info_dict["source_compliance_set"] = compliance
 
     def sense(self, type_str: Literal["curr", "volt", "resist"]) -> float:
@@ -1556,7 +1604,8 @@ class WrapperB2902Bchannel(DCSourceMeter):
         self,
         function: Literal["sense", "source"] = "sense",
         reset: bool = False,
-        sense_type: Literal["curr", "volt"] = "volt",
+        sense_type: Literal["curr", "volt"] | None = None,
+        source_type: Literal["curr", "volt", "I", "V"] | None = None,
     ):
         if reset:
             self.meter_all.reset()
@@ -1566,11 +1615,21 @@ class WrapperB2902Bchannel(DCSourceMeter):
             self.meter_all.ch2.write("*ESE 60; *SRE 48; *CLS;")
 
         if function == "sense":
+            if sense_type is not None:
+                if sense_type == "curr":
+                    self.meter.sense_current()
+                elif sense_type == "volt":
+                    self.meter.sense_voltage()
             if reset:
                 self.meter.sense_current_autorange(True)
                 self.meter.sense_voltage_autorange(True)
                 self.meter.sense_resistance_autorange(True)
         elif function == "source":
+            if source_type is not None:
+                if source_type in ["I", "curr"]:
+                    self.meter.source_mode("CURR")
+                elif source_type in ["V", "volt"]:
+                    self.meter.source_mode("VOLT")
             if reset:
                 self.meter.output(False)
                 self.meter.source_current_autorange(True)
@@ -1591,6 +1650,11 @@ class WrapperB2902Bchannel(DCSourceMeter):
 
     @sense_range_curr.setter
     def sense_range_curr(self, fix_range: float):
+        if self.info_dict["output_type"] == "volt":
+            if not (0.01*fix_range <= self.compliance <= fix_range):
+                logger.warning(
+                    "sense range and compliance are not compatible, please check settings."
+                )
         self.meter.sense_current_range(fix_range)
 
     @property
@@ -1599,6 +1663,11 @@ class WrapperB2902Bchannel(DCSourceMeter):
 
     @sense_range_volt.setter
     def sense_range_volt(self, fix_range: float):
+        if self.info_dict["output_type"] == "curr":
+            if not (0.01*fix_range <= self.compliance <= fix_range):
+                logger.warning(
+                    "sense range and compliance are not compatible, please check settings."
+                )
         self.meter.sense_voltage_range(fix_range)
 
     @property
@@ -1620,17 +1689,25 @@ class WrapperB2902Bchannel(DCSourceMeter):
     @property
     def compliance(self) -> float:
         if self.info_dict["output_type"] == "curr":
-            return self.meter.source_current_compliance()
-        elif self.info_dict["output_type"] == "volt":
             return self.meter.source_voltage_compliance()
+        elif self.info_dict["output_type"] == "volt":
+            return self.meter.source_current_compliance()
 
     @compliance.setter
     def compliance(self, compliance: float):
         if self.info_dict["source_compliance_set"] != compliance:
             if self.info_dict["output_type"] == "curr":
-                self.meter.source_current_compliance(compliance)
-            elif self.info_dict["output_type"] == "volt":
+                if not (0.01*self.sense_range_volt <= compliance <= self.sense_range_volt):
+                    logger.warning(
+                        "compliance and sense range are not compatible, please check settings."
+                    )
                 self.meter.source_voltage_compliance(compliance)
+            elif self.info_dict["output_type"] == "volt":
+                if not (0.01*self.sense_range_curr <= compliance <= self.sense_range_curr):
+                    logger.warning(
+                        "compliance and sense range are not compatible, please check settings."
+                    )
+                self.meter.source_current_compliance(compliance)
             self.info_dict["source_compliance_set"] = compliance
 
     def sense(self, type_str: Literal["curr", "volt", "resist"]) -> float:
@@ -1815,7 +1892,8 @@ class Wrapper2400(DCSourceMeter):
         self,
         function: Literal["sense", "source"] = "sense",
         reset: bool = False,
-        sense_type: Literal["curr", "volt"] = "volt",
+        sense_type: Literal["curr", "volt"] | None = None,
+        source_type: Literal["curr", "volt", "I", "V"] | None = None,
     ):
         if reset:  # reset will also reset the GPIB
             self.meter.write("*RST")
@@ -1824,6 +1902,16 @@ class Wrapper2400(DCSourceMeter):
             self.meter.write(":RES:MODE MAN")  # disables auto resistance
             self.meter.nplci(10)
             self.meter.nplcv(10)
+        if sense_type is not None:
+            if sense_type == "curr":
+                self.meter.curr()
+            elif sense_type == "volt":
+                self.meter.volt()
+        if source_type is not None:
+            if source_type in ["I", "curr"]:
+                self.meter.mode("CURR")
+            elif source_type in ["V", "volt"]:
+                self.meter.mode("VOLT")
         self.info_sync()
 
     @property
@@ -1840,6 +1928,11 @@ class Wrapper2400(DCSourceMeter):
             pass
         elif self.info_dict["sense_type"] == "volt":
             logger.warning("currently in volt sense mode")
+        if self.info_dict["output_type"] == "volt":
+            if not (0.01*fix_range <= self.compliance <= fix_range):
+                logger.warning(
+                    "sense range and compliance are not compatible, please check settings."
+                )
         self.meter.rangei(fix_range)
 
     @property
@@ -1856,6 +1949,11 @@ class Wrapper2400(DCSourceMeter):
             logger.warning("currently in curr sense mode")
         elif self.info_dict["sense_type"] == "volt":
             pass
+        if self.info_dict["output_type"] == "curr":
+            if not (0.01*fix_range <= self.compliance <= fix_range):
+                logger.warning(
+                    "sense range and compliance are not compatible, please check settings."
+                )
         self.meter.rangev(fix_range)
 
     @property
@@ -1877,17 +1975,25 @@ class Wrapper2400(DCSourceMeter):
     @property
     def compliance(self) -> float:
         if self.info_dict["output_type"] == "curr":
-            return self.meter.compliancei()
-        elif self.info_dict["output_type"] == "volt":
             return self.meter.compliancev()
+        elif self.info_dict["output_type"] == "volt":
+            return self.meter.compliancei()
 
     @compliance.setter
     def compliance(self, compliance: float):
         if self.info_dict["source_compliance_set"] != compliance:
             if self.info_dict["output_type"] == "curr":
-                self.meter.compliancei(compliance)
-            elif self.info_dict["output_type"] == "volt":
+                if not (0.01*self.sense_range_volt <= compliance <= self.sense_range_volt):
+                    logger.warning(
+                        "compliance and sense range are not compatible, please check settings."
+                    )
                 self.meter.compliancev(compliance)
+            elif self.info_dict["output_type"] == "volt":
+                if not (0.01*self.sense_range_curr <= compliance <= self.sense_range_curr):
+                    logger.warning(
+                        "compliance and sense range are not compatible, please check settings."
+                    )
+                self.meter.compliancei(compliance)
             self.info_dict["source_compliance_set"] = compliance
 
     def sense(self, type_str: Literal["curr", "volt", "resist"]) -> float:
@@ -2065,7 +2171,8 @@ class Wrapper2450(DCSourceMeter):
         *,
         terminal: Literal["front", "rear"] = "rear",
         reset: bool = False,
-        sense_type: Literal["curr", "volt"] = "curr",
+        sense_type: Literal["curr", "volt"] | None = None,
+        source_type: Literal["curr", "volt", "I", "V"] | None = None,
     ):
         if reset:
             self.meter.reset()
@@ -2078,12 +2185,18 @@ class Wrapper2450(DCSourceMeter):
             time.sleep(0.5)
             self.meter.sense.nplc(10)
         if function == "source":
+            if source_type is not None:
+                if source_type in ["I", "curr"]:
+                    self.meter.source.function("current")
+                elif source_type in ["V", "volt"]:
+                    self.meter.source.function("voltage")
             if reset:
                 self.meter.source.auto_range(True)
         if function == "sense":
-            self.meter.sense.function(
-                sense_type.replace("curr", "current").replace("volt", "voltage")
-            )
+            if sense_type is not None:
+                self.meter.sense.function(
+                    sense_type.replace("curr", "current").replace("volt", "voltage")
+                )
         self.info_sync()
 
     def set_terminal(self, terminal: Literal["front", "rear"]):
@@ -2104,6 +2217,11 @@ class Wrapper2450(DCSourceMeter):
             pass
         elif self.info_dict["sense_type"] == "volt":
             logger.warning("currently in volt sense mode")
+        if self.info_dict["output_type"] == "volt":
+            if not (0.01*fix_range <= self.compliance <= fix_range):
+                logger.warning(
+                    "sense range and compliance are not compatible, please check settings."
+                )
         self.meter.sense.range(fix_range)
 
     @property
@@ -2120,6 +2238,11 @@ class Wrapper2450(DCSourceMeter):
             logger.warning("currently in curr sense mode")
         elif self.info_dict["sense_type"] == "volt":
             pass
+        if self.info_dict["output_type"] == "curr":
+            if not (0.01*fix_range <= self.compliance <= fix_range):
+                logger.warning(
+                    "sense range and compliance are not compatible, please check settings."
+                )
         self.meter.sense.range(fix_range)
 
     @property
@@ -2139,6 +2262,12 @@ class Wrapper2450(DCSourceMeter):
     @compliance.setter
     def compliance(self, compliance: float):
         if self.info_dict["source_compliance_set"] != compliance:
+            if self.info_dict["output_type"] == "curr":
+                if not (0.01*self.sense_range_volt <= compliance <= self.sense_range_volt):
+                    logger.warning("compliance and sense range are not compatible, please check settings.")
+            elif self.info_dict["output_type"] == "volt":
+                if not (0.01*self.sense_range_curr <= compliance <= self.sense_range_curr):
+                    logger.warning("compliance and sense range are not compatible, please check settings.")
             self.meter.source.limit(compliance)
             self.info_dict["source_compliance_set"] = compliance
 
