@@ -943,19 +943,19 @@ class MeasureManager(FileOrganizer):
         mod_i: Literal["I", "V"]
         for idx, src_mod in enumerate(src_lst):
 
-            if isinstance(wrapper_lst[idx], Wrapper6221):
-                wrapper_lst[idx].setup(
-                    function="source", mea_mode=special_mea
-                )  # here assume only one 6221
-            else:
-                wrapper_lst[idx].setup(function="source")
-
             if src_mod["I"]["sweep_fix"] is not None:
                 mod_i = "I"
             elif src_mod["V"]["sweep_fix"] is not None:
                 mod_i = "V"
             else:
                 raise ValueError(f"No source is specified for source {idx}")
+
+            if isinstance(wrapper_lst[idx], Wrapper6221):
+                wrapper_lst[idx].setup(
+                    function="source", mea_mode=special_mea
+                )  # here assume only one 6221
+            else:
+                wrapper_lst[idx].setup(function="source", source_type=mod_i)
 
             if src_mod[mod_i]["sweep_fix"] == "fixed":
                 if ramp_intervals is not None:
