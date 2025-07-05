@@ -36,6 +36,7 @@ class MeasureFlow(MeasureManager):
     This class is a subclass of MeasureManager and is responsible for managing the measure-related folders and data
     """
 
+##  V-I curve dc
     def measure_Vswp_I_vicurve(
         self,
         *,
@@ -160,6 +161,669 @@ class MeasureFlow(MeasureManager):
 
         src_sens_lst[0].output_switch("off")
 
+    def measure_VswpV_II_BT_vicurve(
+        self,
+        *,
+        vds_max: float,
+        vds_step: float,
+        freq: Optional[float] = None,
+        ds_high: int | str,
+        ds_low: int | str,
+        vds_swpmode: str,
+        vds_swp_lst: Sequence[float] = None,
+        ds_meter: Meter | list[Meter],
+        ds_compliance: float | str,
+        vg: float,
+        vg_high: int | str,
+        vg_meter: Meter,
+        vg_compliance: float | str,
+        field: float = 0,
+        temperature: float,
+        folder_name: str = "",
+        step_time: float = 0.1,
+        source_wait: float = 0.3,
+        sense_range: list[float | str] | None = None,
+        source_range: list[float | str] | None = None,
+        if_plot: bool = True,
+        saving_interval: float = 7,
+        plotobj: DataManipulator = None,
+        use_dash: bool = False,
+        fig_height: float = 600,
+        fig_width: float = 1200,
+    ):
+        """
+        measure the Vds-I curve using TWO DC source meters, with other info (B, T, etc.) NOTE the vds_swp_lst will override the vds_step, vds_max and vds_swpmode
+
+        Args:
+            vds_max: float, the maximum drain-source voltage
+            vds_step: float, the step drain-source voltage
+            freq: float, the frequency
+            ds_high: int | str, the high terminal of the drain-source
+            ds_low: int | str, the low terminal of the drain-source
+            vds_swpmode: str, the sweep mode of the drain-source
+            vds_swp_lst: Sequence[float], the list of drain-source voltages
+            ds_meter: Meter | list[Meter], the meter used for both source and sense or two meters separately in a list
+            ds_compliance: float | str, the compliance of the drain-source meter
+            vg: float, the gate voltage
+            vg_high: int | str, the high terminal of the gate
+            vg_meter: Meter, the meter used for the gate
+            vg_compliance: float | str, the compliance of the gate meter
+            field: float, the field
+            temperature: float, the temperature
+            folder_name: str, the folder name
+            step_time: float, the step time
+            if_plot: bool, the individual plot
+            saving_interval: float, the saving interval in seconds
+        """
+        if sense_range is not None:
+            sense_range = [convert_unit(i, "")[0] for i in sense_range]
+        if source_range is not None:
+            source_range = [convert_unit(i, "")[0] for i in source_range]
+        if isinstance(ds_meter, list):
+            logger.validate(len(ds_meter) == 2, "ds_meter must be a list of two meters")
+            ds_src_sens_lst = ds_meter
+        else:
+            ds_src_sens_lst = [ds_meter, ds_meter]
+        if plotobj is None and if_plot:
+            plotobj = DataManipulator(1)
+        if vds_swp_lst is not None:
+            vds_swpmode = "manual"
+
+        if freq is None:
+            mea_dict = self.get_measure_dict(
+                (
+                    "V_source_sweep_dc",
+                    "V_source_fixed_dc",
+                    "I_sense_dc",
+                    "I_sense_dc",
+                    "B_fixed",
+                    "T_fixed",
+                ),
+                vds_max,
+                vds_step,
+                ds_high,
+                ds_low,
+                vds_swpmode,
+                vg,
+                vg_high,
+                0,
+                "",
+                ds_high,
+                ds_low,
+                "",
+                vg_high,
+                0,
+                field,
+                temperature,
+                wrapper_lst=[
+                    ds_src_sens_lst[0],
+                    vg_meter,
+                    ds_src_sens_lst[1],
+                    vg_meter,
+                ],
+                compliance_lst=[ds_compliance, vg_compliance],
+                if_combine_gen=True,  # False for coexistence of vary and mapping
+                special_name=folder_name,
+                sweep_tables=[vds_swp_lst],
+                measure_nickname="swpds-dc",
+                source_wait=source_wait,
+            )
+        else:
+            mea_dict = self.get_measure_dict(
+                (
+                    "V_source_sweep_ac",
+                    "V_source_fixed_dc",
+                    "I_sense_ac",
+                    "I_sense_dc",
+                    "B_fixed",
+                    "T_fixed",
+                ),
+                vds_max,
+                vds_step,
+                freq,
+                ds_high,
+                ds_low,
+                vds_swpmode,
+                vg,
+                vg_high,
+                0,
+                "",
+                ds_high,
+                ds_low,
+                "",
+                vg_high,
+                0,
+                field,
+                temperature,
+                wrapper_lst=[
+                    ds_src_sens_lst[0],
+                    vg_meter,
+                    ds_src_sens_lst[1],
+                    vg_meter,
+                ],
+                compliance_lst=[ds_compliance, vg_compliance],
+                if_combine_gen=True,  # False for coexistence of vary and mapping
+                special_name=folder_name,
+                sweep_tables=[vds_swp_lst],
+                measure_nickname="swpds-ac",
+            )
+
+        logger.info("filepath: %s", mea_dict["file_path"])
+        logger.info("no of columns(with time column): %d", mea_dict["record_num"])
+        logger.info("vary modules: %s", mea_dict["vary_mod"])
+        if sense_range is not None:
+            ds_src_sens_lst[1].sense_range_curr = sense_range[0]
+            vg_meter.sense_range_curr = sense_range[1]
+            logger.info("sense 1 range: %f", sense_range[0])
+            logger.info("sense 2 range: %f", sense_range[1])
+
+        if source_range is not None:
+            ds_src_sens_lst[0].source_range = source_range[0]
+            vg_meter.source_range = source_range[1]
+            logger.info("source 1 range: %f", source_range[0])
+            logger.info("source 2 range: %f", source_range[1])
+
+        # modify the plot configuration
+        # note i[0] is timer
+        if if_plot:
+            plotobj.live_plot_init(
+                1,
+                2,
+                1 if freq is None else 2,
+                fig_height,
+                fig_width,
+                titles=[[r"$V_{ds}$ I", r"$V_{ds}$ T"]],
+                inline_jupyter=not use_dash,
+            )
+            plotobj.start_saving(mea_dict["plot_record_path"], saving_interval)
+
+        for i in mea_dict["gen_lst"]:
+            self.record_update(mea_dict["file_path"], mea_dict["record_num"], i)
+            time.sleep(step_time)
+            if plotobj is None:
+                continue
+            if freq is None:
+                plotobj.live_plot_update(
+                    [0, 0],
+                    [0, 1],
+                    [0, 0],
+                    [i[1], i[1]],
+                    [i[3], i[6]],
+                    incremental=True,
+                )
+            else:
+                plotobj.live_plot_update(
+                    [0, 0, 0],
+                    [0, 0, 1],
+                    [0, 1, 0],
+                    [i[1], i[1], i[1]],
+                    [i[3], i[4], i[9]],
+                    incremental=True,
+                )
+
+        if if_plot:
+            plotobj.stop_saving()
+        ds_src_sens_lst[0].output_switch("off")
+        vg_meter.output_switch("off")
+
+    def measure_IswpV_VI_BT_ivcurve(
+        self,
+        *,
+        ids_max: float,
+        ids_step: float,
+        freq: Optional[float] = None,
+        ds_high: int | str,
+        ds_low: int | str,
+        sense_high: int | str | None = None,
+        sense_low: int | str | None = None,
+        ids_swpmode: str,
+        ids_swp_lst: Sequence[float] = None,
+        ds_meter: Meter | list[Meter],
+        ds_compliance: float | str,
+        vg: float,
+        vg_high: int | str,
+        vg_meter: Meter,
+        vg_compliance: float | str,
+        field: float = 0,
+        temperature: float,
+        folder_name: str = "",
+        step_time: float = 0.1,
+        source_wait: float = 0.3,
+        sense_range: list[float | str] | None = None,
+        source_range: list[float | str] | None = None,
+        if_plot: bool = True,
+        saving_interval: float = 7,
+        plotobj: DataManipulator | None = None,
+        use_dash: bool = False,
+        fig_height: float = 600,
+        fig_width: float = 1200,
+    ):
+        """
+        measure the Vds-I curve using TWO DC source meters, with other info (B, T, etc.) NOTE the vds_swp_lst will override the vds_step, vds_max and vds_swpmode
+
+        Args:
+            vds_max: float, the maximum drain-source voltage
+            vds_step: float, the step drain-source voltage
+            freq: float, the frequency
+            ds_high: int | str, the high terminal of the drain-source
+            ds_low: int | str, the low terminal of the drain-source
+            vds_swpmode: str, the sweep mode of the drain-source
+            vds_swp_lst: Sequence[float], the list of drain-source voltages
+            ds_meter: Meter | list[Meter], the meter used for both source and sense or two meters separately in a list
+            ds_compliance: float | str, the compliance of the drain-source meter
+            vg: float, the gate voltage
+            vg_high: int | str, the high terminal of the gate
+            vg_meter: Meter, the meter used for the gate
+            vg_compliance: float | str, the compliance of the gate meter
+            field: float, the field
+            temperature: float, the temperature
+            folder_name: str, the folder name
+            step_time: float, the step time
+            if_plot: bool, the individual plot
+            saving_interval: float, the saving interval in seconds
+        """
+        if sense_range is not None:
+            sense_range = [convert_unit(i, "")[0] for i in sense_range]
+        if source_range is not None:
+            source_range = [convert_unit(i, "")[0] for i in source_range]
+        if isinstance(ds_meter, list):
+            logger.validate(len(ds_meter) == 2, "ds_meter must be a list of two meters")
+            ds_src_sens_lst = ds_meter
+        else:
+            ds_src_sens_lst = [ds_meter, ds_meter]
+
+        if sense_high is None and sense_low is None:
+            sense_high = ds_high
+            sense_low = ds_low
+        else:
+            logger.info("four wire configuration detected, please check the meter setting, currently only 2450 is validated")
+            try:
+                ds_src_sens_lst[1].four_wire = True
+                logger.info("four wire configured")
+            except Exception as e:
+                logger.warning("no available four wire configuration detected: %s", e)
+
+        if plotobj is None and if_plot:
+            plotobj = DataManipulator(1)
+        if ids_swp_lst is not None:
+            ids_swpmode = "manual"
+
+        if freq is None:
+            mea_dict = self.get_measure_dict(
+                (
+                    "I_source_sweep_dc",
+                    "V_source_fixed_dc",
+                    "V_sense_dc",
+                    "I_sense_dc",
+                    "B_fixed",
+                    "T_fixed",
+                ),
+                ids_max,
+                ids_step,
+                ds_high,
+                ds_low,
+                ids_swpmode,
+                vg,
+                vg_high,
+                0,
+                "",
+                sense_high,
+                sense_low,
+                "",
+                vg_high,
+                0,
+                field,
+                temperature,
+                wrapper_lst=[
+                    ds_src_sens_lst[0],
+                    vg_meter,
+                    ds_src_sens_lst[1],
+                    vg_meter,
+                ],
+                compliance_lst=[ds_compliance, vg_compliance],
+                if_combine_gen=True,  # False for coexistence of vary and mapping
+                special_name=folder_name,
+                sweep_tables=[ids_swp_lst],
+                measure_nickname="swpids-dc",
+                source_wait=source_wait,
+            )
+        else:
+            mea_dict = self.get_measure_dict(
+                (
+                    "I_source_sweep_ac",
+                    "V_source_fixed_dc",
+                    "V_sense_ac",
+                    "I_sense_dc",
+                    "B_fixed",
+                    "T_fixed",
+                ),
+                ids_max,
+                ids_step,
+                freq,
+                ds_high,
+                ds_low,
+                ids_swpmode,
+                vg,
+                vg_high,
+                0,
+                "",
+                sense_high,
+                sense_low,
+                "",
+                vg_high,
+                0,
+                field,
+                temperature,
+                wrapper_lst=[
+                    ds_src_sens_lst[0],
+                    vg_meter,
+                    ds_src_sens_lst[1],
+                    vg_meter,
+                ],
+                compliance_lst=[ds_compliance, vg_compliance],
+                if_combine_gen=True,  # False for coexistence of vary and mapping
+                special_name=folder_name,
+                sweep_tables=[ids_swp_lst],
+                measure_nickname="swpids-ac",
+                source_wait=source_wait,
+            )
+
+        logger.info("filepath: %s", mea_dict["file_path"])
+        logger.info("no of columns(with time column): %d", mea_dict["record_num"])
+        logger.info("vary modules: %s", mea_dict["vary_mod"])
+        if sense_range is not None:
+            ds_src_sens_lst[1].sense_range_curr = sense_range[0]
+            vg_meter.sense_range_curr = sense_range[1]
+            logger.info("sense 1 range: %f", sense_range[0])
+            logger.info("sense 2 range: %f", sense_range[1])
+
+        if source_range is not None:
+            ds_src_sens_lst[0].source_range = source_range[0]
+            vg_meter.source_range = source_range[1]
+            logger.info("source 1 range: %f", source_range[0])
+            logger.info("source 2 range: %f", source_range[1])
+
+        # modify the plot configuration
+        # note i[0] is timer
+        if if_plot:
+            plotobj.live_plot_init(
+                1,
+                2,
+                1 if freq is None else 2,
+                fig_height,
+                fig_width,
+                titles=[[r"I_{ds} V", r"I_{ds} T"]],
+                inline_jupyter=not use_dash,
+            )
+            plotobj.start_saving(mea_dict["plot_record_path"], saving_interval)
+
+        for i in mea_dict["gen_lst"]:
+            self.record_update(mea_dict["file_path"], mea_dict["record_num"], i)
+            time.sleep(step_time)
+            if plotobj is None:
+                continue
+            if freq is None:
+                plotobj.live_plot_update(
+                    [0, 0],
+                    [0, 1],
+                    [0, 0],
+                    [i[1], i[1]],
+                    [i[3], i[6]],
+                    incremental=True,
+                )
+            else:
+                plotobj.live_plot_update(
+                    [0, 0, 0],
+                    [0, 0, 1],
+                    [0, 1, 0],
+                    [i[1], i[1], i[1]],
+                    [i[3], i[4], i[9]],
+                    incremental=True,
+                )
+
+        if if_plot:
+            plotobj.stop_saving()
+        ds_src_sens_lst[0].output_switch("off")
+        vg_meter.output_switch("off")
+
+    def measure_IswpV_VVI_BT_ivcurve(
+        self,
+        *,
+        ids_max: float,
+        ids_step: float,
+        freq: Optional[float] = None,
+        ds_high: int | str,
+        ds_low: int | str,
+        sense1_high: int | str | None = None,
+        sense1_low: int | str | None = None,
+        sense2_high: int | str,
+        sense2_low: int | str,
+        ids_swpmode: str,
+        ids_swp_lst: Sequence[float] = None,
+        ds_meter: Meter | list[Meter],
+        ds_compliance: float | str,
+        vg: float,
+        vg_high: int | str,
+        vg_meter: Meter,
+        vg_compliance: float | str,
+        field: float = 0,
+        temperature: float,
+        folder_name: str = "",
+        step_time: float = 0.1,
+        source_wait: float = 0.3,
+        sense_range: list[float | str] | None = None,
+        source_range: list[float | str] | None = None,
+        if_plot: bool = True,
+        saving_interval: float = 7,
+        plotobj: DataManipulator = None,
+        use_dash: bool = False,
+        fig_height: float = 600,
+        fig_width: float = 1200,
+    ):
+        """
+        measure the Vds-I curve using TWO DC source meters, with other info (B, T, etc.) NOTE the vds_swp_lst will override the vds_step, vds_max and vds_swpmode
+
+        Args:
+            vds_max: float, the maximum drain-source voltage
+            vds_step: float, the step drain-source voltage
+            freq: float, the frequency
+            ds_high: int | str, the high terminal of the drain-source
+            ds_low: int | str, the low terminal of the drain-source
+            vds_swpmode: str, the sweep mode of the drain-source
+            vds_swp_lst: Sequence[float], the list of drain-source voltages
+            ds_meter: Meter | list[Meter], the meter used for both source and sense or two meters separately in a list
+            ds_compliance: float | str, the compliance of the drain-source meter
+            vg: float, the gate voltage
+            vg_high: int | str, the high terminal of the gate
+            vg_meter: Meter, the meter used for the gate
+            vg_compliance: float | str, the compliance of the gate meter
+            field: float, the field
+            temperature: float, the temperature
+            folder_name: str, the folder name
+            step_time: float, the step time
+            if_plot: bool, the individual plot
+            saving_interval: float, the saving interval in seconds
+        """
+        if sense_range is not None:
+            sense_range = [convert_unit(i, "")[0] for i in sense_range]
+        if source_range is not None:
+            source_range = [convert_unit(i, "")[0] for i in source_range]
+        logger.validate(isinstance(ds_meter, list), "ds_meter must be a list")
+        if len(ds_meter) == 3:
+            ds_src_sens_lst = ds_meter
+        elif len(ds_meter) == 2:
+            ds_src_sens_lst = [ds_meter[0], ds_meter[0], ds_meter[1]]
+        else:
+            raise ValueError("ds_meter must be a list of two or three meters")
+
+        if sense1_high is None and sense1_low is None:
+            sense1_high = ds_high
+            sense1_low = ds_low
+        else:
+            logger.info("four wire configuration detected, please check the meter setting, currently only 2450 is validated")
+            try:
+                ds_src_sens_lst[1].four_wire = True
+                logger.info("four wire configured")
+            except Exception as e:
+                logger.warning("no available four wire configuration detected: %s", e)
+
+        if plotobj is None and if_plot:
+            plotobj = DataManipulator(1)
+        if ids_swp_lst is not None:
+            ids_swpmode = "manual"
+
+        if freq is None:
+            mea_dict = self.get_measure_dict(
+                (
+                    "I_source_sweep_dc",
+                    "V_source_fixed_dc",
+                    "V_sense_dc",
+                    "V_sense_dc",
+                    "I_sense_dc",
+                    "B_fixed",
+                    "T_fixed",
+                ),
+                ids_max,
+                ids_step,
+                ds_high,
+                ds_low,
+                ids_swpmode,
+                vg,
+                vg_high,
+                0,
+                "",
+                sense1_high,
+                sense1_low,
+                "",
+                sense2_high,
+                sense2_low,
+                "",
+                vg_high,
+                0,
+                field,
+                temperature,
+                wrapper_lst=[
+                    ds_src_sens_lst[0],
+                    vg_meter,
+                    ds_src_sens_lst[1],
+                    ds_src_sens_lst[2],
+                    vg_meter,
+                ],
+                compliance_lst=[ds_compliance, vg_compliance],
+                if_combine_gen=True,  # False for coexistence of vary and mapping
+                special_name=folder_name,
+                sweep_tables=[ids_swp_lst],
+                measure_nickname="swpids-dc",
+                source_wait=source_wait,
+            )
+        else:
+            mea_dict = self.get_measure_dict(
+                (
+                    "I_source_sweep_ac",
+                    "V_source_fixed_dc",
+                    "V_sense_ac",
+                    "V_sense_ac",
+                    "I_sense_dc",
+                    "B_fixed",
+                    "T_fixed",
+                ),
+                ids_max,
+                ids_step,
+                freq,
+                ds_high,
+                ds_low,
+                ids_swpmode,
+                vg,
+                vg_high,
+                0,
+                "",
+                sense1_high,
+                sense1_low,
+                "",
+                sense2_high,
+                sense2_low,
+                "",
+                vg_high,
+                0,
+                field,
+                temperature,
+                wrapper_lst=[
+                    ds_src_sens_lst[0],
+                    vg_meter,
+                    ds_src_sens_lst[1],
+                    ds_src_sens_lst[2],
+                    vg_meter,
+                ],
+                compliance_lst=[ds_compliance, vg_compliance],
+                if_combine_gen=True,  # False for coexistence of vary and mapping
+                special_name=folder_name,
+                sweep_tables=[ids_swp_lst],
+                measure_nickname="swpids-ac",
+            )
+
+        logger.info("filepath: %s", mea_dict["file_path"])
+        logger.info("no of columns(with time column): %d", mea_dict["record_num"])
+        logger.info("vary modules: %s", mea_dict["vary_mod"])
+        if sense_range is not None:
+            ds_src_sens_lst[1].sense_range_curr = sense_range[0]
+            ds_src_sens_lst[2].sense_range_curr = sense_range[1]
+            vg_meter.sense_range_curr = sense_range[2]
+            logger.info("sense 1 range: %f", sense_range[0])
+            logger.info("sense 2 range: %f", sense_range[1])
+            logger.info("sense 3 range: %f", sense_range[2])
+
+        if source_range is not None:
+            ds_src_sens_lst[0].source_range = source_range[0]
+            vg_meter.source_range = source_range[1]
+            logger.info("source 1 range: %f", source_range[0])
+            logger.info("source 2 range: %f", source_range[1])
+
+        # modify the plot configuration
+        # note i[0] is timer
+        if if_plot:
+            plotobj.live_plot_init(
+                2,
+                2,
+                1 if freq is None else 2,
+                fig_height,
+                fig_width,
+                titles=[[r"$I_{ds}-V1$", r"$I_{ds}-V2$"], 
+                        [r"$I_{ds}-T$", r"$I_{ds}-I_g$"]],
+                inline_jupyter=not use_dash,
+            )
+            plotobj.start_saving(mea_dict["plot_record_path"], saving_interval)
+
+        for i in mea_dict["gen_lst"]:
+            self.record_update(mea_dict["file_path"], mea_dict["record_num"], i)
+            time.sleep(step_time)
+            if plotobj is None:
+                continue
+            if freq is None:
+                plotobj.live_plot_update(
+                    [0, 0, 1, 1],
+                    [0, 1, 0, 1],
+                    [0, 0, 0, 0],
+                    [i[1], i[1], i[1], i[1]],
+                    [i[3], i[4], i[7], i[5]],
+                    incremental=True,
+                )
+            else:
+                #TODO: not completed
+                plotobj.live_plot_update(
+                    [0, 0, 0],
+                    [0, 0, 1],
+                    [0, 1, 0],
+                    [i[1], i[1], i[1]],
+                    [i[3], i[4], i[9]],
+                    incremental=True,
+                )
+
+        if if_plot:
+            plotobj.stop_saving()
+        ds_src_sens_lst[0].output_switch("off")
+        vg_meter.output_switch("off")
+
+##  VI curve lockin
     def measure_Vswp_Vnw_vrcurve_lockin(
         self,
         *,
@@ -301,6 +965,7 @@ class MeasureFlow(MeasureManager):
         fig_width: float = 1200,
         no_autoassign: bool = False,
         r_cal: Literal["X/I", "Y/I", "R/I", "Y/I^2", "R/I^2"] = "R/I",
+        large_resistance: bool = False,
     ) -> None:
         """
         measure the V-R curve using ONE DC source meter, no other info (B, T, etc.). Use freq to indicate ac measurement
@@ -623,7 +1288,8 @@ class MeasureFlow(MeasureManager):
         if if_plot:
             plotobj.stop_saving()
 
-    def measure_VV_II_BTvary_rt(
+##  RT
+    def measure_VV_II_BTvary_gate_rt(
         self,
         *,
         vds: float,
@@ -830,6 +1496,164 @@ class MeasureFlow(MeasureManager):
 
         if if_plot:
             plotobj.stop_saving()
+
+    def measure_VV_II_BTvary_rt(
+        self,
+        *,
+        vds: float,
+        ds_high: int | str,
+        ds_low: int | str,
+        ds_meter: Meter | list[Meter],
+        ds_compliance: float | str,
+        vds2: float,
+        ds2_high: int | str,
+        ds2_low: int | str,
+        ds2_meter: Meter,
+        ds2_compliance: float | str,
+        field: float,
+        temperature_start: float,
+        temperature_end: float,
+        folder_name: str = "",
+        step_time: float = 0.7,
+        wait_before_vary: float = 13,
+        vary_loop: bool = False,
+        if_plot: bool = True,
+        saving_interval: float = 7,
+        no_start_vary: bool = True,
+        plotobj: Optional[DataManipulator] = None,
+        use_dash: bool = False,
+        sense_range: list[float] | None = None,
+        source_range: list[float] | None = None,
+        source_wait: float = 0.5,
+    ) -> None:
+        """
+        measure the V-V and I-I curve using one or two source meters, with other info (B, T, etc.)
+
+        Args:
+            vds: float, the drain-source voltage
+            ds_high: int | str, the high terminal of the drain-source
+            ds_low: int | str, the low terminal of the drain-source
+            ds_meter: Meter | list[Meter], the meter used for both source and sense or two meters separately in a list
+            ds_compliance: float | str, the compliance of the drain-source meter
+            freq: float, the frequency
+            vg: float, the gate voltage
+            vg_high: int | str, the high terminal of the gate
+            vg_meter: Meter, the meter used for the gate
+            vg_compliance: float | str, the compliance of the gate meter
+            field: float, the field
+            temperature_start: float, the start temperature
+            temperature_end: float, the end temperature
+            folder_name: str, the folder name
+            step_time: float, the step time
+            wait_before_vary: float, the wait before vary
+            vary_loop: bool, the vary loop
+            if_plot: bool, the individual plot
+            saving_interval: float, the saving interval in seconds
+        """
+        ds_src_sens_lst: list[SourceMeter, Meter]
+        if isinstance(ds_meter, list):
+            logger.validate(len(ds_meter) == 2, "ds_meter must be a list of two meters")
+            ds_src_sens_lst = ds_meter
+        else:
+            ds_src_sens_lst = [ds_meter, ds_meter]
+
+        if plotobj is None and if_plot:
+            plotobj = DataManipulator(1)
+
+        mea_dict = self.get_measure_dict(
+            (
+                "V_source_fixed_dc",
+                "V_source_fixed_dc",
+                "I_sense_dc",
+                "I_sense_dc",
+                "B_fixed",
+                "T_vary",
+            ),
+            vds,
+            ds_high,
+            ds_low,
+            vds2,
+            ds2_high,
+            ds2_low,
+            "",
+            ds_high,
+            ds_low,
+            "",
+            ds2_high,
+            ds2_low,
+            field,
+            temperature_start,
+            temperature_end,
+            wrapper_lst=[
+                ds_src_sens_lst[0],
+                ds2_meter,
+                ds_src_sens_lst[1],
+                ds2_meter,
+            ],
+            compliance_lst=[ds_compliance, ds2_compliance],
+            if_combine_gen=True,  # False for coexistence of vary and mapping
+            special_name=folder_name,
+            measure_nickname="rt-dc",
+            vary_loop=vary_loop,
+            wait_before_vary=wait_before_vary,
+            no_start_vary=no_start_vary,
+            source_wait=source_wait,
+        )
+
+        logger.info("filepath: %s", mea_dict["file_path"])
+        logger.info("no of columns(with time column): %d", mea_dict["record_num"])
+        logger.info("vary modules: %s", mea_dict["vary_mod"])
+        if sense_range is not None:
+            logger.validate(
+                len(sense_range) == 2, "sense_range must be a list of two floats"
+            )
+            ds_src_sens_lst[1].sense_range_curr = sense_range[0]
+            ds2_meter.sense_range_curr = sense_range[1]
+            logger.info("sense range: %f", sense_range[0])
+        if source_range is not None:
+            logger.validate(
+                len(source_range) == 2, "source_range must be a list of two floats"
+            )
+            ds_src_sens_lst[0].source_range = source_range[0]
+            logger.info("source range: %f", source_range[0])
+
+        vary_lst, _, _, _ = self._extract_vary(mea_dict)
+        # modify the plot configuration
+        begin_vary = False
+        if if_plot:
+            plotobj.live_plot_init(
+                1,
+                3,
+                1,
+                titles=[[r"T $I_{ds1}$", r"T $I_{ds2}$", "t T"]],
+                inline_jupyter=not use_dash,
+            )
+            plotobj.start_saving(mea_dict["plot_record_path"], saving_interval)
+
+        for gen_i in mea_dict["gen_lst"]:
+            self.record_update(mea_dict["file_path"], mea_dict["record_num"], gen_i)
+            time.sleep(step_time)
+            if plotobj is None:
+                continue
+            plotobj.live_plot_update(
+                [0, 0],
+                [0, 1],
+                [0, 0],
+                [gen_i[6], gen_i[6]],
+                [gen_i[3], gen_i[4]],
+                incremental=True,
+            )
+            plotobj.live_plot_update(0, 2, 0, gen_i[0], gen_i[6], incremental=True)
+
+            if not begin_vary:
+                for funci in vary_lst:
+                    funci()
+                begin_vary = True
+
+        if if_plot:
+            plotobj.stop_saving()
+
+
 
     def measure_VV_VnwI_BTvary_rt_lockin(
         self,
@@ -1375,6 +2199,249 @@ class MeasureFlow(MeasureManager):
         if if_plot:
             plotobj.stop_saving()
 
+    def measure_VI_VnwVnwV_BTvary_rt_lockin_dc(
+        self,
+        *,
+        harmonics_measured: list[int] = [1, 2],
+        resistor: float | str,
+        vds: float,
+        vds_high: int | str,
+        vds_low: int | str,
+        vnw1_high: int | str,
+        vnw1_low: int | str,
+        vnw2_high: int | str,
+        vnw2_low: int | str,
+        vds_meter: list[Meter],
+        vds_compliance: float | str,
+        freq: float,
+        ids: float,
+        ids_high: int | str,
+        ids_low: int | str,
+        sense_high: int | str,
+        sense_low: int | str,
+        ids_meter: Meter | list[Meter],
+        ids_compliance: float | str,
+        field: float,
+        sense_range: list[float] | None = None,
+        source_range: list[float] | None = None,
+        temperature_start: float,
+        temperature_end: float,
+        folder_name: str = "",
+        step_time: float = 0.7,
+        wait_before_vary: float = 13,
+        vary_loop: bool = False,
+        if_plot: bool = True,
+        saving_interval: float = 7,
+        no_start_vary: bool = True,
+        plotobj: Optional[DataManipulator] = None,
+        use_dash: bool = False,
+        fig_height: float = 600,
+        fig_width: float = 1200,
+        no_autoassign: bool = False,
+    ) -> None:
+        """
+        measure the V-V and I-I curve using one or two source meters, with other info (B, T, etc.)
+
+        Args:
+            vds: float, the drain-source voltage
+            ds_high: int | str, the high terminal of the drain-source
+            ds_low: int | str, the low terminal of the drain-source
+            vnw_high: int | str, the high terminal of the vnw measuring
+            vnw_low: int | str, the low terminal of the vnw measuring
+            ds_meter: Meter | list[Meter], the meter used for both source and sense or two meters separately in a list
+            ds_compliance: float | str, the compliance of the drain-source meter
+            freq: float, the frequency
+            vg: float, the gate voltage
+            vg_high: int | str, the high terminal of the gate
+            vg_meter: Meter, the meter used for the gate
+            vg_compliance: float | str, the compliance of the gate meter
+            field: float, the field
+            temperature_start: float, the start temperature
+            temperature_end: float, the end temperature
+            folder_name: str, the folder name
+            step_time: float, the step time
+            wait_before_vary: float, the wait before vary
+            vary_loop: bool, the vary loop
+            if_plot: bool, the individual plot
+            saving_interval: float, the saving interval in seconds
+        """
+        if not (vnw1_high == vnw2_high and vnw1_low == vnw2_low):
+            no_autoassign = True
+        if folder_name == "":
+            folder_name = f"sense-{harmonics_measured[0]}w-{harmonics_measured[1]}w-dc"
+        if sense_range is not None:
+            sense_range = [convert_unit(i, "")[0] for i in sense_range]
+        if source_range is not None:
+            source_range = [convert_unit(i, "")[0] for i in source_range]
+
+        resistor = convert_unit(resistor, "Ohm")[0]
+        logger.validate(isinstance(vds_meter, list), "ds_meter must be a list")
+        if len(vds_meter) == 3:
+            ds_src_sens_lst = vds_meter
+        elif len(vds_meter) == 2:
+            # use source meter as the meter with high harmonics
+            if not no_autoassign and harmonics_measured[0] < harmonics_measured[1]:
+                ds_src_sens_lst = [vds_meter[0], vds_meter[1], vds_meter[0]]
+                if sense_range is not None:
+                    sense_range = [sense_range[1], sense_range[0], sense_range[2]]
+            else:
+                ds_src_sens_lst = [vds_meter[0], vds_meter[0], vds_meter[1]]
+        else:
+            raise ValueError("ds_meter must be a list of two or three meters")
+
+        if isinstance(ids_meter, list):
+            logger.validate(len(ids_meter) == 2, "ds_meter must be a list of two meters")
+            ids_meter_lst = ids_meter
+        else:
+            ids_meter_lst = [ids_meter, ids_meter]
+
+        if sense_high is None and sense_low is None:
+            sense_high = ids_high
+            sense_low = ids_low
+        else:
+            logger.info("four wire configuration detected, please check the meter setting, currently only 2450 is validated")
+            try:
+                ids_meter_lst[1].four_wire = True
+                time.sleep(0.1)
+                logger.info("four wire configured")
+            except Exception as e:
+                logger.warning("no available four wire configuration detected: %s", e)
+
+        if plotobj is None and if_plot:
+            plotobj = DataManipulator(1)
+
+        mea_dict = self.get_measure_dict(
+            (
+                "V_source_fixed_ac",
+                "I_source_fixed_dc",
+                "V_sense_ac",
+                "V_sense_ac",
+                "V_sense_dc",
+                "B_fixed",
+                "T_vary",
+            ),
+            vds,
+            freq,
+            vds_high,
+            vds_low,
+            ids,
+            ids_high,
+            ids_low,
+            f"{harmonics_measured[0]}w",
+            vnw1_high,
+            vnw1_low,
+            f"{harmonics_measured[1]}w",
+            vnw2_high,
+            vnw2_low,
+            "",
+            sense_high,
+            sense_low,
+            field,
+            temperature_start,
+            temperature_end,
+            wrapper_lst=[
+                ds_src_sens_lst[0],
+                ids_meter_lst[0],
+                ds_src_sens_lst[1],
+                ds_src_sens_lst[2],
+                ids_meter_lst[1],
+            ],
+            compliance_lst=[vds_compliance, ids_compliance],
+            if_combine_gen=True,  # False for coexistence of vary and mapping
+            special_name=f"{resistor}Ohm-{folder_name}",
+            measure_nickname="rt-lockin-dc",
+            vary_loop=vary_loop,
+            wait_before_vary=wait_before_vary,
+            no_start_vary=no_start_vary,
+        )
+
+        logger.info("filepath: %s", mea_dict["file_path"])
+        logger.info("no of columns(with time column): %d", mea_dict["record_num"])
+        logger.info("vary modules: %s", mea_dict["vary_mod"])
+        ds_src_sens_lst[1].reference_set(harmonic=harmonics_measured[0])
+        ds_src_sens_lst[2].reference_set(harmonic=harmonics_measured[1])
+        logger.info(
+            "sense harmonic: %d, %d", harmonics_measured[0], harmonics_measured[1]
+        )
+        if sense_range is not None:
+            logger.validate(
+                len(sense_range) == 3, "sense_range must be a list of three values"
+            )
+            ds_src_sens_lst[1].sense_range_volt = sense_range[0]
+            ds_src_sens_lst[2].sense_range_volt = sense_range[1]
+            ids_meter_lst[1].sense_range_volt = sense_range[2]
+            time.sleep(5)
+            logger.info("sense 1 range: %f", sense_range[0])
+            logger.info("sense 2 range: %f", sense_range[1])
+            logger.info("sense 3 range: %f", sense_range[2])
+        if source_range is not None:
+            logger.validate(
+                len(source_range) == 2, "source_range must be a list of two values"
+            )
+            ds_src_sens_lst[0].source_range = source_range[0]
+            ids_meter_lst[0].source_range = source_range[1]
+            logger.info("source 1 range: %f", source_range[0])
+            logger.info("source 2 range: %f", source_range[1])
+
+        vary_lst, _, _, _ = self._extract_vary(mea_dict)
+        # modify the plot configuration
+        begin_vary = False
+        if if_plot:
+            plotobj.live_plot_init(
+                4,
+                2,
+                4,
+                fig_height,
+                fig_width,
+                titles=[
+                    ["T R", r"T $V_{lockin}$"],
+                    ["T R", r"T $V_{lockin}$"],
+                    ["T R", r"T $V_{dc}$"],
+                    ["t T", ""],
+                ],
+                inline_jupyter=not use_dash,
+            )
+            plotobj.start_saving(mea_dict["plot_record_path"], saving_interval)
+
+        for gen_i in mea_dict["gen_lst"]:
+            self.record_update(mea_dict["file_path"], mea_dict["record_num"], gen_i)
+            time.sleep(step_time)
+            if plotobj is None:
+                continue
+            plotobj.live_plot_update(
+                [0, 0, 0, 1, 1, 1, 2, 2],
+                [0, 1, 1, 0, 1, 1, 0, 1],
+                [0, 0, 1, 0, 0, 1, 0, 0],
+                [gen_i[13]] * 8,
+                [
+                    gen_i[5] / (gen_i[1] / resistor),
+                    gen_i[3],
+                    gen_i[4],
+                    gen_i[9] / (gen_i[1] / resistor),
+                    gen_i[7],
+                    gen_i[8],
+                    gen_i[11] / gen_i[2],
+                    gen_i[11]
+                ],
+                incremental=True,
+            )
+            plotobj.live_plot_update(
+                [3],
+                [0],
+                [0],
+                [gen_i[0]],
+                [gen_i[13]],
+                incremental=True,
+            )
+
+            if not begin_vary:
+                for funci in vary_lst:
+                    funci()
+                begin_vary = True
+
+        if if_plot:
+            plotobj.stop_saving()
+
     def b2_measure_VV_VnwVnwI_BTvary_rt_lockin(
         self,
         *,
@@ -1723,6 +2790,7 @@ class MeasureFlow(MeasureManager):
         if if_plot:
             plotobj.stop_saving()
 
+##  Gate sweep
     def measure_IVswp_VI_BT_gateswp(
         self,
         *,
@@ -2526,211 +3594,6 @@ class MeasureFlow(MeasureManager):
         if if_plot:
             plotobj.stop_saving()
 
-    def measure_VswpV_II_BT_vicurve(
-        self,
-        *,
-        vds_max: float,
-        vds_step: float,
-        freq: Optional[float] = None,
-        ds_high: int | str,
-        ds_low: int | str,
-        vds_swpmode: str,
-        vds_swp_lst: Sequence[float] = None,
-        ds_meter: Meter | list[Meter],
-        ds_compliance: float | str,
-        vg: float,
-        vg_high: int | str,
-        vg_meter: Meter,
-        vg_compliance: float | str,
-        field: float = 0,
-        temperature: float,
-        folder_name: str = "",
-        step_time: float = 0.1,
-        source_wait: float = 0.3,
-        sense_range: list[float | str] | None = None,
-        source_range: list[float | str] | None = None,
-        if_plot: bool = True,
-        saving_interval: float = 7,
-        plotobj: DataManipulator = None,
-        use_dash: bool = False,
-        fig_height: float = 600,
-        fig_width: float = 1200,
-    ):
-        """
-        measure the Vds-I curve using TWO DC source meters, with other info (B, T, etc.) NOTE the vds_swp_lst will override the vds_step, vds_max and vds_swpmode
-
-        Args:
-            vds_max: float, the maximum drain-source voltage
-            vds_step: float, the step drain-source voltage
-            freq: float, the frequency
-            ds_high: int | str, the high terminal of the drain-source
-            ds_low: int | str, the low terminal of the drain-source
-            vds_swpmode: str, the sweep mode of the drain-source
-            vds_swp_lst: Sequence[float], the list of drain-source voltages
-            ds_meter: Meter | list[Meter], the meter used for both source and sense or two meters separately in a list
-            ds_compliance: float | str, the compliance of the drain-source meter
-            vg: float, the gate voltage
-            vg_high: int | str, the high terminal of the gate
-            vg_meter: Meter, the meter used for the gate
-            vg_compliance: float | str, the compliance of the gate meter
-            field: float, the field
-            temperature: float, the temperature
-            folder_name: str, the folder name
-            step_time: float, the step time
-            if_plot: bool, the individual plot
-            saving_interval: float, the saving interval in seconds
-        """
-        if sense_range is not None:
-            sense_range = [convert_unit(i, "")[0] for i in sense_range]
-        if source_range is not None:
-            source_range = [convert_unit(i, "")[0] for i in source_range]
-        if isinstance(ds_meter, list):
-            logger.validate(len(ds_meter) == 2, "ds_meter must be a list of two meters")
-            ds_src_sens_lst = ds_meter
-        else:
-            ds_src_sens_lst = [ds_meter, ds_meter]
-        if plotobj is None and if_plot:
-            plotobj = DataManipulator(1)
-        if vds_swp_lst is not None:
-            vds_swpmode = "manual"
-
-        if freq is None:
-            mea_dict = self.get_measure_dict(
-                (
-                    "V_source_sweep_dc",
-                    "V_source_fixed_dc",
-                    "I_sense_dc",
-                    "I_sense_dc",
-                    "B_fixed",
-                    "T_fixed",
-                ),
-                vds_max,
-                vds_step,
-                ds_high,
-                ds_low,
-                vds_swpmode,
-                vg,
-                vg_high,
-                0,
-                "",
-                ds_high,
-                ds_low,
-                "",
-                vg_high,
-                0,
-                field,
-                temperature,
-                wrapper_lst=[
-                    ds_src_sens_lst[0],
-                    vg_meter,
-                    ds_src_sens_lst[1],
-                    vg_meter,
-                ],
-                compliance_lst=[ds_compliance, vg_compliance],
-                if_combine_gen=True,  # False for coexistence of vary and mapping
-                special_name=folder_name,
-                sweep_tables=[vds_swp_lst],
-                measure_nickname="swpds-dc",
-                source_wait=source_wait,
-            )
-        else:
-            mea_dict = self.get_measure_dict(
-                (
-                    "V_source_sweep_ac",
-                    "V_source_fixed_dc",
-                    "I_sense_ac",
-                    "I_sense_dc",
-                    "B_fixed",
-                    "T_fixed",
-                ),
-                vds_max,
-                vds_step,
-                freq,
-                ds_high,
-                ds_low,
-                vds_swpmode,
-                vg,
-                vg_high,
-                0,
-                "",
-                ds_high,
-                ds_low,
-                "",
-                vg_high,
-                0,
-                field,
-                temperature,
-                wrapper_lst=[
-                    ds_src_sens_lst[0],
-                    vg_meter,
-                    ds_src_sens_lst[1],
-                    vg_meter,
-                ],
-                compliance_lst=[ds_compliance, vg_compliance],
-                if_combine_gen=True,  # False for coexistence of vary and mapping
-                special_name=folder_name,
-                sweep_tables=[vds_swp_lst],
-                measure_nickname="swpds-ac",
-            )
-
-        logger.info("filepath: %s", mea_dict["file_path"])
-        logger.info("no of columns(with time column): %d", mea_dict["record_num"])
-        logger.info("vary modules: %s", mea_dict["vary_mod"])
-        if sense_range is not None:
-            ds_src_sens_lst[1].sense_range_curr = sense_range[0]
-            vg_meter.sense_range_curr = sense_range[1]
-            logger.info("sense 1 range: %f", sense_range[0])
-            logger.info("sense 2 range: %f", sense_range[1])
-
-        if source_range is not None:
-            ds_src_sens_lst[0].source_range = source_range[0]
-            vg_meter.source_range = source_range[1]
-            logger.info("source 1 range: %f", source_range[0])
-            logger.info("source 2 range: %f", source_range[1])
-
-        # modify the plot configuration
-        # note i[0] is timer
-        if if_plot:
-            plotobj.live_plot_init(
-                1,
-                2,
-                1 if freq is None else 2,
-                fig_height,
-                fig_width,
-                titles=[[r"$V_{ds}$ I", r"$V_{ds}$ T"]],
-                inline_jupyter=not use_dash,
-            )
-            plotobj.start_saving(mea_dict["plot_record_path"], saving_interval)
-
-        for i in mea_dict["gen_lst"]:
-            self.record_update(mea_dict["file_path"], mea_dict["record_num"], i)
-            time.sleep(step_time)
-            if plotobj is None:
-                continue
-            if freq is None:
-                plotobj.live_plot_update(
-                    [0, 0],
-                    [0, 1],
-                    [0, 0],
-                    [i[1], i[1]],
-                    [i[3], i[6]],
-                    incremental=True,
-                )
-            else:
-                plotobj.live_plot_update(
-                    [0, 0, 0],
-                    [0, 0, 1],
-                    [0, 1, 0],
-                    [i[1], i[1], i[1]],
-                    [i[3], i[4], i[9]],
-                    incremental=True,
-                )
-
-        if if_plot:
-            plotobj.stop_saving()
-        ds_src_sens_lst[0].output_switch("off")
-        vg_meter.output_switch("off")
-
     def measure_VswpV_II_BT_optoelec(
         self,
         *,
@@ -2946,464 +3809,7 @@ class MeasureFlow(MeasureManager):
         ds_src_sens_lst[0].output_switch("off")
         vg_meter.output_switch("off")
         self.instrs["laser"].shutter_close()
-
-    def measure_IswpV_VI_BT_ivcurve(
-        self,
-        *,
-        ids_max: float,
-        ids_step: float,
-        freq: Optional[float] = None,
-        ds_high: int | str,
-        ds_low: int | str,
-        sense_high: int | str | None = None,
-        sense_low: int | str | None = None,
-        ids_swpmode: str,
-        ids_swp_lst: Sequence[float] = None,
-        ds_meter: Meter | list[Meter],
-        ds_compliance: float | str,
-        vg: float,
-        vg_high: int | str,
-        vg_meter: Meter,
-        vg_compliance: float | str,
-        field: float = 0,
-        temperature: float,
-        folder_name: str = "",
-        step_time: float = 0.1,
-        source_wait: float = 0.3,
-        sense_range: list[float | str] | None = None,
-        source_range: list[float | str] | None = None,
-        if_plot: bool = True,
-        saving_interval: float = 7,
-        plotobj: DataManipulator | None = None,
-        use_dash: bool = False,
-        fig_height: float = 600,
-        fig_width: float = 1200,
-    ):
-        """
-        measure the Vds-I curve using TWO DC source meters, with other info (B, T, etc.) NOTE the vds_swp_lst will override the vds_step, vds_max and vds_swpmode
-
-        Args:
-            vds_max: float, the maximum drain-source voltage
-            vds_step: float, the step drain-source voltage
-            freq: float, the frequency
-            ds_high: int | str, the high terminal of the drain-source
-            ds_low: int | str, the low terminal of the drain-source
-            vds_swpmode: str, the sweep mode of the drain-source
-            vds_swp_lst: Sequence[float], the list of drain-source voltages
-            ds_meter: Meter | list[Meter], the meter used for both source and sense or two meters separately in a list
-            ds_compliance: float | str, the compliance of the drain-source meter
-            vg: float, the gate voltage
-            vg_high: int | str, the high terminal of the gate
-            vg_meter: Meter, the meter used for the gate
-            vg_compliance: float | str, the compliance of the gate meter
-            field: float, the field
-            temperature: float, the temperature
-            folder_name: str, the folder name
-            step_time: float, the step time
-            if_plot: bool, the individual plot
-            saving_interval: float, the saving interval in seconds
-        """
-        if sense_range is not None:
-            sense_range = [convert_unit(i, "")[0] for i in sense_range]
-        if source_range is not None:
-            source_range = [convert_unit(i, "")[0] for i in source_range]
-        if isinstance(ds_meter, list):
-            logger.validate(len(ds_meter) == 2, "ds_meter must be a list of two meters")
-            ds_src_sens_lst = ds_meter
-        else:
-            ds_src_sens_lst = [ds_meter, ds_meter]
-
-        if sense_high is None and sense_low is None:
-            sense_high = ds_high
-            sense_low = ds_low
-        else:
-            logger.info("four wire configuration detected, please check the meter setting, currently only 2450 is validated")
-            try:
-                ds_src_sens_lst[1].four_wire = True
-                logger.info("four wire configured")
-            except Exception as e:
-                logger.warning("no available four wire configuration detected: %s", e)
-
-        if plotobj is None and if_plot:
-            plotobj = DataManipulator(1)
-        if ids_swp_lst is not None:
-            ids_swpmode = "manual"
-
-        if freq is None:
-            mea_dict = self.get_measure_dict(
-                (
-                    "I_source_sweep_dc",
-                    "V_source_fixed_dc",
-                    "V_sense_dc",
-                    "I_sense_dc",
-                    "B_fixed",
-                    "T_fixed",
-                ),
-                ids_max,
-                ids_step,
-                ds_high,
-                ds_low,
-                ids_swpmode,
-                vg,
-                vg_high,
-                0,
-                "",
-                sense_high,
-                sense_low,
-                "",
-                vg_high,
-                0,
-                field,
-                temperature,
-                wrapper_lst=[
-                    ds_src_sens_lst[0],
-                    vg_meter,
-                    ds_src_sens_lst[1],
-                    vg_meter,
-                ],
-                compliance_lst=[ds_compliance, vg_compliance],
-                if_combine_gen=True,  # False for coexistence of vary and mapping
-                special_name=folder_name,
-                sweep_tables=[ids_swp_lst],
-                measure_nickname="swpids-dc",
-                source_wait=source_wait,
-            )
-        else:
-            mea_dict = self.get_measure_dict(
-                (
-                    "I_source_sweep_ac",
-                    "V_source_fixed_dc",
-                    "V_sense_ac",
-                    "I_sense_dc",
-                    "B_fixed",
-                    "T_fixed",
-                ),
-                ids_max,
-                ids_step,
-                freq,
-                ds_high,
-                ds_low,
-                ids_swpmode,
-                vg,
-                vg_high,
-                0,
-                "",
-                sense_high,
-                sense_low,
-                "",
-                vg_high,
-                0,
-                field,
-                temperature,
-                wrapper_lst=[
-                    ds_src_sens_lst[0],
-                    vg_meter,
-                    ds_src_sens_lst[1],
-                    vg_meter,
-                ],
-                compliance_lst=[ds_compliance, vg_compliance],
-                if_combine_gen=True,  # False for coexistence of vary and mapping
-                special_name=folder_name,
-                sweep_tables=[ids_swp_lst],
-                measure_nickname="swpids-ac",
-                source_wait=source_wait,
-            )
-
-        logger.info("filepath: %s", mea_dict["file_path"])
-        logger.info("no of columns(with time column): %d", mea_dict["record_num"])
-        logger.info("vary modules: %s", mea_dict["vary_mod"])
-        if sense_range is not None:
-            ds_src_sens_lst[1].sense_range_curr = sense_range[0]
-            vg_meter.sense_range_curr = sense_range[1]
-            logger.info("sense 1 range: %f", sense_range[0])
-            logger.info("sense 2 range: %f", sense_range[1])
-
-        if source_range is not None:
-            ds_src_sens_lst[0].source_range = source_range[0]
-            vg_meter.source_range = source_range[1]
-            logger.info("source 1 range: %f", source_range[0])
-            logger.info("source 2 range: %f", source_range[1])
-
-        # modify the plot configuration
-        # note i[0] is timer
-        if if_plot:
-            plotobj.live_plot_init(
-                1,
-                2,
-                1 if freq is None else 2,
-                fig_height,
-                fig_width,
-                titles=[[r"I_{ds} V", r"I_{ds} T"]],
-                inline_jupyter=not use_dash,
-            )
-            plotobj.start_saving(mea_dict["plot_record_path"], saving_interval)
-
-        for i in mea_dict["gen_lst"]:
-            self.record_update(mea_dict["file_path"], mea_dict["record_num"], i)
-            time.sleep(step_time)
-            if plotobj is None:
-                continue
-            if freq is None:
-                plotobj.live_plot_update(
-                    [0, 0],
-                    [0, 1],
-                    [0, 0],
-                    [i[1], i[1]],
-                    [i[3], i[6]],
-                    incremental=True,
-                )
-            else:
-                plotobj.live_plot_update(
-                    [0, 0, 0],
-                    [0, 0, 1],
-                    [0, 1, 0],
-                    [i[1], i[1], i[1]],
-                    [i[3], i[4], i[9]],
-                    incremental=True,
-                )
-
-        if if_plot:
-            plotobj.stop_saving()
-        ds_src_sens_lst[0].output_switch("off")
-        vg_meter.output_switch("off")
-
-    def measure_IswpV_VVI_BT_ivcurve(
-        self,
-        *,
-        ids_max: float,
-        ids_step: float,
-        freq: Optional[float] = None,
-        ds_high: int | str,
-        ds_low: int | str,
-        sense1_high: int | str | None = None,
-        sense1_low: int | str | None = None,
-        sense2_high: int | str,
-        sense2_low: int | str,
-        ids_swpmode: str,
-        ids_swp_lst: Sequence[float] = None,
-        ds_meter: Meter | list[Meter],
-        ds_compliance: float | str,
-        vg: float,
-        vg_high: int | str,
-        vg_meter: Meter,
-        vg_compliance: float | str,
-        field: float = 0,
-        temperature: float,
-        folder_name: str = "",
-        step_time: float = 0.1,
-        source_wait: float = 0.3,
-        sense_range: list[float | str] | None = None,
-        source_range: list[float | str] | None = None,
-        if_plot: bool = True,
-        saving_interval: float = 7,
-        plotobj: DataManipulator = None,
-        use_dash: bool = False,
-        fig_height: float = 600,
-        fig_width: float = 1200,
-    ):
-        """
-        measure the Vds-I curve using TWO DC source meters, with other info (B, T, etc.) NOTE the vds_swp_lst will override the vds_step, vds_max and vds_swpmode
-
-        Args:
-            vds_max: float, the maximum drain-source voltage
-            vds_step: float, the step drain-source voltage
-            freq: float, the frequency
-            ds_high: int | str, the high terminal of the drain-source
-            ds_low: int | str, the low terminal of the drain-source
-            vds_swpmode: str, the sweep mode of the drain-source
-            vds_swp_lst: Sequence[float], the list of drain-source voltages
-            ds_meter: Meter | list[Meter], the meter used for both source and sense or two meters separately in a list
-            ds_compliance: float | str, the compliance of the drain-source meter
-            vg: float, the gate voltage
-            vg_high: int | str, the high terminal of the gate
-            vg_meter: Meter, the meter used for the gate
-            vg_compliance: float | str, the compliance of the gate meter
-            field: float, the field
-            temperature: float, the temperature
-            folder_name: str, the folder name
-            step_time: float, the step time
-            if_plot: bool, the individual plot
-            saving_interval: float, the saving interval in seconds
-        """
-        if sense_range is not None:
-            sense_range = [convert_unit(i, "")[0] for i in sense_range]
-        if source_range is not None:
-            source_range = [convert_unit(i, "")[0] for i in source_range]
-        logger.validate(isinstance(ds_meter, list), "ds_meter must be a list")
-        if len(ds_meter) == 3:
-            ds_src_sens_lst = ds_meter
-        elif len(ds_meter) == 2:
-            ds_src_sens_lst = [ds_meter[0], ds_meter[0], ds_meter[1]]
-        else:
-            raise ValueError("ds_meter must be a list of two or three meters")
-
-        if sense1_high is None and sense1_low is None:
-            sense1_high = ds_high
-            sense1_low = ds_low
-        else:
-            logger.info("four wire configuration detected, please check the meter setting, currently only 2450 is validated")
-            try:
-                ds_src_sens_lst[1].four_wire = True
-                logger.info("four wire configured")
-            except Exception as e:
-                logger.warning("no available four wire configuration detected: %s", e)
-
-        if plotobj is None and if_plot:
-            plotobj = DataManipulator(1)
-        if ids_swp_lst is not None:
-            ids_swpmode = "manual"
-
-        if freq is None:
-            mea_dict = self.get_measure_dict(
-                (
-                    "I_source_sweep_dc",
-                    "V_source_fixed_dc",
-                    "V_sense_dc",
-                    "V_sense_dc",
-                    "I_sense_dc",
-                    "B_fixed",
-                    "T_fixed",
-                ),
-                ids_max,
-                ids_step,
-                ds_high,
-                ds_low,
-                ids_swpmode,
-                vg,
-                vg_high,
-                0,
-                "",
-                sense1_high,
-                sense1_low,
-                "",
-                sense2_high,
-                sense2_low,
-                "",
-                vg_high,
-                0,
-                field,
-                temperature,
-                wrapper_lst=[
-                    ds_src_sens_lst[0],
-                    vg_meter,
-                    ds_src_sens_lst[1],
-                    ds_src_sens_lst[2],
-                    vg_meter,
-                ],
-                compliance_lst=[ds_compliance, vg_compliance],
-                if_combine_gen=True,  # False for coexistence of vary and mapping
-                special_name=folder_name,
-                sweep_tables=[ids_swp_lst],
-                measure_nickname="swpids-dc",
-                source_wait=source_wait,
-            )
-        else:
-            mea_dict = self.get_measure_dict(
-                (
-                    "I_source_sweep_ac",
-                    "V_source_fixed_dc",
-                    "V_sense_ac",
-                    "V_sense_ac",
-                    "I_sense_dc",
-                    "B_fixed",
-                    "T_fixed",
-                ),
-                ids_max,
-                ids_step,
-                freq,
-                ds_high,
-                ds_low,
-                ids_swpmode,
-                vg,
-                vg_high,
-                0,
-                "",
-                sense1_high,
-                sense1_low,
-                "",
-                sense2_high,
-                sense2_low,
-                "",
-                vg_high,
-                0,
-                field,
-                temperature,
-                wrapper_lst=[
-                    ds_src_sens_lst[0],
-                    vg_meter,
-                    ds_src_sens_lst[1],
-                    ds_src_sens_lst[2],
-                    vg_meter,
-                ],
-                compliance_lst=[ds_compliance, vg_compliance],
-                if_combine_gen=True,  # False for coexistence of vary and mapping
-                special_name=folder_name,
-                sweep_tables=[ids_swp_lst],
-                measure_nickname="swpids-ac",
-            )
-
-        logger.info("filepath: %s", mea_dict["file_path"])
-        logger.info("no of columns(with time column): %d", mea_dict["record_num"])
-        logger.info("vary modules: %s", mea_dict["vary_mod"])
-        if sense_range is not None:
-            ds_src_sens_lst[1].sense_range_curr = sense_range[0]
-            ds_src_sens_lst[2].sense_range_curr = sense_range[1]
-            vg_meter.sense_range_curr = sense_range[2]
-            logger.info("sense 1 range: %f", sense_range[0])
-            logger.info("sense 2 range: %f", sense_range[1])
-            logger.info("sense 3 range: %f", sense_range[2])
-
-        if source_range is not None:
-            ds_src_sens_lst[0].source_range = source_range[0]
-            vg_meter.source_range = source_range[1]
-            logger.info("source 1 range: %f", source_range[0])
-            logger.info("source 2 range: %f", source_range[1])
-
-        # modify the plot configuration
-        # note i[0] is timer
-        if if_plot:
-            plotobj.live_plot_init(
-                2,
-                2,
-                1 if freq is None else 2,
-                fig_height,
-                fig_width,
-                titles=[[r"$I_{ds}-V1$", r"$I_{ds}-V2$"], 
-                        [r"$I_{ds}-T$", r"$I_{ds}-I_g$"]],
-                inline_jupyter=not use_dash,
-            )
-            plotobj.start_saving(mea_dict["plot_record_path"], saving_interval)
-
-        for i in mea_dict["gen_lst"]:
-            self.record_update(mea_dict["file_path"], mea_dict["record_num"], i)
-            time.sleep(step_time)
-            if plotobj is None:
-                continue
-            if freq is None:
-                plotobj.live_plot_update(
-                    [0, 0, 1, 1],
-                    [0, 1, 0, 1],
-                    [0, 0, 0, 0],
-                    [i[1], i[1], i[1], i[1]],
-                    [i[3], i[4], i[7], i[5]],
-                    incremental=True,
-                )
-            else:
-                #TODO: not completed
-                plotobj.live_plot_update(
-                    [0, 0, 0],
-                    [0, 0, 1],
-                    [0, 1, 0],
-                    [i[1], i[1], i[1]],
-                    [i[3], i[4], i[9]],
-                    incremental=True,
-                )
-
-        if if_plot:
-            plotobj.stop_saving()
-        ds_src_sens_lst[0].output_switch("off")
-        vg_meter.output_switch("off")
-
+##  RH loop
     def measure_VV_II_BvaryT_rhloop(
         self,
         *,
@@ -3590,7 +3996,7 @@ class MeasureFlow(MeasureManager):
         if if_plot:
             plotobj.stop_saving()
 
-
+##  Gate mapping
     def measure_VswpVswp_II_BT_dsgatemapping(
         self,
         *,
