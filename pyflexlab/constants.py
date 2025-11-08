@@ -5,7 +5,7 @@ from functools import wraps
 
 from pyomnix.omnix_logger import get_logger
 from pyomnix.utils import (
-    is_notebook,
+    is_notebook, ShPath
 )
 
 logger = get_logger(__name__)
@@ -89,20 +89,19 @@ class BoundedCounter:
     def __str__(self):
         return str(self._value)
 
+# for backward compatibility
+SafePath = ShPath
 
-class SafePath(Path):
-    """
-    A path class that automatically removes leading slashes or backslashes from the other argument to avoid unexpected behavior caused by absolute path concatenation
-    """
-
-    def __truediv__(self, other: str) -> Path:
-        if isinstance(other, (str, Path)):
-            other_str = str(other)
-            if other_str.startswith(("/", "\\")):
-                other = other_str.lstrip("/\\")
-        return super().__truediv__(other)
-
-    #_flavour = type(Path())._flavour
+#class SafePath(ShPath):
+#
+#    def __truediv__(self, other: str) -> Path:
+#        if isinstance(other, (str, Path)):
+#            other_str = str(other)
+#            if other_str.startswith(("/", "\\")):
+#                other = other_str.lstrip("/\\")
+#        return super().__truediv__(other)
+#
+#    #_flavour = type(Path())._flavour
 
 
 def set_envs() -> None:

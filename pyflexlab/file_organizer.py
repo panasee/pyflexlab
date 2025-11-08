@@ -83,14 +83,17 @@ class FileOrganizer:
             else None
         )
 
-    def __init__(self, proj_name: str, copy_from: str = None) -> None:
+    def __init__(self, proj_name: str, copy_from: str = None, custom_db_path: str = None) -> None:
         """
-        initialize the class with the project name and judge if the name is in the accepted project names. Only
-        out_database_path is required, as the local_database_dir is attached with the base_dir
+        initialize the class with the project name and judge if the name is in the accepted project names.
 
         Args:
             proj_name: str
                 The name of the project, used as the name of the base directory
+            copy_from: str
+                The name of the project to copy from, default is None
+            custom_db_path: str
+                The path to the custom database, default is None
         """
         #  store the data directly in the local_database_dir
         if platform.system().lower() == "windows":
@@ -101,13 +104,15 @@ class FileOrganizer:
         # prevent further operation if the local_database_dir or out_database_dir have not been set
         if (
             FileOrganizer._local_database_dir is None
-            or FileOrganizer._out_database_dir is None
         ):
             raise ValueError(
-                "The database_dir(s) have not been set, please appoint a path first."
+                "The local database_dir(s) have not been set, please appoint a path first."
             )
-        # defined vars for two databases of the project
-        self._out_database_dir_proj = FileOrganizer._out_database_dir / proj_name
+        if custom_db_path is not None:
+            self._out_database_dir = SafePath(custom_db_path)
+        else:
+            self._out_database_dir = FileOrganizer._out_database_dir
+        self._out_database_dir_proj = self._out_database_dir / proj_name
         self.proj_name = proj_name
         self.today = datetime.date.today()
 

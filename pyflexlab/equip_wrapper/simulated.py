@@ -55,6 +55,9 @@ class SimMeter(ACSourceMeter, DCSourceMeter):
     def info_sync(self):
         pass
 
+    def reference_set(self, harmonic: int) -> None:
+        self.harmonics = harmonic
+
     def setup(self, 
               ac_dc: Literal["ac", "dc"] | None = None, 
               *args, 
