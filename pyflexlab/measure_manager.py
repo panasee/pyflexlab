@@ -129,7 +129,8 @@ class MeasureManager(FileOrganizer):
         logger.info("Curr Angle: %s", self.instrs["rotator"].curr_angle())
         logger.info("Curr Velocity: %s", self.instrs["rotator"].spd())
 
-    def load_ITC503(self, gpib_up: str, gpib_down: str) -> None:
+    def load_ITC503(self, gpib_up: str, gpib_down: str, 
+                    cache_length: int = 60, var_crit: float = 5e-3, **kwargs) -> None:
         """
         load ITC503 instruments according to the addresses, store them in self.instrs["itc503"] in corresponding order. Also store the ITC503 instruments in self.instrs["itc"] for convenience to call
 
@@ -137,7 +138,7 @@ class MeasureManager(FileOrganizer):
             gpib_up (str): the address of the upper ITC503
             gpib_down (str): the address of the lower ITC503
         """
-        self.instrs["itc503"] = ITCs(gpib_up, gpib_down)
+        self.instrs["itc503"] = ITCs(gpib_up, gpib_down, cache_length=cache_length, var_crit=var_crit, **kwargs)
         self.instrs["itc"] = self.instrs["itc503"]
 
     def load_mercury_ips(
@@ -169,13 +170,14 @@ class MeasureManager(FileOrganizer):
         address: str = "TCPIP0::10.101.28.24::7020::SOCKET",
         cache_length: int = 60,
         var_crit: float = 5e-4,
+        **kwargs,
     ) -> None:
         """
         load Mercury iPS instrument according to the address, store it in self.instrs["ips"]
         """
         # self.instrs["mercury_itc"] = MercuryITC(address)
         self.instrs["mercury_itc"] = ITCMercury(
-            address, cache_length=cache_length, var_crit=var_crit
+            address, cache_length=cache_length, var_crit=var_crit, **kwargs
         )
         self.instrs["itc"] = self.instrs["mercury_itc"]
         # print(self.instrs["mercury_itc"].modules)
@@ -198,12 +200,13 @@ class MeasureManager(FileOrganizer):
         address: str = "GPIB0::12::INSTR",
         cache_length: int = 60,
         var_crit: float = 5e-4,
+        **kwargs,
     ) -> None:
         """
         load Lakeshore instrument according to the address, store it in self.instrs["lakeshore"]
         """
         self.instrs["lakeshore"] = ITCLakeshore(
-            address, cache_length=cache_length, var_crit=var_crit
+            address, cache_length=cache_length, var_crit=var_crit, **kwargs
         )
         self.instrs["itc"] = self.instrs["lakeshore"]
 

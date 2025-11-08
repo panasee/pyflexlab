@@ -562,10 +562,15 @@ class Wrapper6221(ACSourceMeter, DCSourceMeter):
         type_str: Literal["curr", "volt"] = "curr",
         fix_range: float | str | None = None,
         alter_range: bool = False,
+        offset: float | str = 0,
     ) -> float:
         # judge if the output exceeds the range first
         # since 6221 use the same source_range for both ac and dc
         # so the range could be treated in this unified method
+        offset = convert_unit(offset, "")[0]
+        if freq is None and offset != 0:
+            logger.warning("offset is not supported for dc mode, will be ignored")
+
         if self.mea_mode == "normal":
             value = convert_unit(value, "")[0]
             if abs(value) > 0.105:
@@ -595,7 +600,7 @@ class Wrapper6221(ACSourceMeter, DCSourceMeter):
             if self.info_dict["ac_dc"] == "ac":
                 if freq is not None:
                     self.rms_output(
-                        value, freq=freq, compliance=compliance, type_str=type_str
+                        value, freq=freq, compliance=compliance, type_str=type_str, offset=offset
                     )
                 else:
                     self.setup("source", "dc")
@@ -606,7 +611,7 @@ class Wrapper6221(ACSourceMeter, DCSourceMeter):
                 elif freq is not None:
                     self.setup("source", "ac")
                     self.rms_output(
-                        value, freq=freq, compliance=compliance, type_str=type_str
+                        value, freq=freq, compliance=compliance, type_str=type_str, offset=offset
                     )
 
             self.output_target = convert_unit(value, "A")[0]
@@ -628,6 +633,7 @@ class Wrapper6221(ACSourceMeter, DCSourceMeter):
         freq: Optional[float | str] = None,
         compliance: Optional[float | str] = None,
         type_str: Literal["curr"] = "curr",
+        offset: float | str = 0,
     ):
         """
         6221 is a current source, so the output is always current
@@ -635,6 +641,8 @@ class Wrapper6221(ACSourceMeter, DCSourceMeter):
         if current config is dc, then call setup to reset to ac default settings
         set config manually before calling this method if special params are needed
         """
+        offset = convert_unit(offset, "")[0]
+        self.meter.waveform_offset = offset
         assert type_str == "curr", (
             "6221 is a current source, so the output is always current"
         )

@@ -164,7 +164,7 @@ class ITC(ABC):
             if correction_needed:
                 self.correction_ramping(self.temperature, trend)
             if (
-                abs(self.cache.get_status()["mean"] - temp) < ITC.dynamic_delta(temp)
+                abs(self.cache.get_status()["mean"] - temp) < self.dynamic_delta(temp)
                 and self.cache.get_status()["if_stable"]
             ):
                 i += 1
@@ -212,16 +212,15 @@ class ITC(ABC):
                 thermalize_counter=thermalize_counter,
             )
 
-    @staticmethod
-    def dynamic_delta(temp) -> float:
+    def dynamic_delta(self, temp) -> float:
         """
-        calculate a dynamic delta to help high temperature to stabilize (reach 0.1K tolerance when 300K and {delta_lowt} when 10K)
+        calculate a dynamic delta to help high temperature to stabilize (reach 0.3K tolerance when 300K and {delta_lowt} when 10K)
         """
         # linear interpolation
-        delta_hight = 0.3
-        t_high = 300
-        delta_lowt = 0.02
-        t_low = 1.5
+        delta_hight = self.delta_hight if hasattr(self, "delta_hight") else 0.3
+        delta_lowt = self.delta_lowt if hasattr(self, "delta_lowt") else 0.02
+        t_high = self.hight if hasattr(self, "hight") else 300
+        t_low = self.lowt if hasattr(self, "lowt") else 1.5
         return (delta_hight - delta_lowt) * (temp - t_low) / (
             t_high - t_low
         ) + delta_lowt
@@ -231,14 +230,27 @@ class ITCLakeshore(ITC):
     def __init__(
         self,
         address: str = "GPIB0::12::INSTR",
+        *,
         cache_length: int = 60,
         var_crit: float = 5e-4,
         least_length: int = 13,
+        delta_hight: float | None = None,
+        delta_lowt: float | None = None,
+        hight: float | None = None,
+        lowt: float | None = None,
     ):
         self.ls = LakeshoreModel336("Lakeshore336", address)
         self.cache = CacheArray(
             cache_length=cache_length, var_crit=var_crit, least_length=least_length
         )
+        if delta_hight is not None:
+            self.delta_hight = delta_hight
+        if delta_lowt is not None:
+            self.delta_lowt = delta_lowt
+        if hight is not None:
+            self.hight = hight
+        if lowt is not None:
+            self.lowt = lowt
         self.channels_no = len(self.ls.channels)
         self.second_stage = self.ls.C
         self.sample_mount = self.ls.B
@@ -381,14 +393,27 @@ class ITCMercury(ITC):
     def __init__(
         self,
         address="TCPIP0::10.97.27.13::7020::SOCKET",
+        *,
         cache_length: int = 60,
         var_crit: float = 5e-4,
         least_length: int = 13,
+        delta_hight: float | None = None,
+        delta_lowt: float | None = None,
+        hight: float | None = None,
+        lowt: float | None = None,
     ):
         self.mercury = MercuryITC("mercury_itc", address)
         self.cache = CacheArray(
             cache_length=cache_length, var_crit=var_crit, least_length=least_length
         )
+        if delta_hight is not None:
+            self.delta_hight = delta_hight
+        if delta_lowt is not None:
+            self.delta_lowt = delta_lowt
+        if hight is not None:
+            self.hight = hight
+        if lowt is not None:
+            self.lowt = lowt
 
     @property
     def pres(self):
@@ -537,11 +562,17 @@ class ITCs(ITC):
         self,
         address_up: str = "GPIB0::23::INSTR",
         address_down: str = "GPIB0::24::INSTR",
+        *,
         clear_buffer=True,
         cache_length: int = 60,
         var_crit: float = 3e-4,
         least_length: int = 13,
+        delta_hight: float | None = None,
+        delta_lowt: float | None = None,
+        hight: float | None = None,
+        lowt: float | None = None,
     ):
+        logger.info("optimized PID: 50, 0, 0")
         self.itc_up = ITC503(address_up, clear_buffer=clear_buffer)
         self.itc_down = ITC503(address_down, clear_buffer=clear_buffer)
         self.itc_up.control_mode = "RU"
@@ -549,6 +580,14 @@ class ITCs(ITC):
         self.cache = CacheArray(
             cache_length=cache_length, var_crit=var_crit, least_length=least_length
         )
+        if delta_hight is not None:
+            self.delta_hight = delta_hight
+        if delta_lowt is not None:
+            self.delta_lowt = delta_lowt
+        if hight is not None:
+            self.hight = hight
+        if lowt is not None:
+            self.lowt = lowt
 
     def chg_display(self, itc_name, target):
         """
