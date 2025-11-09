@@ -54,10 +54,10 @@ class MeasureManager(FileOrganizer):
     During the measurement, the data will be recorded in self.dfs["curr_measure"], which will be overwritten after
     """
 
-    def __init__(self, proj_name: str) -> None:
+    def __init__(self, proj_name: str, **kwargs) -> None:
         """Note that the FileOrganizer.out_database_init method should be called to assign the correct path to the
         out_database attribute. This method should be called before the MeasureManager object is created."""
-        super().__init__(proj_name)  # Call the constructor of the parent class
+        super().__init__(proj_name, **kwargs)  # Call the constructor of the parent class
         self.meter_wrapper_dict = {
             "6430": Wrapper6430,
             "2182": Wrapper2182,

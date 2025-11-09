@@ -39,13 +39,14 @@ dependencies = [
     "jupyter",
     "dash",
     "prefect",
-    "pyomnix"
+    "pyomnix",
 ]
 
 [project.optional-dependencies]
-gui = ["PyQt6"]
+gui = ["PyQt6", "PyQt6-WebEngine"]
 
 [project.scripts]
+gui_measure = "pyflexlab.gui:main"
 gui_coor_trans = "pyflexlab.auxiliary:Flakes.gui_coor_transition"
 
 [tool.setuptools]
