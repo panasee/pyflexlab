@@ -83,7 +83,7 @@ class FileOrganizer:
             else None
         )
 
-    def __init__(self, proj_name: str, copy_from: str = None, custom_db_path: str = None) -> None:
+    def __init__(self, proj_name: str, copy_from: str = None, *, custom_db_path: str = None) -> None:
         """
         initialize the class with the project name and judge if the name is in the accepted project names.
 
