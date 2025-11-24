@@ -15,7 +15,7 @@ if TYPE_CHECKING:
     from typing_extensions import Unpack
 
 from qcodes.utils.validators import Enum, Lists, Numbers
-from qcodes.utils.helpers import create_on_off_val_mapping
+from qcodes.parameters import create_on_off_val_mapping
 import warnings
 
 log = logging.getLogger(__name__)

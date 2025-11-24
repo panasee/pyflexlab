@@ -12,6 +12,7 @@ logger = get_logger(__name__)
 
 LOCAL_DB_PATH: Path | None = None
 OUT_DB_PATH: Path | None = None
+DATE_FORMAT: str = "%Y-%m-%d_%H:%M:%S.%f"
 
 
 class BoundedCounter:
