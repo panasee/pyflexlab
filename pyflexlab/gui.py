@@ -483,10 +483,14 @@ class InstrumentSelector(QtWidgets.QWidget):
             )
             if max_count is not None:
                 self._selection_hint = QtWidgets.QLabel(
-                    f"Select up to {max_count} instruments."
+                    f"Select 1 to {max_count} instruments (Ctrl+Click for multiple)."
                 )
-                self._selection_hint.setStyleSheet("color: #9ca3af; font-size: 11px;")
-                layout.addWidget(self._selection_hint)
+            else:
+                self._selection_hint = QtWidgets.QLabel(
+                    "Select one or more instruments (Ctrl+Click for multiple)."
+                )
+            self._selection_hint.setStyleSheet("color: #9ca3af; font-size: 11px;")
+            layout.addWidget(self._selection_hint)
             layout.addWidget(self._list)
         else:
             self._combo = QtWidgets.QComboBox()
@@ -535,6 +539,12 @@ class InstrumentSelector(QtWidgets.QWidget):
                     f"Please select at most {self._max_count} instruments.",
                 )
                 selected_items = selected_items[: self._max_count]
+            
+            # If only one item selected, return it directly (not as a list)
+            # This allows Meter | list[Meter] parameters to work naturally
+            if len(selected_items) == 1:
+                return selected_items[0], False, False
+            
             return selected_items, len(selected_items) == 0, False
         data = self._combo.currentData()
         return data, data is None, False
@@ -742,7 +752,7 @@ class InstrumentDialog(QtWidgets.QDialog):
             )
 
 class MeasureRunner(threading.Thread):
-    """Execute a measurement in a background thread."""
+    """Execute a measurement in a background thread with stop capability."""
 
     def __init__(
         self,
@@ -751,7 +761,9 @@ class MeasureRunner(threading.Thread):
         kwargs: Dict[str, Any],
         on_finished: Callable[[str], None],
         on_error: Callable[[str, Exception, str], None],
+        on_stopped: Callable[[str], None],
         error_log_path: Path,
+        visa_lock: Optional[threading.Lock] = None,
     ) -> None:
         super().__init__(daemon=True)
         self._method_name = method_name
@@ -759,17 +771,38 @@ class MeasureRunner(threading.Thread):
         self._kwargs = kwargs
         self._on_finished = on_finished
         self._on_error = on_error
+        self._on_stopped = on_stopped
         self._error_log_path = error_log_path
+        self._stop_flag = threading.Event()
+        self._stopped = False
+        self._visa_lock = visa_lock or threading.Lock()
+
+    def stop(self) -> None:
+        """Signal the measurement to stop."""
+        self._stop_flag.set()
+        self._stopped = True
+
+    def is_stopped(self) -> bool:
+        """Check if stop has been requested."""
+        return self._stop_flag.is_set()
 
     def run(self) -> None:
         try:
-            self._method(**self._kwargs)
+            # Use lock to protect VISA resource access from threading issues
+            with self._visa_lock:
+                self._method(**self._kwargs)
+            
+            if self._stopped:
+                self._on_stopped(self._method_name)
+            else:
+                self._on_finished(self._method_name)
         except Exception as exc:  # pylint: disable=broad-except
-            error_traceback = traceback.format_exc()
-            log_file = self._save_measurement_error_log(exc, error_traceback)
-            self._on_error(self._method_name, exc, log_file)
-        else:
-            self._on_finished(self._method_name)
+            if isinstance(exc, KeyboardInterrupt) or self._stopped:
+                self._on_stopped(self._method_name)
+            else:
+                error_traceback = traceback.format_exc()
+                log_file = self._save_measurement_error_log(exc, error_traceback)
+                self._on_error(self._method_name, exc, log_file)
 
     def _save_measurement_error_log(
         self, exc: Exception, error_traceback: str
@@ -830,8 +863,11 @@ class MeasureFlowGui(QtWidgets.QMainWindow):
         self._active_out_db_path: Optional[str] = None
         self._active_thread: Optional[MeasureRunner] = None
         self._error_log_path = Path.home() / "pyflexlab_error_logs"
+        self._auto_reinit_enabled: bool = True
+        self._visa_lock = threading.Lock()  # Thread lock for VISA operations
 
         self._build_ui()
+        self._build_menu_bar()
         self._apply_dark_palette()
         self._install_exception_handler()
 
@@ -841,7 +877,7 @@ class MeasureFlowGui(QtWidgets.QMainWindow):
             [
                 (name, member)
                 for name, member in members
-                if name.startswith("measure_")
+                if name.startswith("b2_")
             ],
             key=lambda item: item[0],
         )
@@ -891,33 +927,114 @@ class MeasureFlowGui(QtWidgets.QMainWindow):
     def _handle_exception_signal(
         self, error_title: str, error_msg: str, log_file: str
     ) -> None:
-        """Handle exception signal in the Qt main thread."""
-        logging.getLogger(__name__).error("Unhandled exception: %s", error_title)
-        logging.getLogger(__name__).error("Error details:\n%s", error_msg)
+        """Handle exception signal in the Qt main thread with auto-reinitialization."""
+        try:
+            logging.getLogger(__name__).error("Unhandled exception: %s", error_title)
+            logging.getLogger(__name__).error("Error details:\n%s", error_msg)
 
-        msg_box = QtWidgets.QMessageBox(self)
-        msg_box.setIcon(QtWidgets.QMessageBox.Icon.Critical)
-        msg_box.setWindowTitle("Application Error")
-        msg_box.setText(f"An unexpected error occurred:\n\n{error_title}")
-        msg_box.setInformativeText(
-            f"The error has been logged to:\n{log_file}\n\n"
-            "The application will attempt to continue running. "
-            "If you experience further issues, please restart the application."
-        )
-        msg_box.setDetailedText(error_msg)
-        msg_box.setStandardButtons(
-            QtWidgets.QMessageBox.StandardButton.Ok
-            | QtWidgets.QMessageBox.StandardButton.Close
-        )
-        msg_box.setDefaultButton(QtWidgets.QMessageBox.StandardButton.Ok)
+            # Log to GUI immediately
+            self._append_log(f"ERROR: {error_title}")
+            self._append_log(f"Error log saved to: {log_file}")
+            
+            # Create detailed error dialog (non-blocking)
+            msg_box = QtWidgets.QDialog(self)
+            msg_box.setWindowTitle("Application Error - Auto-Recovery")
+            msg_box.setModal(False)  # Non-blocking
+            msg_box.setAttribute(QtCore.Qt.WidgetAttribute.WA_DeleteOnClose)
+            msg_box.resize(700, 500)
+            
+            layout = QtWidgets.QVBoxLayout(msg_box)
+            
+            # Error summary
+            error_label = QtWidgets.QLabel(f"<b>An unexpected error occurred:</b><br><br>{error_title}")
+            error_label.setWordWrap(True)
+            error_label.setStyleSheet("font-size: 13px; padding: 10px; background-color: #3f1f1f; border-radius: 8px;")
+            layout.addWidget(error_label)
+            
+            # Log file info
+            log_info = QtWidgets.QLabel(f"Error log saved to: <i>{log_file}</i>")
+            log_info.setWordWrap(True)
+            log_info.setStyleSheet("color: #9ca3af; font-size: 12px;")
+            layout.addWidget(log_info)
+            
+            # Auto-recovery info
+            recovery_label = QtWidgets.QLabel(
+                "<b>Auto-Recovery:</b> The system will automatically reinitialize the measurement flow. "
+                "You can continue working without restarting the application."
+            )
+            recovery_label.setWordWrap(True)
+            recovery_label.setStyleSheet("color: #4ade80; font-size: 12px; padding: 10px; margin-top: 10px;")
+            layout.addWidget(recovery_label)
+            
+            # Detailed error in expandable text area
+            details_label = QtWidgets.QLabel("Detailed Traceback:")
+            details_label.setStyleSheet("font-weight: 600; margin-top: 10px;")
+            layout.addWidget(details_label)
+            
+            error_text = QtWidgets.QPlainTextEdit()
+            error_text.setPlainText(error_msg)
+            error_text.setReadOnly(True)
+            error_text.setStyleSheet("font-family: 'Consolas', 'Courier New', monospace; font-size: 11px;")
+            layout.addWidget(error_text)
+            
+            # Buttons
+            button_layout = QtWidgets.QHBoxLayout()
+            button_layout.addStretch()
+            
+            ok_button = QtWidgets.QPushButton("OK - Auto-Recover")
+            ok_button.setObjectName("accent-button")
+            ok_button.clicked.connect(msg_box.close)
+            button_layout.addWidget(ok_button)
+            
+            layout.addLayout(button_layout)
+            
+            # Show dialog non-blocking
+            msg_box.show()
 
-        result = msg_box.exec()
+            # Schedule auto-reinitialize after a short delay to allow event loop to process
+            QtCore.QTimer.singleShot(100, self._safe_auto_reinitialize)
+            
+        except Exception as exc:  # noqa: BLE001  # pylint: disable=broad-except
+            # Fallback error handling
+            logging.getLogger(__name__).exception("Error in exception handler!")
+            self._append_log(f"Critical error in error handler: {exc}")
+            try:
+                self._auto_reinitialize()
+            except Exception:  # noqa: BLE001  # pylint: disable=broad-except
+                pass
 
-        if result == QtWidgets.QMessageBox.StandardButton.Close:
-            self._reset_to_initial_state()
+    def _safe_auto_reinitialize(self) -> None:
+        """Safely auto-reinitialize with error protection."""
+        try:
+            self._append_log("Auto-recovering: Reinitializing measurement system...")
+            self._auto_reinitialize()
+            self._append_log("Auto-recovery complete. System ready for next measurement.")
+        except Exception as exc:  # noqa: BLE001  # pylint: disable=broad-except
+            logging.getLogger(__name__).exception("Auto-reinit failed")
+            self._append_log(f"Auto-reinit warning: {exc}")
+            self._status_label.setText("Ready (with warnings).")
 
-        self._append_log(f"ERROR: {error_title}")
-        self._append_log(f"Error log saved to: {log_file}")
+    def _auto_reinitialize(self) -> None:
+        """Automatically reinitialize the measurement system after an error."""
+        try:
+            # Clear current MeasureFlow instance
+            self._measure_flow = None
+            self._active_project_name = None
+            self._active_out_db_path = None
+            self._active_thread = None
+            
+            # Reset UI state
+            self._status_label.setText("Ready. System auto-reinitialized.")
+            self._run_button.setEnabled(True)
+            
+            # Refresh instrument fields
+            self._form_container.refresh_instrument_fields()
+            
+            logging.getLogger(__name__).info("Auto-reinitialization completed successfully.")
+        except Exception as exc:  # noqa: BLE001  # pylint: disable=broad-except
+            logging.getLogger(__name__).exception("Failed to auto-reinitialize.")
+            self._append_log(f"Auto-reinit warning: {exc}")
+            self._status_label.setText("Auto-reinit completed with warnings. Please check logs.")
 
     def _reset_to_initial_state(self) -> None:
         """Reset the GUI to its initial state after an error."""
@@ -933,18 +1050,125 @@ class MeasureFlowGui(QtWidgets.QMainWindow):
             logging.getLogger(__name__).exception("Failed to reset GUI to initial state.")
             self._append_log(f"Failed to reset GUI: {exc}")
 
+    def _build_menu_bar(self) -> None:
+        """Build the menu bar with advanced options."""
+        menu_bar = self.menuBar()
+        
+        # File menu
+        file_menu = menu_bar.addMenu("&File")
+        
+        exit_action = QtGui.QAction("E&xit", self)
+        exit_action.setShortcut("Ctrl+Q")
+        exit_action.triggered.connect(self.close)
+        file_menu.addAction(exit_action)
+        
+        # Tools menu
+        tools_menu = menu_bar.addMenu("&Tools")
+        
+        cleanup_action = QtGui.QAction("Manual Cleanup...", self)
+        cleanup_action.setShortcut("Ctrl+Shift+C")
+        cleanup_action.setToolTip("Manually clean up measurement resources")
+        cleanup_action.triggered.connect(self._manual_cleanup)
+        tools_menu.addAction(cleanup_action)
+        
+        tools_menu.addSeparator()
+        
+        open_logs_action = QtGui.QAction("Open Error Logs Folder", self)
+        open_logs_action.triggered.connect(self._open_error_logs_folder)
+        tools_menu.addAction(open_logs_action)
+        
+        # View menu
+        view_menu = menu_bar.addMenu("&View")
+        
+        dash_action = QtGui.QAction("Open Dashboard in Browser", self)
+        dash_action.setShortcut("Ctrl+D")
+        dash_action.triggered.connect(self._open_dash_in_browser)
+        view_menu.addAction(dash_action)
+        
+        view_menu.addSeparator()
+        
+        refresh_action = QtGui.QAction("Refresh Instrument Fields", self)
+        refresh_action.setShortcut("F5")
+        refresh_action.triggered.connect(self._form_container.refresh_instrument_fields)
+        view_menu.addAction(refresh_action)
+        
+        # Help menu
+        help_menu = menu_bar.addMenu("&Help")
+        
+        about_action = QtGui.QAction("About PyFlexLab", self)
+        about_action.triggered.connect(self._show_about_dialog)
+        help_menu.addAction(about_action)
+
+    def _open_error_logs_folder(self) -> None:
+        """Open the error logs folder in the system file explorer."""
+        import os
+        import subprocess
+        
+        try:
+            if not self._error_log_path.exists():
+                self._error_log_path.mkdir(parents=True, exist_ok=True)
+            
+            # Open folder in platform-specific way
+            if sys.platform == "win32":
+                os.startfile(str(self._error_log_path))
+            elif sys.platform == "darwin":
+                subprocess.run(["open", str(self._error_log_path)], check=True)
+            else:
+                subprocess.run(["xdg-open", str(self._error_log_path)], check=True)
+            self._append_log(f"Opened error logs folder: {self._error_log_path}")
+        except Exception as exc:  # noqa: BLE001  # pylint: disable=broad-except
+            self._append_log(f"WARNING: Cannot open error logs folder: {exc}")
+            self._show_non_blocking_warning(
+                "Cannot Open Folder",
+                f"Failed to open error logs folder:\n{exc}\n\nPath: {self._error_log_path}"
+            )
+
+    def _show_about_dialog(self) -> None:
+        """Show about dialog with application information."""
+        about_text = """
+        <h2>PyFlexLab Measurement Studio</h2>
+        <p><b>Version:</b> 1.0</p>
+        <p><b>Description:</b> A comprehensive GUI for managing and executing measurement workflows.</p>
+        <br>
+        <p><b>Features:</b></p>
+        <ul>
+            <li>Multi-instrument support</li>
+            <li>Dynamic parameter configuration</li>
+            <li>Live dashboard integration</li>
+            <li>Automatic error recovery</li>
+            <li>Comprehensive logging</li>
+        </ul>
+        <br>
+        <p><b>Error Logs:</b> {}</p>
+        """.format(self._error_log_path)
+        
+        QtWidgets.QMessageBox.about(self, "About PyFlexLab", about_text)
+
     def _build_ui(self) -> None:
         central = QtWidgets.QWidget()
         self.setCentralWidget(central)
 
         main_layout = QtWidgets.QHBoxLayout()
+        main_layout.setContentsMargins(8, 8, 8, 8)
         central.setLayout(main_layout)
 
-        splitter = QtWidgets.QSplitter(QtCore.Qt.Orientation.Horizontal)
-        main_layout.addWidget(splitter)
+        # Main horizontal splitter for method list and parameter/log area
+        main_splitter = QtWidgets.QSplitter(QtCore.Qt.Orientation.Horizontal)
+        main_splitter.setChildrenCollapsible(False)
+        main_layout.addWidget(main_splitter)
 
+        # Left panel: Method list
+        left_panel = QtWidgets.QWidget()
+        left_layout = QtWidgets.QVBoxLayout()
+        left_layout.setContentsMargins(0, 0, 0, 0)
+        left_layout.setSpacing(8)
+        
+        method_label = QtWidgets.QLabel("Measurement Methods")
+        method_label.setStyleSheet("font-size: 16px; font-weight: 600;")
+        left_layout.addWidget(method_label)
+        
         self._method_list = QtWidgets.QListWidget()
-        self._method_list.setMinimumWidth(280)
+        self._method_list.setMinimumWidth(200)
         self._method_list.itemSelectionChanged.connect(self._handle_method_selection)
 
         for name, function in self._measure_methods:
@@ -953,21 +1177,27 @@ class MeasureFlowGui(QtWidgets.QMainWindow):
             item.setToolTip(doc)
             self._method_list.addItem(item)
 
-        splitter.addWidget(self._method_list)
+        left_layout.addWidget(self._method_list)
+        left_panel.setLayout(left_layout)
+        main_splitter.addWidget(left_panel)
 
+        # Right vertical splitter for parameters and logs
         right_splitter = QtWidgets.QSplitter(QtCore.Qt.Orientation.Vertical)
-        splitter.addWidget(right_splitter)
-        splitter.setStretchFactor(0, 1)
-        splitter.setStretchFactor(1, 3)
+        right_splitter.setChildrenCollapsible(False)
+        main_splitter.addWidget(right_splitter)
+        main_splitter.setStretchFactor(0, 1)
+        main_splitter.setStretchFactor(1, 4)
 
+        # Top panel: Configuration and parameters
         top_panel = QtWidgets.QWidget()
         top_layout = QtWidgets.QVBoxLayout()
-        top_layout.setContentsMargins(0, 0, 0, 0)
+        top_layout.setContentsMargins(8, 8, 8, 8)
         top_layout.setSpacing(12)
 
+        # Header with controls
         header_layout = QtWidgets.QHBoxLayout()
-        title_label = QtWidgets.QLabel("Measurement Parameters")
-        title_label.setStyleSheet("font-size: 22px; font-weight: 600;")
+        title_label = QtWidgets.QLabel("Measurement Configuration")
+        title_label.setStyleSheet("font-size: 18px; font-weight: 600;")
         header_layout.addWidget(title_label)
         header_layout.addStretch()
 
@@ -975,113 +1205,153 @@ class MeasureFlowGui(QtWidgets.QMainWindow):
         self._instrument_button.clicked.connect(self._open_instrument_dialog)
         header_layout.addWidget(self._instrument_button)
 
-        self._cleanup_button = QtWidgets.QPushButton("Force Cleanup")
-        self._cleanup_button.clicked.connect(self._manual_cleanup)
-        self._cleanup_button.setToolTip(
-            "Manually clean up measurement state. "
-            "Use this if measurements seem stuck or won't restart properly."
-        )
-        header_layout.addWidget(self._cleanup_button)
-
-        self._open_dash_button = QtWidgets.QPushButton("Open Dash Panel")
-        self._open_dash_button.clicked.connect(self._open_dash_in_browser)
-        header_layout.addWidget(self._open_dash_button)
-
         top_layout.addLayout(header_layout)
 
+        # Project configuration section
         config_widget = QtWidgets.QWidget()
         config_layout = QtWidgets.QFormLayout()
+        config_layout.setSpacing(8)
         config_widget.setLayout(config_layout)
 
         self._project_name_input = QtWidgets.QLineEdit()
-        self._project_name_input.setPlaceholderText("Project name (required)")
-        config_layout.addRow("Project Name", self._project_name_input)
+        self._project_name_input.setPlaceholderText("Enter project name (required)")
+        config_layout.addRow("Project Name:", self._project_name_input)
 
         custom_path_layout = QtWidgets.QHBoxLayout()
         self._custom_db_input = QtWidgets.QLineEdit()
-        self._custom_db_input.setPlaceholderText("Select custom out_db_path (required)")
-        browse_button = QtWidgets.QPushButton("Browse")
+        self._custom_db_input.setPlaceholderText("Select output database path (required)")
+        browse_button = QtWidgets.QPushButton("Browse...")
+        browse_button.setMaximumWidth(100)
         browse_button.clicked.connect(self._browse_custom_path)
         custom_path_layout.addWidget(self._custom_db_input)
         custom_path_layout.addWidget(browse_button)
 
-        config_layout.addRow("Out DB Path", custom_path_layout)
+        config_layout.addRow("Output DB Path:", custom_path_layout)
 
         top_layout.addWidget(config_widget)
+
+        # Parameters section with scroll area
+        param_label = QtWidgets.QLabel("Method Parameters")
+        param_label.setStyleSheet("font-size: 14px; font-weight: 600; margin-top: 8px;")
+        top_layout.addWidget(param_label)
 
         self._form_container = ParameterForm()
         self._form_container.set_instrument_provider(self._get_instrument_options)
         scroll_area = QtWidgets.QScrollArea()
         scroll_area.setWidgetResizable(True)
         scroll_area.setWidget(self._form_container)
+        scroll_area.setMinimumHeight(150)
         scroll_area.setSizePolicy(
             QtWidgets.QSizePolicy.Policy.Expanding, QtWidgets.QSizePolicy.Policy.Expanding
         )
         top_layout.addWidget(scroll_area, stretch=1)
 
+        # Control buttons at bottom
         controls_layout = QtWidgets.QHBoxLayout()
-        self._status_label = QtWidgets.QLabel("Ready.")
-        self._status_label.setStyleSheet("color: #9ca3af;")
+        self._status_label = QtWidgets.QLabel("Ready. Select a measurement method to begin.")
+        self._status_label.setStyleSheet("color: #9ca3af; font-size: 13px;")
 
-        self._run_button = QtWidgets.QPushButton("Run Measurement")
+        self._run_button = QtWidgets.QPushButton("▶ Run Measurement")
         self._run_button.setObjectName("accent-button")
         self._run_button.clicked.connect(self._run_measurement)
 
+        self._stop_button = QtWidgets.QPushButton("⬛ Stop")
+        self._stop_button.setStyleSheet(
+            "background-color: #dc2626; color: #ffffff; border: none; "
+            "font-weight: 600; border-radius: 10px; padding: 8px 14px;"
+        )
+        self._stop_button.setEnabled(False)
+        self._stop_button.clicked.connect(self._stop_measurement)
+        self._stop_button.setToolTip("Stop the currently running measurement")
+
         controls_layout.addWidget(self._status_label)
         controls_layout.addStretch()
+        controls_layout.addWidget(self._stop_button)
         controls_layout.addWidget(self._run_button)
 
         top_layout.addLayout(controls_layout)
-
         top_panel.setLayout(top_layout)
         right_splitter.addWidget(top_panel)
 
+        # Bottom section: Resizable logs and dash panel
         bottom_splitter = QtWidgets.QSplitter(QtCore.Qt.Orientation.Vertical)
+        bottom_splitter.setChildrenCollapsible(False)
 
+        # Log output section
         log_container = QtWidgets.QWidget()
         log_layout = QtWidgets.QVBoxLayout()
-        log_layout.setContentsMargins(0, 0, 0, 0)
-        log_layout.setSpacing(6)
+        log_layout.setContentsMargins(8, 8, 8, 8)
+        log_layout.setSpacing(4)
+        
+        log_header = QtWidgets.QLabel("Execution Log")
+        log_header.setStyleSheet("font-size: 14px; font-weight: 600;")
+        log_layout.addWidget(log_header)
+        
         self._log_output = QtWidgets.QPlainTextEdit()
         self._log_output.setReadOnly(True)
         self._log_output.setMaximumBlockCount(2000)
-        self._log_output.setMinimumHeight(180)
+        self._log_output.setMinimumHeight(100)
         self._log_output.setPlaceholderText("Warnings and errors will appear here...")
         log_layout.addWidget(self._log_output)
         log_container.setLayout(log_layout)
         bottom_splitter.addWidget(log_container)
 
+        # Dash panel section
         if QtWebEngineWidgets is not None:
             dash_container = QtWidgets.QWidget()
             dash_layout = QtWidgets.QVBoxLayout()
-            dash_layout.setContentsMargins(0, 0, 0, 0)
-            dash_layout.setSpacing(6)
+            dash_layout.setContentsMargins(8, 8, 8, 8)
+            dash_layout.setSpacing(4)
+            
+            dash_header_layout = QtWidgets.QHBoxLayout()
+            dash_header = QtWidgets.QLabel("Live Dashboard")
+            dash_header.setStyleSheet("font-size: 14px; font-weight: 600;")
+            dash_header_layout.addWidget(dash_header)
+            
+            open_browser_btn = QtWidgets.QPushButton("Open in Browser")
+            open_browser_btn.setMaximumWidth(120)
+            open_browser_btn.clicked.connect(self._open_dash_in_browser)
+            dash_header_layout.addWidget(open_browser_btn)
+            dash_header_layout.addStretch()
+            dash_layout.addLayout(dash_header_layout)
+            
             self._dash_view = QtWebEngineWidgets.QWebEngineView()
             self._dash_view.setUrl(
                 QtCore.QUrl(f"http://127.0.0.1:{self._dash_bridge.port}")
             )
-            self._dash_view.setMinimumHeight(260)
+            self._dash_view.setMinimumHeight(150)
             dash_layout.addWidget(self._dash_view)
             dash_container.setLayout(dash_layout)
             bottom_splitter.addWidget(dash_container)
         else:
+            info_container = QtWidgets.QWidget()
+            info_layout = QtWidgets.QVBoxLayout()
+            info_layout.setContentsMargins(8, 8, 8, 8)
+            
             info_label = QtWidgets.QLabel(
-                "Qt WebEngine is not available. Use the 'Open Dash Panel' button to view Dash output in your browser."
+                "Dashboard Preview Unavailable\n\n"
+                "Qt WebEngine is not installed. Click below to open the dashboard in your browser."
             )
             info_label.setWordWrap(True)
+            info_label.setAlignment(QtCore.Qt.AlignmentFlag.AlignCenter)
             info_label.setStyleSheet("color: #9ca3af; font-style: italic;")
-            placeholder_container = QtWidgets.QWidget()
-            placeholder_layout = QtWidgets.QVBoxLayout()
-            placeholder_layout.setContentsMargins(0, 0, 0, 0)
-            placeholder_layout.addWidget(info_label)
-            placeholder_container.setLayout(placeholder_layout)
-            bottom_splitter.addWidget(placeholder_container)
+            
+            open_browser_btn = QtWidgets.QPushButton("Open Dashboard in Browser")
+            open_browser_btn.clicked.connect(self._open_dash_in_browser)
+            open_browser_btn.setMaximumWidth(200)
+            
+            info_layout.addStretch()
+            info_layout.addWidget(info_label, alignment=QtCore.Qt.AlignmentFlag.AlignCenter)
+            info_layout.addWidget(open_browser_btn, alignment=QtCore.Qt.AlignmentFlag.AlignCenter)
+            info_layout.addStretch()
+            info_container.setLayout(info_layout)
+            bottom_splitter.addWidget(info_container)
 
         right_splitter.addWidget(bottom_splitter)
-        right_splitter.setStretchFactor(0, 3)
-        right_splitter.setStretchFactor(1, 2)
+        right_splitter.setStretchFactor(0, 2)
+        right_splitter.setStretchFactor(1, 1)
         bottom_splitter.setStretchFactor(0, 1)
-        bottom_splitter.setStretchFactor(1, 2)
+        bottom_splitter.setStretchFactor(1, 1)
 
     def _open_instrument_dialog(self) -> None:
         dialog = InstrumentDialog(
@@ -1103,63 +1373,67 @@ class MeasureFlowGui(QtWidgets.QMainWindow):
         self._form_container.refresh_instrument_fields()
 
     def _prepare_measure_flow(self) -> Optional[MeasureFlow]:
-        project_name = self._project_name_input.text().strip()
-        if not project_name:
-            QtWidgets.QMessageBox.critical(
-                self, "Missing Project Name", "Provide a project name."
-            )
-            return None
-
-        custom_db_path = self._custom_db_input.text().strip()
-        if not custom_db_path:
-            QtWidgets.QMessageBox.critical(
-                self,
-                "Missing out_db_path",
-                (
-                    "Please specify the out_db_path via the provided field. "
-                    "The GUI intentionally does not fall back to environment defaults."
-                ),
-            )
-            return None
-
-        custom_db_path_resolved = str(
-            Path(custom_db_path).expanduser().resolve(strict=False)
-        )
+        """Prepare MeasureFlow instance with error handling."""
         try:
-            Path(custom_db_path_resolved).mkdir(parents=True, exist_ok=True)
-        except OSError as exc:
-            QtWidgets.QMessageBox.critical(
-                self,
-                "Invalid Path",
-                f"Unable to prepare the out_db_path directory:\n{exc}",
-            )
-            return None
-
-        self._custom_db_input.setText(custom_db_path_resolved)
-
-        if (
-            self._measure_flow is None
-            or self._active_project_name != project_name
-            or self._active_out_db_path != custom_db_path_resolved
-        ):
-            try:
-                self._measure_flow = MeasureFlow(
-                    project_name, custom_db_path=custom_db_path_resolved
-                )
-            except Exception as exc:  # pylint: disable=broad-except
-                logging.getLogger(__name__).exception("Failed to initialize MeasureFlow.")
-                QtWidgets.QMessageBox.critical(
-                    self,
-                    "Initialization Error",
-                    f"Failed to initialize MeasureFlow: {exc}",
+            project_name = self._project_name_input.text().strip()
+            if not project_name:
+                self._show_non_blocking_error(
+                    "Missing Project Name", 
+                    "Provide a project name."
                 )
                 return None
-            self._active_project_name = project_name
-            self._active_out_db_path = custom_db_path_resolved
 
-        self._form_container.refresh_instrument_fields()
-        return self._measure_flow
+            custom_db_path = self._custom_db_input.text().strip()
+            if not custom_db_path:
+                self._show_non_blocking_error(
+                    "Missing out_db_path",
+                    "Please specify the out_db_path via the provided field. "
+                    "The GUI intentionally does not fall back to environment defaults."
+                )
+                return None
 
+            custom_db_path_resolved = str(
+                Path(custom_db_path).expanduser().resolve(strict=False)
+            )
+            try:
+                Path(custom_db_path_resolved).mkdir(parents=True, exist_ok=True)
+            except OSError as exc:
+                self._show_non_blocking_error(
+                    "Invalid Path",
+                    f"Unable to prepare the out_db_path directory:\n{exc}"
+                )
+                return None
+
+            self._custom_db_input.setText(custom_db_path_resolved)
+
+            if (
+                self._measure_flow is None
+                or self._active_project_name != project_name
+                or self._active_out_db_path != custom_db_path_resolved
+            ):
+                try:
+                    self._measure_flow = MeasureFlow(
+                        project_name, custom_db_path=custom_db_path_resolved
+                    )
+                    self._append_log(f"Initialized MeasureFlow for project: {project_name}")
+                except Exception as exc:  # pylint: disable=broad-except
+                    logging.getLogger(__name__).exception("Failed to initialize MeasureFlow.")
+                    self._append_log(f"ERROR: Failed to initialize MeasureFlow: {exc}")
+                    self._show_non_blocking_error(
+                        "Initialization Error",
+                        f"Failed to initialize MeasureFlow: {exc}"
+                    )
+                    return None
+                self._active_project_name = project_name
+                self._active_out_db_path = custom_db_path_resolved
+
+            self._form_container.refresh_instrument_fields()
+            return self._measure_flow
+        except Exception as exc:  # noqa: BLE001  # pylint: disable=broad-except
+            logging.getLogger(__name__).exception("Unexpected error in _prepare_measure_flow")
+            self._append_log(f"ERROR: Unexpected error preparing MeasureFlow: {exc}")
+            return None
+    
     def _get_instrument_options(self) -> List[Tuple[str, Any]]:
         if self._measure_flow is None:
             return []
@@ -1316,21 +1590,21 @@ class MeasureFlowGui(QtWidgets.QMainWindow):
             self._custom_db_input.setText(directory)
 
     def _run_measurement(self) -> None:
+        """Run the selected measurement in a background thread."""
         try:
             if self._active_thread and self._active_thread.is_alive():
-                QtWidgets.QMessageBox.warning(
-                    self,
+                self._append_log("WARNING: A measurement is already running.")
+                self._show_non_blocking_warning(
                     "Measurement Running",
-                    "A measurement is already running. Please wait for it to complete.",
+                    "A measurement is already running. Please wait for it to complete."
                 )
                 return
 
             items = self._method_list.selectedItems()
             if not items:
-                QtWidgets.QMessageBox.warning(
-                    self,
+                self._show_non_blocking_warning(
                     "No Measurement Selected",
-                    "Select a measurement method from the list before running.",
+                    "Select a measurement method from the list before running."
                 )
                 return
             method_name = items[0].text()
@@ -1342,12 +1616,13 @@ class MeasureFlowGui(QtWidgets.QMainWindow):
             try:
                 kwargs = self._gather_parameters()
             except ValueError as exc:
-                QtWidgets.QMessageBox.critical(self, "Invalid Parameters", str(exc))
+                self._show_non_blocking_error("Invalid Parameters", str(exc))
                 return
 
             measure_method = getattr(measure_flow, method_name)
             self._status_label.setText(f"Running {method_name}...")
             self._run_button.setEnabled(False)
+            self._append_log(f"Starting measurement: {method_name}")
 
             self._active_thread = MeasureRunner(
                 method_name,
@@ -1355,9 +1630,12 @@ class MeasureFlowGui(QtWidgets.QMainWindow):
                 kwargs,
                 on_finished=self._handle_finished,
                 on_error=self._handle_error,
+                on_stopped=self._handle_stopped,
                 error_log_path=self._error_log_path,
+                visa_lock=self._visa_lock,  # Pass VISA lock for thread safety
             )
             self._active_thread.start()
+            self._stop_button.setEnabled(True)
         except Exception as exc:  # noqa: BLE001  # pragma: no cover  # pylint: disable=broad-except
             error_traceback = traceback.format_exc()
             log_file = self._save_error_log(
@@ -1366,15 +1644,36 @@ class MeasureFlowGui(QtWidgets.QMainWindow):
             logging.getLogger(__name__).exception(
                 "Unexpected error while starting measurement."
             )
-            QtWidgets.QMessageBox.critical(
-                self,
+            self._append_log(f"ERROR: Failed to start measurement: {exc}")
+            self._append_log(f"Error log saved to: {log_file}")
+            self._show_non_blocking_error(
                 "Measurement Error",
                 f"An unexpected error occurred while starting the measurement:\n{exc}\n\n"
-                f"Error log saved to:\n{log_file}",
+                f"Error log saved to:\n{log_file}"
             )
             self._status_label.setText("Measurement start failed.")
             self._run_button.setEnabled(True)
             self._active_thread = None
+
+    def _show_non_blocking_warning(self, title: str, message: str) -> None:
+        """Show a non-blocking warning message."""
+        msg_box = QtWidgets.QMessageBox(self)
+        msg_box.setIcon(QtWidgets.QMessageBox.Icon.Warning)
+        msg_box.setWindowTitle(title)
+        msg_box.setText(message)
+        msg_box.setModal(False)
+        msg_box.setAttribute(QtCore.Qt.WidgetAttribute.WA_DeleteOnClose)
+        msg_box.show()
+
+    def _show_non_blocking_error(self, title: str, message: str) -> None:
+        """Show a non-blocking error message."""
+        msg_box = QtWidgets.QMessageBox(self)
+        msg_box.setIcon(QtWidgets.QMessageBox.Icon.Critical)
+        msg_box.setWindowTitle(title)
+        msg_box.setText(message)
+        msg_box.setModal(False)
+        msg_box.setAttribute(QtCore.Qt.WidgetAttribute.WA_DeleteOnClose)
+        msg_box.show()
 
     def _gather_parameters(self) -> Dict[str, Any]:
         kwargs: Dict[str, Any] = {}
@@ -1438,91 +1737,306 @@ class MeasureFlowGui(QtWidgets.QMainWindow):
         self._cleanup_after_measurement()
         self._status_label.setText(f"{method_name} completed successfully. Ready for next measurement.")
         self._run_button.setEnabled(True)
+        self._stop_button.setEnabled(False)
         self._active_thread = None
+
+    def _handle_stopped(self, method_name: str) -> None:
+        """Handle measurement stopped by user."""
+        try:
+            self._append_log(f"Measurement stopped by user: {method_name}")
+            
+            # Call stop_saving() on the measure flow if available
+            if self._measure_flow is not None:
+                try:
+                    # Check if there's a plotobj in dfs that has stop_saving method
+                    if hasattr(self._measure_flow, 'dfs'):
+                        for _key, value in self._measure_flow.dfs.items():
+                            if hasattr(value, 'stop_saving'):
+                                value.stop_saving()
+                                self._append_log("Called stop_saving() on plot object")
+                                break
+                except Exception as exc:  # noqa: BLE001  # pylint: disable=broad-except
+                    logging.getLogger(__name__).exception("Error calling stop_saving")
+                    self._append_log(f"Warning: Could not call stop_saving(): {exc}")
+            
+            # Perform light cleanup
+            self._cleanup_after_measurement(force_recreate=False)
+            
+            self._status_label.setText(f"{method_name} stopped. Ready for next measurement.")
+            self._run_button.setEnabled(True)
+            self._stop_button.setEnabled(False)
+            self._active_thread = None
+            
+            self._append_log("Measurement stopped successfully.")
+        except Exception as exc:  # noqa: BLE001  # pylint: disable=broad-except
+            logging.getLogger(__name__).exception("Error handling stop")
+            self._append_log(f"Error during stop handling: {exc}")
+            self._run_button.setEnabled(True)
+            self._stop_button.setEnabled(False)
+            self._active_thread = None
+
+    def _stop_measurement(self) -> None:
+        """Stop the currently running measurement."""
+        try:
+            if self._active_thread is None or not self._active_thread.is_alive():
+                self._append_log("WARNING: No active measurement to stop.")
+                return
+            
+            self._append_log("Stopping measurement...")
+            self._status_label.setText("Stopping measurement...")
+            
+            # Signal the thread to stop
+            self._active_thread.stop()
+            
+            # Call stop_saving() immediately on the measure flow
+            if self._measure_flow is not None:
+                try:
+                    # Try to find and call stop_saving on any plotobj
+                    if hasattr(self._measure_flow, 'dfs'):
+                        for _key, value in self._measure_flow.dfs.items():
+                            if hasattr(value, 'stop_saving'):
+                                value.stop_saving()
+                                self._append_log("Forcefully stopped background saving thread via stop_saving()")
+                                break
+                except Exception as exc:  # noqa: BLE001  # pylint: disable=broad-except
+                    logging.getLogger(__name__).exception("Error calling stop_saving during stop")
+                    self._append_log(f"Warning: Error stopping background thread: {exc}")
+            
+            # Disable stop button to prevent multiple clicks
+            self._stop_button.setEnabled(False)
+            
+            self._append_log("Stop signal sent. Waiting for measurement to terminate...")
+            
+        except Exception as exc:  # noqa: BLE001  # pylint: disable=broad-except
+            logging.getLogger(__name__).exception("Error stopping measurement")
+            self._append_log(f"ERROR: Failed to stop measurement: {exc}")
+            self._show_non_blocking_error(
+                "Stop Error",
+                f"An error occurred while stopping the measurement:\n{exc}"
+            )
 
     def _handle_error(self, method_name: str, exc: Exception, log_file: str) -> None:
-        self._cleanup_after_measurement(force_recreate=False)
-        
-        logging.getLogger(__name__).exception(
-            "Measurement '%s' encountered an error.", method_name
-        )
-        self._status_label.setText(f"{method_name} failed. Ready for next measurement.")
-        self._run_button.setEnabled(True)
-        self._active_thread = None
+        """Handle measurement errors with detailed dialog and auto-recovery."""
+        try:
+            logging.getLogger(__name__).exception(
+                "Measurement '%s' encountered an error.", method_name
+            )
+            
+            self._append_log(f"ERROR: {method_name} failed - {type(exc).__name__}: {exc}")
+            self._append_log(f"Error log saved to: {log_file}")
+            
+            # Create detailed error dialog (non-blocking)
+            error_dialog = QtWidgets.QDialog(self)
+            error_dialog.setWindowTitle(f"Measurement Error - {method_name}")
+            error_dialog.setModal(False)  # Non-blocking
+            error_dialog.setAttribute(QtCore.Qt.WidgetAttribute.WA_DeleteOnClose)
+            error_dialog.resize(800, 600)
+            
+            layout = QtWidgets.QVBoxLayout(error_dialog)
+            
+            # Error summary
+            error_summary = QtWidgets.QLabel(
+                f"<b>Measurement Failed:</b> {method_name}<br><br>"
+                f"<span style='color: #f87171;'>{type(exc).__name__}: {exc}</span>"
+            )
+            error_summary.setWordWrap(True)
+            error_summary.setStyleSheet(
+                "font-size: 13px; padding: 12px; background-color: #3f1f1f; "
+                "border-radius: 8px; border-left: 4px solid #ef4444;"
+            )
+            layout.addWidget(error_summary)
+            
+            # Log file location
+            log_location = QtWidgets.QLabel(f"📁 Error log saved to: <i>{log_file}</i>")
+            log_location.setWordWrap(True)
+            log_location.setStyleSheet("color: #9ca3af; font-size: 12px; padding: 8px;")
+            layout.addWidget(log_location)
+            
+            # Recovery status
+            recovery_info = QtWidgets.QLabel(
+                "✓ <b>Auto-Recovery Active:</b> Light cleanup will be performed automatically. "
+                "You can continue with the next measurement."
+            )
+            recovery_info.setWordWrap(True)
+            recovery_info.setStyleSheet(
+                "color: #4ade80; font-size: 12px; padding: 10px; "
+                "background-color: #1f3f2f; border-radius: 6px; margin: 8px 0;"
+            )
+            layout.addWidget(recovery_info)
+            
+            # Detailed traceback
+            traceback_label = QtWidgets.QLabel("Full Error Traceback:")
+            traceback_label.setStyleSheet("font-weight: 600; margin-top: 10px; font-size: 13px;")
+            layout.addWidget(traceback_label)
+            
+            traceback_text = QtWidgets.QPlainTextEdit()
+            try:
+                with open(log_file, "r", encoding="utf-8") as f:
+                    full_error = f.read()
+                traceback_text.setPlainText(full_error)
+            except Exception:  # noqa: BLE001  # pylint: disable=broad-except
+                traceback_text.setPlainText(traceback.format_exc())
+            
+            traceback_text.setReadOnly(True)
+            traceback_text.setStyleSheet(
+                "font-family: 'Consolas', 'Courier New', monospace; "
+                "font-size: 10px; background-color: #1a1a1a; border: 1px solid #374151; "
+                "border-radius: 6px; padding: 8px;"
+            )
+            layout.addWidget(traceback_text)
+            
+            # Action buttons
+            button_layout = QtWidgets.QHBoxLayout()
+            
+            info_text = QtWidgets.QLabel("Choose recovery option:")
+            info_text.setStyleSheet("color: #9ca3af; font-size: 12px;")
+            button_layout.addWidget(info_text)
+            button_layout.addStretch()
+            
+            # Continue button (light cleanup) - default
+            continue_btn = QtWidgets.QPushButton("OK - Light Cleanup")
+            continue_btn.setObjectName("accent-button")
+            continue_btn.setToolTip("Light cleanup: Clear measurement data but keep instruments loaded")
+            continue_btn.clicked.connect(lambda: self._perform_error_recovery(method_name, False, error_dialog))
+            button_layout.addWidget(continue_btn)
+            
+            # Full reinit button
+            reinit_btn = QtWidgets.QPushButton("Full Reinitialize")
+            reinit_btn.setToolTip("Full cleanup: Recreate MeasureFlow (instruments need reloading)")
+            reinit_btn.clicked.connect(lambda: self._perform_error_recovery(method_name, True, error_dialog))
+            button_layout.addWidget(reinit_btn)
+            
+            layout.addLayout(button_layout)
+            
+            # Show dialog non-blocking
+            error_dialog.show()
+            
+            # Perform light cleanup automatically after short delay (default behavior)
+            QtCore.QTimer.singleShot(100, lambda: self._default_error_recovery(method_name))
+            
+        except Exception as recovery_exc:  # noqa: BLE001  # pylint: disable=broad-except
+            logging.getLogger(__name__).exception("Error in error handler!")
+            self._append_log(f"Critical error in error handler: {recovery_exc}")
+            try:
+                # Fallback: basic cleanup
+                self._cleanup_after_measurement(force_recreate=False)
+                self._run_button.setEnabled(True)
+                self._active_thread = None
+                self._status_label.setText(f"{method_name} failed. Basic cleanup done.")
+            except Exception:  # noqa: BLE001  # pylint: disable=broad-except
+                pass
 
-        msg_box = QtWidgets.QMessageBox(self)
-        msg_box.setIcon(QtWidgets.QMessageBox.Icon.Critical)
-        msg_box.setWindowTitle("Measurement Error")
-        msg_box.setText(f"{method_name} failed with error:\n\n{type(exc).__name__}: {exc}")
-        msg_box.setInformativeText(
-            f"Error log saved to:\n{log_file}\n\n"
-            "Cleanup completed. You can:\n"
-            "• OK: Continue with current setup\n"
-            "• Discard: Force full cleanup (recreate MeasureFlow, instruments need reloading)\n"
-            "• Reset: Reset GUI to initial state"
-        )
-        msg_box.setDetailedText(traceback.format_exc())
-        msg_box.setStandardButtons(
-            QtWidgets.QMessageBox.StandardButton.Ok
-            | QtWidgets.QMessageBox.StandardButton.Discard
-            | QtWidgets.QMessageBox.StandardButton.Reset
-        )
-        msg_box.setDefaultButton(QtWidgets.QMessageBox.StandardButton.Ok)
+    def _default_error_recovery(self, method_name: str) -> None:
+        """Perform default light cleanup automatically."""
+        try:
+            if self._run_button.isEnabled():
+                return  # Already recovered
+                
+            self._append_log("Performing automatic light cleanup...")
+            self._cleanup_after_measurement(force_recreate=False)
+            self._status_label.setText(f"{method_name} failed. Cleanup completed. Ready for next measurement.")
+            self._run_button.setEnabled(True)
+            self._stop_button.setEnabled(False)
+            self._active_thread = None
+            self._append_log("Recovery completed successfully.")
+        except Exception as exc:  # noqa: BLE001  # pylint: disable=broad-except
+            logging.getLogger(__name__).exception("Default recovery failed")
+            self._append_log(f"Recovery warning: {exc}")
 
-        result = msg_box.exec()
-
-        if result == QtWidgets.QMessageBox.StandardButton.Discard:
-            self._cleanup_after_measurement(force_recreate=True)
-        elif result == QtWidgets.QMessageBox.StandardButton.Reset:
-            self._reset_to_initial_state()
-
-        self._append_log(f"ERROR: {method_name} failed - {exc}")
-        self._append_log(f"Error log saved to: {log_file}")
+    def _perform_error_recovery(self, method_name: str, full_reinit: bool, dialog: QtWidgets.QDialog) -> None:
+        """Perform error recovery based on user choice."""
+        try:
+            dialog.close()
+            
+            if full_reinit:
+                self._append_log("Performing full reinitialization...")
+                self._cleanup_after_measurement(force_recreate=True)
+                self._auto_reinitialize()
+                self._status_label.setText(f"{method_name} failed. System fully reinitialized. Ready.")
+            else:
+                self._append_log("Performing light cleanup...")
+                self._cleanup_after_measurement(force_recreate=False)
+                self._status_label.setText(f"{method_name} failed. Cleanup completed. Ready for next measurement.")
+            
+            self._run_button.setEnabled(True)
+            self._stop_button.setEnabled(False)
+            self._active_thread = None
+            self._append_log("Recovery completed successfully.")
+        except Exception as exc:  # noqa: BLE001  # pylint: disable=broad-except
+            logging.getLogger(__name__).exception("Recovery failed")
+            self._append_log(f"Recovery error: {exc}")
+            self._run_button.setEnabled(True)
+            self._stop_button.setEnabled(False)
+            self._active_thread = None
 
     def _manual_cleanup(self) -> None:
         """Manually trigger cleanup of measurement resources."""
         try:
             if self._active_thread and self._active_thread.is_alive():
-                QtWidgets.QMessageBox.warning(
-                    self,
+                self._show_non_blocking_warning(
                     "Measurement Running",
                     "Cannot perform cleanup while a measurement is running. "
-                    "Please wait for it to complete or restart the application.",
+                    "Please wait for it to complete or restart the application."
                 )
                 return
 
-            msg_box = QtWidgets.QMessageBox(self)
-            msg_box.setIcon(QtWidgets.QMessageBox.Icon.Question)
-            msg_box.setWindowTitle("Force Cleanup")
-            msg_box.setText("Choose cleanup level:")
-            msg_box.setInformativeText(
-                "• Light Cleanup: Clear dataframes only (keeps instruments loaded)\n"
-                "• Full Cleanup: Recreate MeasureFlow (instruments need reloading)"
+            # Create non-blocking cleanup dialog
+            cleanup_dialog = QtWidgets.QDialog(self)
+            cleanup_dialog.setWindowTitle("Manual Cleanup")
+            cleanup_dialog.setModal(False)
+            cleanup_dialog.setAttribute(QtCore.Qt.WidgetAttribute.WA_DeleteOnClose)
+            cleanup_dialog.resize(400, 200)
+            
+            layout = QtWidgets.QVBoxLayout(cleanup_dialog)
+            
+            label = QtWidgets.QLabel(
+                "<b>Choose cleanup level:</b><br><br>"
+                "• <b>Light Cleanup:</b> Clear dataframes only (keeps instruments loaded)<br>"
+                "• <b>Full Cleanup:</b> Recreate MeasureFlow (instruments need reloading)"
             )
-            light_button = msg_box.addButton("Light Cleanup", QtWidgets.QMessageBox.ButtonRole.AcceptRole)
-            full_button = msg_box.addButton("Full Cleanup", QtWidgets.QMessageBox.ButtonRole.DestructiveRole)
-            cancel_button = msg_box.addButton(QtWidgets.QMessageBox.StandardButton.Cancel)
-            msg_box.setDefaultButton(light_button)
-
-            msg_box.exec()
-            clicked = msg_box.clickedButton()
-
-            if clicked == cancel_button:
-                return
-            elif clicked == full_button:
-                self._cleanup_after_measurement(force_recreate=True)
-                self._status_label.setText("Full cleanup completed. MeasureFlow will be recreated.")
-            else:  # light_button
-                self._cleanup_after_measurement(force_recreate=False)
-                self._status_label.setText("Light cleanup completed. Ready for next measurement.")
+            label.setWordWrap(True)
+            layout.addWidget(label)
+            
+            button_layout = QtWidgets.QHBoxLayout()
+            
+            light_button = QtWidgets.QPushButton("Light Cleanup")
+            light_button.clicked.connect(lambda: self._do_cleanup(False, cleanup_dialog))
+            button_layout.addWidget(light_button)
+            
+            full_button = QtWidgets.QPushButton("Full Cleanup")
+            full_button.clicked.connect(lambda: self._do_cleanup(True, cleanup_dialog))
+            button_layout.addWidget(full_button)
+            
+            cancel_button = QtWidgets.QPushButton("Cancel")
+            cancel_button.clicked.connect(cleanup_dialog.close)
+            button_layout.addWidget(cancel_button)
+            
+            layout.addLayout(button_layout)
+            cleanup_dialog.show()
 
         except Exception as exc:  # noqa: BLE001  # pylint: disable=broad-except
             logging.getLogger(__name__).exception("Error during manual cleanup.")
-            QtWidgets.QMessageBox.critical(
-                self,
+            self._append_log(f"ERROR: Manual cleanup failed: {exc}")
+            self._show_non_blocking_error(
                 "Cleanup Error",
-                f"An error occurred during cleanup:\n{exc}",
+                f"An error occurred during cleanup:\n{exc}"
             )
+
+    def _do_cleanup(self, full_reinit: bool, dialog: QtWidgets.QDialog) -> None:
+        """Perform the actual cleanup operation."""
+        try:
+            dialog.close()
+            if full_reinit:
+                self._cleanup_after_measurement(force_recreate=True)
+                self._status_label.setText("Full cleanup completed. MeasureFlow will be recreated.")
+                self._append_log("Full cleanup completed.")
+            else:
+                self._cleanup_after_measurement(force_recreate=False)
+                self._status_label.setText("Light cleanup completed. Ready for next measurement.")
+                self._append_log("Light cleanup completed.")
+        except Exception as exc:  # noqa: BLE001  # pylint: disable=broad-except
+            logging.getLogger(__name__).exception("Cleanup operation failed")
+            self._append_log(f"ERROR: Cleanup failed: {exc}")
 
     def _open_dash_in_browser(self) -> None:
         webbrowser.open(f"http://127.0.0.1:{self._dash_bridge.port}")

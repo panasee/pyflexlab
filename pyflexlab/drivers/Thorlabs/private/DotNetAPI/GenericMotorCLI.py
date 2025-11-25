@@ -2,7 +2,7 @@ from time import sleep
 from typing import Optional
 from pyomnix.omnix_logger import get_logger
 
-from qcodes.utils.helpers import create_on_off_val_mapping
+from qcodes.parameters import create_on_off_val_mapping
 
 from .DeviceManagerCLI import IGenericDeviceCLI
 from .qcodes_thorlabs_integration import ThorlabsObjectWrapper, ThorlabsMixin

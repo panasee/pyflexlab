@@ -3,7 +3,7 @@
 # https://github.com/qdev-dk/qtlab/blob/master/instrument_plugins/Keithley_6430.py
 from qcodes.instrument.visa import VisaInstrument
 from qcodes.utils.validators import Ints, Numbers, Bool, Strings, Enum
-from qcodes.utils.helpers import create_on_off_val_mapping
+from qcodes.parameters import create_on_off_val_mapping
 import logging
 import warnings
 from functools import partial
