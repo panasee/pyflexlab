@@ -29,7 +29,6 @@ dependencies = [
     "pandas",
     "matplotlib",
     "plotly>=5.24.1",
-    "kaleido==0.1.0.post1",
     "pyvisa",
     "pyvisa-py",
     "pythonnet",

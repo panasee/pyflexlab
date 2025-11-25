@@ -3,7 +3,7 @@ from pyomnix.omnix_logger import get_logger
 
 log = get_logger(__name__)
 
-from qcodes.utils.helpers import create_on_off_val_mapping
+from qcodes.parameters import create_on_off_val_mapping
 
 
 class IGenericCoreDeviceCLI:
