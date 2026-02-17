@@ -535,21 +535,21 @@ class ITCMercury(ITC):
             trend (Literal["up","down","up-huge","down-huge"]): the trend of the temperature
         """
         if trend == "up-huge":
-            self.set_flow(2)
+            self.set_flow(1.5)
         elif trend == "down-huge":
             if temp >= 5:
-                self.set_flow(15)
+                self.set_flow(10)
             elif temp > 2:
-                self.set_flow(8)
+                self.set_flow(10)
             else:
-                self.set_flow(3)
+                self.set_flow(1.5)
         else:
             if temp <= 2.3:
-                self.set_flow(2)
+                self.set_flow(1.5)
             if trend == "up":
-                self.set_flow(3)
+                self.set_flow(1.5)
             else:
-                self.set_flow(4)
+                self.set_flow(1.5)
 
 
 class ITCs(ITC):

@@ -153,7 +153,7 @@ class WrapperIPS(Magnet):
         *,
         rate: float | tuple[float] = (0.2,) * 3,
         wait: bool = True,
-        tolerance: float = 1e-3,
+        tolerance: float = 5e-3,
     ) -> None:
         """
         ramp the magnetic field to the target value with the rate, current the field is only in Z direction limited by the actual instrument setting
