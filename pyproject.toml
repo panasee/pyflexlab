@@ -7,13 +7,13 @@ exclude = ["tests"]
 
 [project]
 name = "pyflexlab"
-version = "1.0"
+version = "1.1"
 description = "Integrated Tools for Electronic, Cryogenic and Magnetic Measurements"
 authors = [{name="Dongkai", email="dongkai001@e.ntu.edu.sg"}]
 readme = "README.md"
 license = "MIT"
 urls = { Homepage = "https://github.com/panasee/pyflexlab" }
-requires-python = ">=3.11"
+requires-python = ">=3.12"
 keywords = [
   "measurement", 
   "instrumentation"
