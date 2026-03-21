@@ -138,6 +138,7 @@ class MeasureFlow(MeasureManager):
                 inline_jupyter=not use_dash,
             )
             plotobj.start_saving(mea_dict["plot_record_path"], saving_interval)
+            self._active_plotobj = plotobj
 
         for i in mea_dict["gen_lst"]:
             self.record_update(mea_dict["file_path"], mea_dict["record_num"], i)
@@ -158,6 +159,7 @@ class MeasureFlow(MeasureManager):
 
         if if_plot:
             plotobj.stop_saving()
+            self._active_plotobj = None
 
         src_sens_lst[0].output_switch("off")
 
@@ -336,6 +338,7 @@ class MeasureFlow(MeasureManager):
                 inline_jupyter=not use_dash,
             )
             plotobj.start_saving(mea_dict["plot_record_path"], saving_interval)
+            self._active_plotobj = plotobj
 
         for i in mea_dict["gen_lst"]:
             self.record_update(mea_dict["file_path"], mea_dict["record_num"], i)
@@ -363,6 +366,7 @@ class MeasureFlow(MeasureManager):
 
         if if_plot:
             plotobj.stop_saving()
+            self._active_plotobj = None
         ds_src_sens_lst[0].output_switch("off")
         vg_meter.output_switch("off")
 
@@ -556,6 +560,7 @@ class MeasureFlow(MeasureManager):
                 inline_jupyter=not use_dash,
             )
             plotobj.start_saving(mea_dict["plot_record_path"], saving_interval)
+            self._active_plotobj = plotobj
 
         for i in mea_dict["gen_lst"]:
             self.record_update(mea_dict["file_path"], mea_dict["record_num"], i)
@@ -583,6 +588,7 @@ class MeasureFlow(MeasureManager):
 
         if if_plot:
             plotobj.stop_saving()
+            self._active_plotobj = None
         ds_src_sens_lst[0].output_switch("off")
         vg_meter.output_switch("off")
 
@@ -792,6 +798,7 @@ class MeasureFlow(MeasureManager):
                 inline_jupyter=not use_dash,
             )
             plotobj.start_saving(mea_dict["plot_record_path"], saving_interval)
+            self._active_plotobj = plotobj
 
         for i in mea_dict["gen_lst"]:
             self.record_update(mea_dict["file_path"], mea_dict["record_num"], i)
@@ -820,6 +827,7 @@ class MeasureFlow(MeasureManager):
 
         if if_plot:
             plotobj.stop_saving()
+            self._active_plotobj = None
         ds_src_sens_lst[0].output_switch("off")
         vg_meter.output_switch("off")
 
@@ -917,6 +925,7 @@ class MeasureFlow(MeasureManager):
                 inline_jupyter=not use_dash,
             )
             plotobj.start_saving(mea_dict["plot_record_path"], saving_interval)
+            self._active_plotobj = plotobj
 
         for i in mea_dict["gen_lst"]:
             self.record_update(mea_dict["file_path"], mea_dict["record_num"], i)
@@ -934,6 +943,7 @@ class MeasureFlow(MeasureManager):
 
         if if_plot:
             plotobj.stop_saving()
+            self._active_plotobj = None
 
     def measure_Vswp_VnwVnw_vrcurve_lockin(
         self,
@@ -1074,6 +1084,7 @@ class MeasureFlow(MeasureManager):
                 inline_jupyter=not use_dash,
             )
             plotobj.start_saving(mea_dict["plot_record_path"], saving_interval)
+            self._active_plotobj = plotobj
 
         for i in mea_dict["gen_lst"]:
             self.record_update(mea_dict["file_path"], mea_dict["record_num"], i)
@@ -1118,6 +1129,7 @@ class MeasureFlow(MeasureManager):
 
         if if_plot:
             plotobj.stop_saving()
+            self._active_plotobj = None
 
     def measure_VswpV_VnwV1wI_BT_vrcurve_lockin_largeR(
         self,
@@ -1263,6 +1275,7 @@ class MeasureFlow(MeasureManager):
                 inline_jupyter=not use_dash,
             )
             plotobj.start_saving(mea_dict["plot_record_path"], saving_interval)
+            self._active_plotobj = plotobj
 
         for i in mea_dict["gen_lst"]:
             self.record_update(mea_dict["file_path"], mea_dict["record_num"], i)
@@ -1303,6 +1316,7 @@ class MeasureFlow(MeasureManager):
             )
         if if_plot:
             plotobj.stop_saving()
+            self._active_plotobj = None
 
     def measure_Iswp_VnwVnw_vrcurve_lockin(
         self,
@@ -1428,6 +1442,7 @@ class MeasureFlow(MeasureManager):
                 inline_jupyter=not use_dash,
             )
             plotobj.start_saving(mea_dict["plot_record_path"], saving_interval)
+            self._active_plotobj = plotobj
 
         for i in mea_dict["gen_lst"]:
             self.record_update(mea_dict["file_path"], mea_dict["record_num"], i)
@@ -1472,6 +1487,7 @@ class MeasureFlow(MeasureManager):
 
         if if_plot:
             plotobj.stop_saving()
+            self._active_plotobj = None
 
 ## dI/dV curve by AC+DC
     def measure_IV_Vnw_dvdi_ac_dc(
@@ -1575,6 +1591,7 @@ class MeasureFlow(MeasureManager):
                 inline_jupyter=not use_dash,
             )
             plotobj.start_saving(mea_dict["plot_record_path"], saving_interval)
+            self._active_plotobj = plotobj
 
         for i in mea_dict["gen_lst"]:
             self.record_update(mea_dict["file_path"], mea_dict["record_num"], i)
@@ -1592,6 +1609,7 @@ class MeasureFlow(MeasureManager):
 
         if if_plot:
             plotobj.stop_saving()
+            self._active_plotobj = None
 
     def measure_I_Vnw_dvdi_ac_dc(
         self,
@@ -1692,6 +1710,7 @@ class MeasureFlow(MeasureManager):
                 inline_jupyter=not use_dash,
             )
             plotobj.start_saving(mea_dict["plot_record_path"], saving_interval)
+            self._active_plotobj = plotobj
 
         for i in mea_dict["gen_lst"]:
             self.record_update(mea_dict["file_path"], mea_dict["record_num"], i)
@@ -1709,6 +1728,7 @@ class MeasureFlow(MeasureManager):
 
         if if_plot:
             plotobj.stop_saving()
+            self._active_plotobj = None
 
 
 ##  RT
@@ -1885,6 +1905,7 @@ class MeasureFlow(MeasureManager):
                 inline_jupyter=not use_dash,
             )
             plotobj.start_saving(mea_dict["plot_record_path"], saving_interval)
+            self._active_plotobj = plotobj
 
         for gen_i in mea_dict["gen_lst"]:
             self.record_update(mea_dict["file_path"], mea_dict["record_num"], gen_i)
@@ -1919,6 +1940,7 @@ class MeasureFlow(MeasureManager):
 
         if if_plot:
             plotobj.stop_saving()
+            self._active_plotobj = None
 
     def measure_IV_VI_BTvary_rt(
         self,
@@ -2065,6 +2087,7 @@ class MeasureFlow(MeasureManager):
                 inline_jupyter=not use_dash,
             )
             plotobj.start_saving(mea_dict["plot_record_path"], saving_interval)
+            self._active_plotobj = plotobj
 
         for gen_i in mea_dict["gen_lst"]:
             self.record_update(mea_dict["file_path"], mea_dict["record_num"], gen_i)
@@ -2088,6 +2111,7 @@ class MeasureFlow(MeasureManager):
 
         if if_plot:
             plotobj.stop_saving()
+            self._active_plotobj = None
 
     def measure_VV_II_BTvary_rt(
         self,
@@ -2221,6 +2245,7 @@ class MeasureFlow(MeasureManager):
                 inline_jupyter=not use_dash,
             )
             plotobj.start_saving(mea_dict["plot_record_path"], saving_interval)
+            self._active_plotobj = plotobj
 
         for gen_i in mea_dict["gen_lst"]:
             self.record_update(mea_dict["file_path"], mea_dict["record_num"], gen_i)
@@ -2244,6 +2269,7 @@ class MeasureFlow(MeasureManager):
 
         if if_plot:
             plotobj.stop_saving()
+            self._active_plotobj = None
 
 
 
@@ -2374,6 +2400,7 @@ class MeasureFlow(MeasureManager):
                 inline_jupyter=not use_dash,
             )
             plotobj.start_saving(mea_dict["plot_record_path"], saving_interval)
+            self._active_plotobj = plotobj
 
         for gen_i in mea_dict["gen_lst"]:
             self.record_update(mea_dict["file_path"], mea_dict["record_num"], gen_i)
@@ -2397,6 +2424,7 @@ class MeasureFlow(MeasureManager):
 
         if if_plot:
             plotobj.stop_saving()
+            self._active_plotobj = None
 
     def b2_measure_VV_VnwI_BTvary_rt_lockin(
         self,
@@ -2540,6 +2568,7 @@ class MeasureFlow(MeasureManager):
                 inline_jupyter=not use_dash,
             )
             plotobj.start_saving(mea_dict["plot_record_path"], saving_interval)
+            self._active_plotobj = plotobj
 
         for gen_i in mea_dict["gen_lst"]:
             gen_i = list(gen_i) + [
@@ -2575,6 +2604,7 @@ class MeasureFlow(MeasureManager):
 
         if if_plot:
             plotobj.stop_saving()
+            self._active_plotobj = None
 
     def measure_VV_VnwVnwI_BTvary_rt_lockin(
         self,
@@ -2752,6 +2782,7 @@ class MeasureFlow(MeasureManager):
                 inline_jupyter=not use_dash,
             )
             plotobj.start_saving(mea_dict["plot_record_path"], saving_interval)
+            self._active_plotobj = plotobj
 
         for gen_i in mea_dict["gen_lst"]:
             self.record_update(mea_dict["file_path"], mea_dict["record_num"], gen_i)
@@ -2790,6 +2821,7 @@ class MeasureFlow(MeasureManager):
 
         if if_plot:
             plotobj.stop_saving()
+            self._active_plotobj = None
 
     def measure_VV_VnwV1wI_BTvary_rt_lockin_largeR(
         self,
@@ -2960,6 +2992,7 @@ class MeasureFlow(MeasureManager):
                 inline_jupyter=not use_dash,
             )
             plotobj.start_saving(mea_dict["plot_record_path"], saving_interval)
+            self._active_plotobj = plotobj
 
         for gen_i in mea_dict["gen_lst"]:
             self.record_update(mea_dict["file_path"], mea_dict["record_num"], gen_i)
@@ -2999,6 +3032,7 @@ class MeasureFlow(MeasureManager):
 
         if if_plot:
             plotobj.stop_saving()
+            self._active_plotobj = None
 
     #unfinished
     def measure_VI_VnwVnwV_BTvary_rt_lockin_dc(
@@ -3204,6 +3238,7 @@ class MeasureFlow(MeasureManager):
                 inline_jupyter=not use_dash,
             )
             plotobj.start_saving(mea_dict["plot_record_path"], saving_interval)
+            self._active_plotobj = plotobj
 
         for gen_i in mea_dict["gen_lst"]:
             self.record_update(mea_dict["file_path"], mea_dict["record_num"], gen_i)
@@ -3243,6 +3278,7 @@ class MeasureFlow(MeasureManager):
 
         if if_plot:
             plotobj.stop_saving()
+            self._active_plotobj = None
 
     def b2_measure_VV_VnwVnwI_BTvary_rt_lockin(
         self,
@@ -3442,6 +3478,7 @@ class MeasureFlow(MeasureManager):
                 inline_jupyter=not use_dash,
             )
             plotobj.start_saving(mea_dict["plot_record_path"], saving_interval)
+            self._active_plotobj = plotobj
 
         for gen_i in mea_dict["gen_lst"]:
             if plot_time_temp:
@@ -3487,6 +3524,7 @@ class MeasureFlow(MeasureManager):
 
         if if_plot:
             plotobj.stop_saving()
+            self._active_plotobj = None
 
     def b2_record_Tvary(
         self,
@@ -3560,6 +3598,7 @@ class MeasureFlow(MeasureManager):
                 inline_jupyter=not use_dash,
             )
             plotobj.start_saving(mea_dict["plot_record_path"], saving_interval)
+            self._active_plotobj = plotobj
 
         for gen_i in mea_dict["gen_lst"]:
             gen_i = (
@@ -3591,6 +3630,7 @@ class MeasureFlow(MeasureManager):
 
         if if_plot:
             plotobj.stop_saving()
+            self._active_plotobj = None
 
 ##  Gate sweep
     def measure_IVswp_VI_BT_gateswp(
@@ -3785,6 +3825,7 @@ class MeasureFlow(MeasureManager):
                 inline_jupyter=not use_dash,
             )
             plotobj.start_saving(mea_dict["plot_record_path"], saving_interval)
+            self._active_plotobj = plotobj
 
         for i in mea_dict["gen_lst"]:
             self.record_update(mea_dict["file_path"], mea_dict["record_num"], i)
@@ -3812,6 +3853,7 @@ class MeasureFlow(MeasureManager):
 
         if if_plot:
             plotobj.stop_saving()
+            self._active_plotobj = None
 
     def measure_VVswp_II_BT_gateswp(
         self,
@@ -3992,6 +4034,7 @@ class MeasureFlow(MeasureManager):
                 inline_jupyter=not use_dash,
             )
             plotobj.start_saving(mea_dict["plot_record_path"], saving_interval)
+            self._active_plotobj = plotobj
 
         for i in mea_dict["gen_lst"]:
             self.record_update(mea_dict["file_path"], mea_dict["record_num"], i)
@@ -4019,6 +4062,7 @@ class MeasureFlow(MeasureManager):
 
         if if_plot:
             plotobj.stop_saving()
+            self._active_plotobj = None
 
     def measure_VVswp_VnwI_BT_gateswp_lockin(
         self,
@@ -4150,6 +4194,7 @@ class MeasureFlow(MeasureManager):
                 inline_jupyter=not use_dash,
             )
             plotobj.start_saving(mea_dict["plot_record_path"], saving_interval)
+            self._active_plotobj = plotobj
 
         for i in mea_dict["gen_lst"]:
             self.record_update(mea_dict["file_path"], mea_dict["record_num"], i)
@@ -4167,6 +4212,7 @@ class MeasureFlow(MeasureManager):
 
         if if_plot:
             plotobj.stop_saving()
+            self._active_plotobj = None
 
     def measure_VVswp_VnwVnwI_BT_gateswp_lockin(
         self,
@@ -4371,6 +4417,7 @@ class MeasureFlow(MeasureManager):
                 inline_jupyter=not use_dash,
             )
             plotobj.start_saving(mea_dict["plot_record_path"], saving_interval)
+            self._active_plotobj = plotobj
 
         for i in mea_dict["gen_lst"]:
             self.record_update(mea_dict["file_path"], mea_dict["record_num"], i)
@@ -4396,6 +4443,7 @@ class MeasureFlow(MeasureManager):
 
         if if_plot:
             plotobj.stop_saving()
+            self._active_plotobj = None
 
     def measure_VswpV_II_BT_optoelec(
         self,
@@ -4582,6 +4630,7 @@ class MeasureFlow(MeasureManager):
                 inline_jupyter=not use_dash,
             )
             plotobj.start_saving(mea_dict["plot_record_path"], saving_interval)
+            self._active_plotobj = plotobj
 
         for i in mea_dict["gen_lst"]:
             self.record_update(mea_dict["file_path"], mea_dict["record_num"], i)
@@ -4609,6 +4658,7 @@ class MeasureFlow(MeasureManager):
 
         if if_plot:
             plotobj.stop_saving()
+            self._active_plotobj = None
         ds_src_sens_lst[0].output_switch("off")
         vg_meter.output_switch("off")
         self.instrs["laser"].shutter_close()
@@ -4777,6 +4827,7 @@ class MeasureFlow(MeasureManager):
                 inline_jupyter=not use_dash,
             )
             plotobj.start_saving(mea_dict["plot_record_path"], saving_interval)
+            self._active_plotobj = plotobj
 
         for gen_i in mea_dict["gen_lst"]:
             self.record_update(mea_dict["file_path"], mea_dict["record_num"], gen_i)
@@ -4811,6 +4862,7 @@ class MeasureFlow(MeasureManager):
 
         if if_plot:
             plotobj.stop_saving()
+            self._active_plotobj = None
 
     def measure_VV_II_BvaryT_rhloop(
         self,
@@ -4963,6 +5015,7 @@ class MeasureFlow(MeasureManager):
                 inline_jupyter=not use_dash,
             )
             plotobj.start_saving(mea_dict["plot_record_path"], saving_interval)
+            self._active_plotobj = plotobj
 
         for gen_i in mea_dict["gen_lst"]:
             self.record_update(mea_dict["file_path"], mea_dict["record_num"], gen_i)
@@ -4997,6 +5050,7 @@ class MeasureFlow(MeasureManager):
 
         if if_plot:
             plotobj.stop_saving()
+            self._active_plotobj = None
 
 ##  Gate mapping
     def measure_VswpVswp_II_BT_dsgatemapping(
@@ -5218,6 +5272,7 @@ class MeasureFlow(MeasureManager):
                 )
 
             plotobj.start_saving(mea_dict["plot_record_path"], saving_interval)
+            self._active_plotobj = plotobj
 
         for i in mea_dict["gen_lst"]:
             self.record_update(mea_dict["file_path"], mea_dict["record_num"], i)
@@ -5286,6 +5341,7 @@ class MeasureFlow(MeasureManager):
 
         if if_plot:
             plotobj.stop_saving()
+            self._active_plotobj = None
 
     def measure_IVswpVswp_VII_BT_dualgatemapping(
         self,
@@ -5580,6 +5636,7 @@ class MeasureFlow(MeasureManager):
                 )
 
             plotobj.start_saving(mea_dict["plot_record_path"], saving_interval)
+            self._active_plotobj = plotobj
 
         for i in mea_dict["gen_lst"]:
             self.record_update(mea_dict["file_path"], mea_dict["record_num"], i)
@@ -5648,6 +5705,7 @@ class MeasureFlow(MeasureManager):
 
         if plotobj is not None:
             plotobj.stop_saving()
+            self._active_plotobj = None
 
     def measure_VVswpVswp_III_BT_dualgatemapping(
         self,
@@ -5894,6 +5952,7 @@ class MeasureFlow(MeasureManager):
                 )
 
             plotobj.start_saving(mea_dict["plot_record_path"], saving_interval)
+            self._active_plotobj = plotobj
 
         for i in mea_dict["gen_lst"]:
             self.record_update(mea_dict["file_path"], mea_dict["record_num"], i)
@@ -5962,6 +6021,7 @@ class MeasureFlow(MeasureManager):
 
         if plotobj is not None:
             plotobj.stop_saving()
+            self._active_plotobj = None
 
     def measure_VVswpVswp_VnwII_BT_dualgatemapping_lockin(
         self,
@@ -6172,6 +6232,7 @@ class MeasureFlow(MeasureManager):
                 )
 
             plotobj.start_saving(mea_dict["plot_record_path"], saving_interval)
+            self._active_plotobj = plotobj
 
         for i in mea_dict["gen_lst"]:
             self.record_update(mea_dict["file_path"], mea_dict["record_num"], i)
@@ -6211,6 +6272,7 @@ class MeasureFlow(MeasureManager):
 
         if plotobj is not None:
             plotobj.stop_saving()
+            self._active_plotobj = None
 
     def _extract_vary(
         self, mea_dict: dict

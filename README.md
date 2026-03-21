@@ -107,7 +107,7 @@ Drivers with good universality will be contributed back to PyMeasure or QCoDeS, 
   - pandas
   - matplotlib
   - plotly >= 5.24.1
-  - kaleido == 0.1.0.post1
+  - kaleido >= 1.2.0
   - pyvisa
   - pyvisa-py
   - pymeasure >= 0.14.0

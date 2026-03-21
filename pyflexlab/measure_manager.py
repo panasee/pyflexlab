@@ -77,6 +77,7 @@ class MeasureManager(FileOrganizer):
         self._csv_fast_writer: FastCSVWriter | None = None  # Fast CSV writer instance
         self._rm = pyvisa.ResourceManager()
         self.df_cache: pd.DataFrame | None = None
+        self._active_plotobj: DataManipulator | None = None  # currently running plot/save object
 
     def list_visa_resources(self) -> dict:
         return self._rm.list_resources_info()

@@ -1745,16 +1745,13 @@ class MeasureFlowGui(QtWidgets.QMainWindow):
         try:
             self._append_log(f"Measurement stopped by user: {method_name}")
             
-            # Call stop_saving() on the measure flow if available
+            # Stop the kaleido background saving thread if active
             if self._measure_flow is not None:
                 try:
-                    # Check if there's a plotobj in dfs that has stop_saving method
-                    if hasattr(self._measure_flow, 'dfs'):
-                        for _key, value in self._measure_flow.dfs.items():
-                            if hasattr(value, 'stop_saving'):
-                                value.stop_saving()
-                                self._append_log("Called stop_saving() on plot object")
-                                break
+                    plotobj = getattr(self._measure_flow, '_active_plotobj', None)
+                    if plotobj is not None:
+                        plotobj.stop_saving()
+                        self._append_log("Called stop_saving() on plot object")
                 except Exception as exc:  # noqa: BLE001  # pylint: disable=broad-except
                     logging.getLogger(__name__).exception("Error calling stop_saving")
                     self._append_log(f"Warning: Could not call stop_saving(): {exc}")
@@ -1788,16 +1785,13 @@ class MeasureFlowGui(QtWidgets.QMainWindow):
             # Signal the thread to stop
             self._active_thread.stop()
             
-            # Call stop_saving() immediately on the measure flow
+            # Stop the kaleido background saving thread immediately
             if self._measure_flow is not None:
                 try:
-                    # Try to find and call stop_saving on any plotobj
-                    if hasattr(self._measure_flow, 'dfs'):
-                        for _key, value in self._measure_flow.dfs.items():
-                            if hasattr(value, 'stop_saving'):
-                                value.stop_saving()
-                                self._append_log("Forcefully stopped background saving thread via stop_saving()")
-                                break
+                    plotobj = getattr(self._measure_flow, '_active_plotobj', None)
+                    if plotobj is not None:
+                        plotobj.stop_saving()
+                        self._append_log("Forcefully stopped background saving thread via stop_saving()")
                 except Exception as exc:  # noqa: BLE001  # pylint: disable=broad-except
                     logging.getLogger(__name__).exception("Error calling stop_saving during stop")
                     self._append_log(f"Warning: Error stopping background thread: {exc}")
