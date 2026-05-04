@@ -708,6 +708,10 @@ class MeasureManager(FileOrganizer):
         self.add_measurement(*measure_mods)
         logger.info(f"Filename is: {file_path.name}")
 
+        if self._csv_fast_writer is not None:
+            self._csv_fast_writer.__exit__()
+            self._csv_fast_writer = None
+
         if file_path.exists():
             logger.warning(f"{file_path} already exists, will be overwritten")
             bak_path = file_path.parent / f"{file_path.name}.bak"
@@ -745,9 +749,8 @@ class MeasureManager(FileOrganizer):
         
         # Initialize FastCSVWriter if enabled
         if use_fast_writer:
-            # Close any existing writer
-            if self._csv_fast_writer is not None:
-                self._csv_fast_writer.__exit__()
+            # FastCSVWriter appends by design; record_init owns overwriting the file.
+            file_path.write_text("", encoding="utf-8")
             
             # Create new fast writer (will be opened when first record is written)
             self._csv_fast_writer = FastCSVWriter(
