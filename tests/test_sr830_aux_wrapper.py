@@ -222,7 +222,7 @@ class FakeLoadedSR830:
         self.setup_calls.append(kwargs)
 
 
-def test_load_meter_registers_sr830_aux_wrappers_with_parent_sr830():
+def test_load_meter_keeps_sr830_aux_wrappers_on_parent_sr830():
     manager = MeasureManager.__new__(MeasureManager)
     manager.instrs = {}
     manager.meter_wrapper_dict = {"sr830": FakeLoadedSR830}
@@ -230,13 +230,8 @@ def test_load_meter_registers_sr830_aux_wrappers_with_parent_sr830():
     manager.load_meter("sr830", "GPIB0::8::INSTR", "GPIB0::9::INSTR")
 
     assert len(manager.instrs["sr830"]) == 2
-    assert manager.instrs["sr830_aux"] == [
-        "GPIB0::8::INSTR-aux-1",
-        "GPIB0::8::INSTR-aux-2",
-        "GPIB0::8::INSTR-aux-3",
-        "GPIB0::8::INSTR-aux-4",
-        "GPIB0::9::INSTR-aux-1",
-        "GPIB0::9::INSTR-aux-2",
-        "GPIB0::9::INSTR-aux-3",
-        "GPIB0::9::INSTR-aux-4",
-    ]
+    assert "sr830_aux" not in manager.instrs
+    assert manager.instrs["sr830"][0].aux[1] == "GPIB0::8::INSTR-aux-1"
+    assert manager.instrs["sr830"][0].aux[4] == "GPIB0::8::INSTR-aux-4"
+    assert manager.instrs["sr830"][1].aux[1] == "GPIB0::9::INSTR-aux-1"
+    assert manager.instrs["sr830"][1].aux[4] == "GPIB0::9::INSTR-aux-4"
