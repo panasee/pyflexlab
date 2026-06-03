@@ -874,6 +874,17 @@ class WrapperSR830(ACSourceMeter):
         if reset:
             self.setup(reset=True)
         self.info_sync()
+        self._init_aux_wrappers()
+
+    def _init_aux_wrappers(self):
+        self.aux = {
+            channel: WrapperSR830Aux(
+                self,
+                out_channel=channel,
+                in_channel=channel,
+            )
+            for channel in range(1, 5)
+        }
 
     def info_sync(self):
         self.info_dict.update(
@@ -1081,6 +1092,170 @@ class WrapperSR830(ACSourceMeter):
             self.output_switch("off")
 
 
+class WrapperSR830Aux(SourceMeter):
+    """
+    Virtual DC voltage source/sense wrapper for one SR830 AUX OUT/IN pair.
+
+    The wrapper shares an existing SR830 communication object and does not own
+    or reset the lock-in. AUX OUT is a DC voltage DAC; AUX IN is a DC voltage
+    ADC. Current source/sense, AC output, and compliance are not supported.
+    """
+
+    def __init__(
+        self,
+        sr830: WrapperSR830 | SR830,
+        *,
+        out_channel: int = 1,
+        in_channel: int | None = None,
+    ):
+        super().__init__()
+        self.sr830 = sr830
+        self.meter = sr830.meter if hasattr(sr830, "meter") else sr830
+        self.out_channel = self._validate_channel(out_channel, "out_channel")
+        self.in_channel = self._validate_channel(
+            out_channel if in_channel is None else in_channel,
+            "in_channel",
+        )
+        self.output_target = 0.0
+        self.safe_step = 1e-3
+        self.info_dict = {
+            "output_type": "volt",
+            "output_status": False,
+            "aux_out_channel": self.out_channel,
+            "aux_in_channel": self.in_channel,
+        }
+        self.info_sync()
+
+    @staticmethod
+    def _validate_channel(channel: int, name: str) -> int:
+        if channel not in (1, 2, 3, 4):
+            logger.raise_error(f"{name} must be one of 1, 2, 3, 4", ValueError)
+        return channel
+
+    @staticmethod
+    def _validate_voltage(voltage: float) -> float:
+        if not -10.5 <= voltage <= 10.5:
+            logger.raise_error(
+                "SR830 AUX OUT voltage must be between -10.5 V and 10.5 V",
+                ValueError,
+            )
+        return voltage
+
+    def __del__(self):
+        # The underlying SR830 object is owned by WrapperSR830.
+        pass
+
+    def setup(
+        self,
+        function: Literal["sense", "source"] = "sense",
+        *vargs,
+        source_type: Literal["volt", "V"] | None = None,
+        sense_type: Literal["volt", "V"] | None = None,
+        **kwargs,
+    ):
+        if function == "source":
+            if source_type is not None and source_type not in ["volt", "V"]:
+                logger.raise_error("SR830 AUX OUT can only source voltage", ValueError)
+        elif function == "sense":
+            if sense_type is not None and sense_type not in ["volt", "V"]:
+                logger.raise_error("SR830 AUX IN can only sense voltage", ValueError)
+        else:
+            logger.raise_error("function should be either source or sense", ValueError)
+        self.info_sync()
+
+    def info_sync(self):
+        output_value = self.get_aux_output()
+        self.info_dict.update(
+            {
+                "output_value": output_value,
+                "output_target": self.output_target,
+                "output_status": output_value != 0,
+                "aux_input_value": self.get_aux_input(),
+            }
+        )
+
+    @property
+    def sense_range_volt(self) -> float:
+        return 10.5
+
+    @sense_range_volt.setter
+    def sense_range_volt(self, fix_range: float):
+        logger.raise_error("SR830 AUX IN voltage range is fixed", ValueError)
+
+    @property
+    def sense_range_curr(self) -> float:
+        logger.raise_error("SR830 AUX IN cannot sense current", ValueError)
+
+    @sense_range_curr.setter
+    def sense_range_curr(self, fix_range: float):
+        logger.raise_error("SR830 AUX IN cannot sense current", ValueError)
+
+    def get_aux_output(self) -> float:
+        return float(self.meter.ask(f"AUXV? {self.out_channel}"))
+
+    def set_aux_output(self, voltage: float | str) -> float:
+        voltage = self._validate_voltage(convert_unit(voltage, "V")[0])
+        self.meter.write(f"AUXV {self.out_channel}, {voltage:g}")
+        self.output_target = voltage
+        self.info_dict.update(
+            {
+                "output_value": voltage,
+                "output_target": voltage,
+                "output_status": voltage != 0,
+            }
+        )
+        return self.get_aux_output()
+
+    def get_aux_input(self) -> float:
+        return float(self.meter.ask(f"OAUX? {self.in_channel}"))
+
+    def sense(self, type_str: Literal["volt", "V"] = "volt") -> float:
+        if type_str not in ["volt", "V"]:
+            logger.raise_error("SR830 AUX IN can only sense voltage", ValueError)
+        value = self.get_aux_input()
+        self.info_dict["aux_input_value"] = value
+        return value
+
+    def output_switch(self, switch: bool | Literal["on", "off", "ON", "OFF"]):
+        switch = SWITCH_DICT.get(switch, False) if isinstance(switch, str) else switch
+        if switch:
+            self.info_dict["output_status"] = True
+        else:
+            self.set_aux_output(0)
+            self.info_dict["output_status"] = False
+
+    def uni_output(
+        self,
+        value: float | str,
+        *,
+        freq: Optional[float | str] = None,
+        compliance: Optional[float | str] = None,
+        type_str: Literal["volt", "V"] = "volt",
+        fix_range: Optional[float | str] = None,
+        alter_range: bool = False,
+    ) -> float:
+        if type_str not in ["volt", "V"]:
+            logger.raise_error("SR830 AUX OUT can only source voltage", ValueError)
+        if freq is not None:
+            logger.raise_error(
+                "SR830 AUX OUT is DC only and does not support frequency",
+                ValueError,
+            )
+        if compliance is not None:
+            logger.raise_error("SR830 AUX OUT does not support compliance", ValueError)
+        if fix_range is not None:
+            logger.raise_error("SR830 AUX OUT range is fixed", ValueError)
+        self.info_dict["output_type"] = "volt"
+        return self.set_aux_output(value)
+
+    def get_output_status(self) -> tuple[float, float]:
+        return self.get_aux_output(), self.output_target
+
+    def shutdown(self):
+        if self.info_dict["output_status"]:
+            self.output_switch("off")
+
+
 class WrapperSR860(ACSourceMeter):
     def __init__(self, GPIB: str = "GPIB0::8::INSTR", reset=True):
         super().__init__()
@@ -1109,6 +1284,8 @@ class WrapperSR860(ACSourceMeter):
                 "input_config": self.meter.input_config,
                 "input_coupling": self.meter.input_coupling,
                 "input_grounding": self.meter.input_shields,
+                "sine_dc_level": self.meter.sine_dc_level,
+                "sine_dc_mode": self.meter.dcmode,
                 "filter_synchronous": self.meter.filter_synchronous,
             }
         )
@@ -1139,6 +1316,7 @@ class WrapperSR860(ACSourceMeter):
             self.meter.input_coupling = "AC"
             self.meter.input_grounding = "Float"
             self.meter.sine_voltage = 0
+            self.meter.sine_dc_level = 0
             self.meter.filter_synchronous = False
             return
         if function == "sense":
@@ -1249,8 +1427,11 @@ class WrapperSR860(ACSourceMeter):
         type_str: Literal["volt"] = "volt",
         fix_range: Optional[float | str] = None,
         alter_range: bool = False,
+        offset: Optional[float | str] = None,
+        dc_mode: Optional[Literal["COM", "DIF", "common", "difference"]] = None,
     ) -> float:
         """fix_range is not used for sr830"""
+        value = convert_unit(value, "V")[0]
         if value > 2:
             logger.warning("exceed SR860 max output")
         self.rms_output(
@@ -1259,8 +1440,10 @@ class WrapperSR860(ACSourceMeter):
             compliance=compliance,
             type_str=type_str,
             alter_range=alter_range,
+            offset=offset,
+            dc_mode=dc_mode,
         )
-        self.output_target = convert_unit(value, "V")[0]
+        self.output_target = value
         return self.get_output_status()[0]
 
     def rms_output(
@@ -1271,6 +1454,8 @@ class WrapperSR860(ACSourceMeter):
         compliance: Optional[float | str] = None,
         type_str: Literal["volt"] = "volt",
         alter_range: bool = False,
+        offset: Optional[float | str] = None,
+        dc_mode: Optional[Literal["COM", "DIF", "common", "difference"]] = None,
     ):
         if not self.warning_printed:
             logger.warning("compliance does not works for SR860")
@@ -1279,6 +1464,26 @@ class WrapperSR860(ACSourceMeter):
             "SR830 is a voltage source, so the output is always voltage"
         )
         value = convert_unit(value, "V")[0]
+        if offset is None:
+            offset_value = self.meter.sine_dc_level
+            logger.info(f"no offset provided, keep current offset value: {offset_value}")
+        else:
+            offset_value = convert_unit(offset, "V")[0]
+            if not -5 <= offset_value <= 5:
+                logger.raise_error(
+                    "SR860 sine dc level must be between -5 V and 5 V", ValueError
+                )
+        if abs(offset_value) + np.sqrt(2) * value > 6:
+            logger.raise_error(
+                "SR860 sine output limit exceeded: abs(offset) + sqrt(2) * amplitude must be <= 6 V",
+                ValueError,
+            )
+        if dc_mode is not None:
+            self.meter.dcmode = dc_mode
+            self.info_dict["sine_dc_mode"] = dc_mode
+        if offset is not None:
+            self.meter.sine_dc_level = offset_value
+        self.info_dict["sine_dc_level"] = offset_value
         self.meter.sine_voltage = value
         self.info_dict["output_value"] = value
         self.info_dict["output_status"] = True

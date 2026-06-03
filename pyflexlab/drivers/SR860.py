@@ -119,6 +119,13 @@ class SR860(Instrument):
         validator=truncated_range,
         values=[1e-9, 2]
     )
+    sine_dc_level = Instrument.control(
+        "SOFF?", "SOFF %0.3e",
+        """A floating point property that represents the sine out dc level in
+        Volts. This property can be set.""",
+        validator=truncated_range,
+        values=[-5, 5]
+    )
 
     timebase = Instrument.control(
         "TBMODE?", "TBMODE %d",

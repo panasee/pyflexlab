@@ -315,7 +315,8 @@ class MeasureManager(FileOrganizer):
         # convert values to SI and print info
         max_value = convert_unit(max_value, "")[0]
         step_value = convert_unit(step_value, "")[0]
-        compliance = convert_unit(compliance, "")[0]
+        if compliance is not None:
+            compliance = convert_unit(compliance, "")[0]
         if freq is not None:
             freq = convert_unit(freq, "Hz")[0]
         logger.info("Source Meter: %s", instr.meter)
