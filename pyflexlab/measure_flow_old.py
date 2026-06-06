@@ -1,4 +1,4 @@
-"""
+﻿"""
 The non-individual plot options have not been written yet
 
 The optional std paramters except for terminals and meter related ones:
@@ -37,7 +37,7 @@ class MeasureFlow(MeasureManager):
     """
 
 ##  V-I curve dc
-    def measure_Vswp_I_vicurve(
+    def measure_Vswp_I_vicurve_legacy(
         self,
         *,
         vmax: float,
@@ -163,7 +163,7 @@ class MeasureFlow(MeasureManager):
 
         src_sens_lst[0].output_switch("off")
 
-    def measure_VswpV_II_BT_vicurve(
+    def measure_VswpV_II_BT_vicurve_legacy(
         self,
         *,
         vds_max: float,
@@ -370,7 +370,7 @@ class MeasureFlow(MeasureManager):
         ds_src_sens_lst[0].output_switch("off")
         vg_meter.output_switch("off")
 
-    def measure_IswpV_VI_BT_ivcurve(
+    def measure_IswpV_VI_BT_ivcurve_legacy(
         self,
         *,
         ids_max: float,
@@ -592,7 +592,7 @@ class MeasureFlow(MeasureManager):
         ds_src_sens_lst[0].output_switch("off")
         vg_meter.output_switch("off")
 
-    def measure_IswpV_VVI_BT_ivcurve(
+    def measure_IswpV_VVI_BT_ivcurve_legacy(
         self,
         *,
         ids_max: float,
@@ -832,7 +832,7 @@ class MeasureFlow(MeasureManager):
         vg_meter.output_switch("off")
 
 ##  VI curve lockin
-    def measure_Vswp_Vnw_vrcurve_lockin(
+    def measure_Vswp_Vnw_vrcurve_lockin_legacy(
         self,
         *,
         harmonics_measured: int = 1,
@@ -945,7 +945,7 @@ class MeasureFlow(MeasureManager):
             plotobj.stop_saving()
             self._active_plotobj = None
 
-    def measure_Vswp_VnwVnw_vrcurve_lockin(
+    def measure_Vswp_VnwVnw_vrcurve_lockin_legacy(
         self,
         *,
         harmonics_measured: list[int] = [1, 2],
@@ -1131,7 +1131,7 @@ class MeasureFlow(MeasureManager):
             plotobj.stop_saving()
             self._active_plotobj = None
 
-    def measure_VswpV_VnwV1wI_BT_vrcurve_lockin_largeR(
+    def measure_VswpV_VnwV1wI_BT_vrcurve_lockin_largeR_legacy(
         self,
         *,
         harmonics_measured: int = 1,
@@ -1318,7 +1318,7 @@ class MeasureFlow(MeasureManager):
             plotobj.stop_saving()
             self._active_plotobj = None
 
-    def measure_Iswp_VnwVnw_vrcurve_lockin(
+    def measure_Iswp_VnwVnw_vrcurve_lockin_legacy(
         self,
         *,
         harmonics_measured: list[int] = [1, 2],
@@ -1490,7 +1490,7 @@ class MeasureFlow(MeasureManager):
             self._active_plotobj = None
 
 ## dI/dV curve by AC+DC
-    def measure_IV_Vnw_dvdi_ac_dc(
+    def measure_IV_Vnw_dvdi_ac_dc_legacy(
         self,
         *,
         harmonics_measured: int = 1,
@@ -1611,7 +1611,7 @@ class MeasureFlow(MeasureManager):
             plotobj.stop_saving()
             self._active_plotobj = None
 
-    def measure_I_Vnw_dvdi_ac_dc(
+    def measure_I_Vnw_dvdi_ac_dc_legacy(
         self,
         *,
         harmonics_measured: int = 1,
@@ -1732,7 +1732,7 @@ class MeasureFlow(MeasureManager):
 
 
 ##  RT
-    def measure_VV_II_BTvary_gate_rt(
+    def measure_VV_II_BTvary_gate_rt_legacy(
         self,
         *,
         vds: float,
@@ -1942,7 +1942,7 @@ class MeasureFlow(MeasureManager):
             plotobj.stop_saving()
             self._active_plotobj = None
 
-    def measure_IV_VI_BTvary_rt(
+    def measure_IV_VI_BTvary_rt_legacy(
         self,
         *,
         ids: float,
@@ -2113,7 +2113,7 @@ class MeasureFlow(MeasureManager):
             plotobj.stop_saving()
             self._active_plotobj = None
 
-    def measure_VV_II_BTvary_rt(
+    def measure_VV_II_BTvary_rt_legacy(
         self,
         *,
         vds: float,
@@ -2273,7 +2273,7 @@ class MeasureFlow(MeasureManager):
 
 
 
-    def measure_VV_VnwI_BTvary_rt_lockin(
+    def measure_VV_VnwI_BTvary_rt_lockin_legacy(
         self,
         *,
         harmonics_measured: int = 1,
@@ -2426,7 +2426,7 @@ class MeasureFlow(MeasureManager):
             plotobj.stop_saving()
             self._active_plotobj = None
 
-    def b2_measure_VV_VnwI_BTvary_rt_lockin(
+    def b2_measure_VV_VnwI_BTvary_rt_lockin_legacy(
         self,
         *,
         harmonics_measured: int = 1,
@@ -2606,7 +2606,7 @@ class MeasureFlow(MeasureManager):
             plotobj.stop_saving()
             self._active_plotobj = None
 
-    def measure_VV_VnwVnwI_BTvary_rt_lockin(
+    def measure_VV_VnwVnwI_BTvary_rt_lockin_legacy(
         self,
         *,
         harmonics_measured: list[int] = [1, 2],
@@ -2823,7 +2823,7 @@ class MeasureFlow(MeasureManager):
             plotobj.stop_saving()
             self._active_plotobj = None
 
-    def measure_VV_VnwV1wI_BTvary_rt_lockin_largeR(
+    def measure_VV_VnwV1wI_BTvary_rt_lockin_largeR_legacy(
         self,
         *,
         harmonics_measured: int = 1,
@@ -3035,7 +3035,7 @@ class MeasureFlow(MeasureManager):
             self._active_plotobj = None
 
     #unfinished
-    def measure_VI_VnwVnwV_BTvary_rt_lockin_dc(
+    def measure_VI_VnwVnwV_BTvary_rt_lockin_dc_legacy(
         self,
         *,
         harmonics_measured: list[int] = [1, 2],
@@ -3280,7 +3280,7 @@ class MeasureFlow(MeasureManager):
             plotobj.stop_saving()
             self._active_plotobj = None
 
-    def b2_measure_VV_VnwVnwI_BTvary_rt_lockin(
+    def b2_measure_VV_VnwVnwI_BTvary_rt_lockin_legacy(
         self,
         *,
         harmonics_measured: list[int] = [1, 2],
@@ -3633,7 +3633,7 @@ class MeasureFlow(MeasureManager):
             self._active_plotobj = None
 
 ##  Gate sweep
-    def measure_IVswp_VI_BT_gateswp(
+    def measure_IVswp_VI_BT_gateswp_legacy(
         self,
         *,
         ids: float,
@@ -3855,7 +3855,7 @@ class MeasureFlow(MeasureManager):
             plotobj.stop_saving()
             self._active_plotobj = None
 
-    def measure_VVswp_II_BT_gateswp(
+    def measure_VVswp_II_BT_gateswp_legacy(
         self,
         *,
         vds: float,
@@ -4064,7 +4064,7 @@ class MeasureFlow(MeasureManager):
             plotobj.stop_saving()
             self._active_plotobj = None
 
-    def measure_VVswp_VnwI_BT_gateswp_lockin(
+    def measure_VVswp_VnwI_BT_gateswp_lockin_legacy(
         self,
         *,
         harmonics_measured: int = 1,
@@ -4214,7 +4214,7 @@ class MeasureFlow(MeasureManager):
             plotobj.stop_saving()
             self._active_plotobj = None
 
-    def measure_VVswp_VnwVnwI_BT_gateswp_lockin(
+    def measure_VVswp_VnwVnwI_BT_gateswp_lockin_legacy(
         self,
         *,
         harmonics_measured: list[int] = [1, 2],
@@ -4445,7 +4445,7 @@ class MeasureFlow(MeasureManager):
             plotobj.stop_saving()
             self._active_plotobj = None
 
-    def measure_VswpV_II_BT_optoelec(
+    def measure_VswpV_II_BT_optoelec_legacy(
         self,
         *,
         vds_max: float,
@@ -4663,7 +4663,7 @@ class MeasureFlow(MeasureManager):
         vg_meter.output_switch("off")
         self.instrs["laser"].shutter_close()
 ##  RH loop
-    def measure_IV_VI_BvaryT_rhloop(
+    def measure_IV_VI_BvaryT_rhloop_legacy(
         self,
         *,
         ids: float,
@@ -4864,7 +4864,7 @@ class MeasureFlow(MeasureManager):
             plotobj.stop_saving()
             self._active_plotobj = None
 
-    def measure_VV_II_BvaryT_rhloop(
+    def measure_VV_II_BvaryT_rhloop_legacy(
         self,
         *,
         vds: float,
@@ -5053,7 +5053,7 @@ class MeasureFlow(MeasureManager):
             self._active_plotobj = None
 
 ##  Gate mapping
-    def measure_VswpVswp_II_BT_dsgatemapping(
+    def measure_VswpVswp_II_BT_dsgatemapping_legacy(
         self,
         *,
         constrained: bool = False,
@@ -5343,7 +5343,7 @@ class MeasureFlow(MeasureManager):
             plotobj.stop_saving()
             self._active_plotobj = None
 
-    def measure_IVswpVswp_VII_BT_dualgatemapping(
+    def measure_IVswpVswp_VII_BT_dualgatemapping_legacy(
         self,
         *,
         constrained: bool = False,
@@ -5707,7 +5707,7 @@ class MeasureFlow(MeasureManager):
             plotobj.stop_saving()
             self._active_plotobj = None
 
-    def measure_VVswpVswp_III_BT_dualgatemapping(
+    def measure_VVswpVswp_III_BT_dualgatemapping_legacy(
         self,
         *,
         constrained: bool = False,
@@ -6023,7 +6023,7 @@ class MeasureFlow(MeasureManager):
             plotobj.stop_saving()
             self._active_plotobj = None
 
-    def measure_VVswpVswp_VnwII_BT_dualgatemapping_lockin(
+    def measure_VVswpVswp_VnwII_BT_dualgatemapping_lockin_legacy(
         self,
         *,
         harmonics_measured: int = 1,
@@ -6754,3 +6754,4 @@ class MeasureFlow(MeasureManager):
     #
     #        if if_plot:
     #            plotobj.stop_saving()
+

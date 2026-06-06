@@ -67,9 +67,9 @@ class MeasureFlow(LegacyMeasureFlow):
     """
     User-facing measurement flow.
 
-    Existing `measure_*` methods are inherited from `measure_flow_old.py`.
-    New flows should be implemented as thin public methods that build a
-    `MeasurementRecipe` and pass it to `run_recipe`.
+    Existing legacy measurement methods are inherited from `measure_flow_old.py`
+    with `_legacy` suffixes. New flows should be implemented as thin public
+    methods that build a `MeasurementRecipe` and pass it to `run_recipe`.
     """
 
     def prepare_recipe(self, recipe: MeasurementRecipe) -> dict[str, Any]:

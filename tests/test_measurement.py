@@ -1,4 +1,4 @@
-import pyflexlab
+﻿import pyflexlab
 from prefect import flow
 from pyflexlab.measure_flow import MeasureFlow
 import numpy as np
@@ -263,7 +263,7 @@ def test_flow(measure_flow: MeasureFlow):
     )
 
 def test_normal_func(measure_flow: MeasureFlow):
-    measure_flow.measure_Vswp_I_vicurve(
+    measure_flow.measure_Vswp_I_vicurve_legacy(
         vmax=1,
         vstep=0.1,
         high=1,
@@ -286,7 +286,7 @@ if __name__ == "__main__":
 
     #measure_flow.instrs["tests"][0].ramp_output("volt", -5)
     #measure_flow.instrs["tests"][1].ramp_output("volt", -50)
-    measure_flow.measure_Vswp_I_vicurve(
+    measure_flow.measure_Vswp_I_vicurve_legacy(
         vmax=0.1,
         vstep=0.01,
         high=1,

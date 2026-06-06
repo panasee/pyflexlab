@@ -1,10 +1,23 @@
+import uuid
+import inspect
+from pathlib import Path
+
 from pyflexlab.measure_flow import MeasureFlow, MeasurementRecipe
 from pyflexlab.measure_flow_old import MeasureFlow as LegacyMeasureFlow
 
 
-def test_new_measure_flow_preserves_legacy_measure_methods():
+def test_legacy_measure_methods_are_suffixed():
     assert issubclass(MeasureFlow, LegacyMeasureFlow)
-    assert hasattr(MeasureFlow, "measure_Vswp_I_vicurve")
+    assert hasattr(MeasureFlow, "measure_Vswp_I_vicurve_legacy")
+    assert not hasattr(MeasureFlow, "measure_Vswp_I_vicurve")
+
+    legacy_measure_names = [
+        name
+        for name, _ in inspect.getmembers(LegacyMeasureFlow, predicate=inspect.isfunction)
+        if name.startswith("measure_") or name.startswith("b2_measure_")
+    ]
+    assert legacy_measure_names
+    assert all(name.endswith("_legacy") for name in legacy_measure_names)
 
 
 def test_run_recipe_records_rows_from_measure_dict():
@@ -44,3 +57,40 @@ def test_run_recipe_records_rows_from_measure_dict():
         ("fake.csv", 2, (0.0, 1.0), False),
         ("fake.csv", 2, (0.1, 1.1), False),
     ]
+
+
+def test_run_recipe_records_complete_fake_source_sense_external_recipe():
+    flow = MeasureFlow("test")
+    flow.load_fakes(2)
+
+    source_meter, sense_meter = flow.instrs["fakes"]
+    appendix = f"-fake-recipe-{uuid.uuid4().hex[:8]}"
+    recipe = MeasurementRecipe(
+        measure_mods=(
+            "V_source_sweep_dc",
+            "I_sense_dc",
+            "B_fixed",
+            "T_fixed",
+        ),
+        args=(0.1, 0.1, 1, 0, "0-max-0", "", 1, 0, 0, 300),
+        wrapper_lst=[source_meter, sense_meter],
+        compliance_lst=[1e-3],
+        get_measure_kwargs={
+            "with_timer": False,
+            "source_wait": 0,
+            "special_name": "fake-full-run",
+            "appendix_str": appendix,
+        },
+    )
+
+    try:
+        result = flow.run_recipe(recipe)
+    finally:
+        flow.record_finalize()
+
+    csv_lines = Path(result["file_path"]).read_text(encoding="utf-8").splitlines()
+    assert result["record_num"] == 4
+    assert csv_lines[0] == "V_source,I,B,T"
+    assert len(csv_lines) > 1
+    assert flow.proj_name == "test"
+    assert source_meter.info_dict["output_status"] is False

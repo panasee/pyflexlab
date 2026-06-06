@@ -1,4 +1,4 @@
-"""
+﻿"""
 This file is to test the workflow of the measurement
 """
 
@@ -76,7 +76,7 @@ testobj.measure_VV_V1wI_BTvary_rt_lockin(
 #    plotobj=plotobj,
 #)
 #
-#testobj.measure_VVswpVswp_III_BT_dualgatemapping(
+#testobj.measure_VVswpVswp_III_BT_dualgatemapping_legacy(
 #    constrained=True,
 #    vds=1,
 #    ds_high=0,
@@ -97,3 +97,4 @@ testobj.measure_VV_V1wI_BTvary_rt_lockin(
 #    temperature=300,
 #    plotobj=plotobj,
 #)
+

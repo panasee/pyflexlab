@@ -972,6 +972,7 @@ class MeasureManager(FileOrganizer):
             special_folder=special_name,
             measure_nickname=measure_nickname,
             manual_columns=manual_record_columns,
+            with_timer=with_timer,
             appendix_str=appendix_str,
         )
         rec_lst = [time_generator()] if with_timer else []
