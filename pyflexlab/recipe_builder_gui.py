@@ -1,0 +1,500 @@
+"""
+Minimal PyQt recipe builder for the new measurement flow.
+
+This module is intentionally separate from the older pyflexlab.gui module.  The
+GUI edits a structured recipe specification; translating that specification
+into a MeasurementRecipe is kept as a future, explicit step.
+"""
+
+from __future__ import annotations
+
+import json
+import sys
+from dataclasses import dataclass, field
+from typing import Any, ClassVar, Iterable, Literal
+
+
+ModuleCategory = Literal["source", "sense", "external", "plot"]
+
+# The GUI has four visual boxes.  This mapping is the single place that ties the
+# public category name stored on each module to the attribute used by
+# GuiRecipeSpec.  Keeping this explicit makes category validation easy to audit.
+CATEGORY_ATTRS: dict[ModuleCategory, str] = {
+    "source": "sources",
+    "sense": "senses",
+    "external": "externals",
+    "plot": "plots",
+}
+
+# Custom MIME type used for internal drag/drop payloads.  Qt drag/drop works by
+# moving opaque bytes through QMimeData; this value prevents our module payloads
+# from being confused with plain text, files, or other draggable data.
+MIME_TYPE = "application/x-pyflexlab-module"
+
+
+@dataclass(frozen=True, slots=True)
+class ModuleDefinition:
+    """
+    A reusable module shown in the left-side GUI module library.
+
+    Definitions are catalog entries, not selected experiment steps.  A user can
+    drag the same definition into a box multiple times; each drop becomes a
+    ModuleInstance with its own editable parameters.
+    """
+
+    module_id: str
+    label: str
+    category: ModuleCategory
+    description: str = ""
+    default_parameters: dict[str, Any] = field(default_factory=dict)
+
+    def to_dict(self) -> dict[str, Any]:
+        """Serialize the definition for Qt item storage and drag/drop payloads."""
+        return {
+            "module_id": self.module_id,
+            "label": self.label,
+            "category": self.category,
+            "description": self.description,
+            "default_parameters": self.default_parameters,
+        }
+
+
+@dataclass(frozen=True, slots=True)
+class ModuleInstance:
+    """
+    A module instance dropped into one of the recipe boxes.
+
+    Instances represent the user's current recipe draft.  They intentionally do
+    not know how to call instruments or build MeasurementRecipe objects yet;
+    that translation layer should stay separate from the GUI editing layer.
+    """
+
+    module_id: str
+    label: str
+    category: ModuleCategory
+    parameters: dict[str, Any] = field(default_factory=dict)
+
+    @classmethod
+    def from_definition(cls, definition: ModuleDefinition) -> "ModuleInstance":
+        """Create an editable dropped module from an immutable library entry."""
+        return cls(
+            module_id=definition.module_id,
+            label=definition.label,
+            category=definition.category,
+            parameters=dict(definition.default_parameters),
+        )
+
+    @classmethod
+    def from_dict(cls, data: dict[str, Any]) -> "ModuleInstance":
+        """
+        Rehydrate an instance from Qt item data or saved JSON.
+
+        Older drag payloads may still contain default_parameters rather than
+        parameters, so both keys are accepted.  Unknown categories still fail
+        loudly through _validate_category.
+        """
+        return cls(
+            module_id=str(data["module_id"]),
+            label=str(data["label"]),
+            category=_validate_category(str(data["category"])),
+            parameters=dict(data.get("parameters", data.get("default_parameters", {}))),
+        )
+
+    def to_dict(self) -> dict[str, Any]:
+        """Return the stable JSON shape used by GuiRecipeSpec.to_json()."""
+        return {
+            "module_id": self.module_id,
+            "label": self.label,
+            "category": self.category,
+            "parameters": self.parameters,
+        }
+
+
+@dataclass(slots=True)
+class GuiRecipeSpec:
+    """
+    Structured GUI-side recipe specification.
+
+    This is the editable output of the builder.  It is deliberately less
+    powerful than MeasurementRecipe: it says which logical modules the user
+    selected and stores GUI parameters, while later code can decide whether that
+    selection is valid for a real measurement workflow.
+    """
+
+    sources: list[ModuleInstance] = field(default_factory=list)
+    senses: list[ModuleInstance] = field(default_factory=list)
+    externals: list[ModuleInstance] = field(default_factory=list)
+    plots: list[ModuleInstance] = field(default_factory=list)
+    parameters: dict[str, Any] = field(default_factory=dict)
+
+    _BOX_CATEGORIES: ClassVar[tuple[tuple[str, ModuleCategory], ...]] = (
+        ("sources", "source"),
+        ("senses", "sense"),
+        ("externals", "external"),
+        ("plots", "plot"),
+    )
+
+    def __post_init__(self) -> None:
+        # Validate box/category consistency immediately.  A source module in the
+        # sense box is a user or serialization error; do not silently coerce it.
+        for attr_name, expected_category in self._BOX_CATEGORIES:
+            for module in getattr(self, attr_name):
+                if module.category != expected_category:
+                    raise ValueError(
+                        f"{module.category} module cannot be added to {expected_category}"
+                    )
+
+    def to_dict(self) -> dict[str, Any]:
+        """Serialize the complete GUI recipe spec without Qt-specific objects."""
+        return {
+            "sources": [module.to_dict() for module in self.sources],
+            "senses": [module.to_dict() for module in self.senses],
+            "externals": [module.to_dict() for module in self.externals],
+            "plots": [module.to_dict() for module in self.plots],
+            "parameters": self.parameters,
+        }
+
+    def to_json(self) -> str:
+        """Pretty-print the current spec for the right-side preview panel."""
+        return json.dumps(self.to_dict(), indent=2, sort_keys=True)
+
+
+# Initial module library for the prototype UI.  These are intentionally broad
+# logical roles rather than concrete driver classes; the future translator can
+# map them to MeasureManager/get_measure_dict inputs once the GUI contract is
+# settled.
+DEFAULT_MODULE_LIBRARY: tuple[ModuleDefinition, ...] = (
+    ModuleDefinition(
+        module_id="source.dc_voltage",
+        label="DC Voltage Source",
+        category="source",
+        description="Voltage source or sweep provided by a source meter.",
+    ),
+    ModuleDefinition(
+        module_id="source.dc_current",
+        label="DC Current Source",
+        category="source",
+        description="Current source or sweep provided by a source meter.",
+    ),
+    ModuleDefinition(
+        module_id="source.lockin_sine",
+        label="Lock-in Sine Output",
+        category="source",
+        description="AC excitation from a lock-in amplifier sine output.",
+    ),
+    ModuleDefinition(
+        module_id="sense.dc_voltage",
+        label="DC Voltage Sense",
+        category="sense",
+        description="Voltage readback from a meter or source meter.",
+    ),
+    ModuleDefinition(
+        module_id="sense.dc_current",
+        label="DC Current Sense",
+        category="sense",
+        description="Current readback from a meter or source meter.",
+    ),
+    ModuleDefinition(
+        module_id="sense.lockin_xy",
+        label="Lock-in X/Y Sense",
+        category="sense",
+        description="Lock-in demodulated X and Y channels.",
+    ),
+    ModuleDefinition(
+        module_id="external.magnetic_field",
+        label="Magnetic Field",
+        category="external",
+        description="External magnet or field controller.",
+    ),
+    ModuleDefinition(
+        module_id="external.temperature",
+        label="Temperature",
+        category="external",
+        description="Temperature controller or thermometer channel.",
+    ),
+    ModuleDefinition(
+        module_id="external.rotation",
+        label="Rotation Angle",
+        category="external",
+        description="Probe rotator or angular stage.",
+    ),
+    ModuleDefinition(
+        module_id="plot.live_xy",
+        label="Live XY Plot",
+        category="plot",
+        description="Live plot view for selected recipe columns.",
+        default_parameters={"saving_interval": 7},
+    ),
+    ModuleDefinition(
+        module_id="plot.record_only",
+        label="Record Only",
+        category="plot",
+        description="Record data without enabling live plotting.",
+    ),
+)
+
+
+def _validate_category(value: str) -> ModuleCategory:
+    """Validate untrusted JSON/category strings before treating them as types."""
+    if value not in CATEGORY_ATTRS:
+        raise ValueError(f"unknown module category: {value}")
+    return value  # type: ignore[return-value]
+
+
+def _require_pyqt6() -> tuple[Any, Any, Any]:
+    """
+    Import PyQt6 only when the GUI is launched.
+
+    The data model above is useful in tests and non-GUI tooling, so importing
+    this module should not require the optional GUI extra.
+    """
+    try:
+        from PyQt6 import QtCore, QtGui, QtWidgets
+    except ImportError as exc:  # pragma: no cover - depends on optional extra
+        raise RuntimeError(
+            "PyQt6 is required for recipe_builder_gui. "
+            "Install pyflexlab with the gui extra before launching it."
+        ) from exc
+    return QtCore, QtGui, QtWidgets
+
+
+def _module_definition_from_json(raw: bytes) -> ModuleDefinition:
+    """Decode the drag/drop JSON payload back into a ModuleDefinition."""
+    data = json.loads(raw.decode("utf-8"))
+    return ModuleDefinition(
+        module_id=str(data["module_id"]),
+        label=str(data["label"]),
+        category=_validate_category(str(data["category"])),
+        description=str(data.get("description", "")),
+        default_parameters=dict(data.get("default_parameters", {})),
+    )
+
+
+def launch(
+    module_library: Iterable[ModuleDefinition] = DEFAULT_MODULE_LIBRARY,
+) -> int:
+    """Launch the standalone PyQt recipe builder."""
+
+    QtCore, QtGui, QtWidgets = _require_pyqt6()
+
+    # The Qt widget classes live inside launch() so importing this module stays
+    # PyQt-free until a user explicitly starts the GUI.
+    class ModuleLibraryList(QtWidgets.QListWidget):
+        """Left-side list of draggable module definitions."""
+
+        def __init__(self, modules: Iterable[ModuleDefinition]) -> None:
+            super().__init__()
+            self.setDragEnabled(True)
+            self.setSelectionMode(
+                QtWidgets.QAbstractItemView.SelectionMode.SingleSelection
+            )
+            self.setDragDropMode(QtWidgets.QAbstractItemView.DragDropMode.DragOnly)
+            for module in modules:
+                item = QtWidgets.QListWidgetItem(module.label)
+                item.setToolTip(module.description)
+                # Store a plain dict on the item instead of the dataclass itself.
+                # Plain data survives Qt's QVariant conversion more predictably.
+                item.setData(QtCore.Qt.ItemDataRole.UserRole, module.to_dict())
+                self.addItem(item)
+
+        def mimeTypes(self) -> list[str]:
+            """Advertise the one internal payload format this list can drag."""
+            return [MIME_TYPE]
+
+        def mimeData(self, items: list[Any]) -> Any:
+            """Package the selected module definition as JSON bytes for dragging."""
+            mime_data = QtCore.QMimeData()
+            if not items:
+                return mime_data
+            module_data = items[0].data(QtCore.Qt.ItemDataRole.UserRole)
+            payload = json.dumps(module_data).encode("utf-8")
+            mime_data.setData(MIME_TYPE, QtCore.QByteArray(payload))
+            return mime_data
+
+        def supportedDropActions(self) -> Any:
+            # Dragging from the library should copy a definition into a box, not
+            # remove the original definition from the module library.
+            return QtCore.Qt.DropAction.CopyAction
+
+    class ModuleDropList(QtWidgets.QListWidget):
+        """One category-specific target box in the center of the window."""
+
+        def __init__(self, category: ModuleCategory, on_changed: Any) -> None:
+            super().__init__()
+            self.category = category
+            # The parent window passes a preview refresh callback.  The drop list
+            # should not know about the preview widget directly.
+            self._on_changed = on_changed
+            self.setAcceptDrops(True)
+            self.setDragDropMode(QtWidgets.QAbstractItemView.DragDropMode.DropOnly)
+            self.setSelectionMode(
+                QtWidgets.QAbstractItemView.SelectionMode.SingleSelection
+            )
+
+        def dragEnterEvent(self, event: Any) -> None:
+            """Allow the drag only if the payload belongs in this box."""
+            self._accept_matching_module(event)
+
+        def dragMoveEvent(self, event: Any) -> None:
+            """Keep rejecting wrong-category modules while the cursor moves."""
+            self._accept_matching_module(event)
+
+        def dropEvent(self, event: Any) -> None:
+            """Convert an accepted module definition into a module instance."""
+            if not event.mimeData().hasFormat(MIME_TYPE):
+                event.ignore()
+                return
+
+            definition = _module_definition_from_json(
+                bytes(event.mimeData().data(MIME_TYPE))
+            )
+            if definition.category != self.category:
+                QtWidgets.QMessageBox.warning(
+                    self,
+                    "Wrong module box",
+                    f"{definition.label} belongs in the {definition.category} box.",
+                )
+                event.ignore()
+                return
+
+            self.add_module(ModuleInstance.from_definition(definition))
+            event.acceptProposedAction()
+            # Keep the preview synchronized after every user-visible change.
+            self._on_changed()
+
+        def add_module(self, module: ModuleInstance) -> None:
+            """Add a dropped/loaded instance to this visual box."""
+            item = QtWidgets.QListWidgetItem(module.label)
+            item.setData(QtCore.Qt.ItemDataRole.UserRole, module.to_dict())
+            self.addItem(item)
+
+        def remove_selected(self) -> None:
+            """Remove selected dropped modules and refresh the preview."""
+            for item in self.selectedItems():
+                self.takeItem(self.row(item))
+            self._on_changed()
+
+        def instances(self) -> list[ModuleInstance]:
+            """Return all current box contents as plain ModuleInstance objects."""
+            modules: list[ModuleInstance] = []
+            for row in range(self.count()):
+                item = self.item(row)
+                modules.append(
+                    ModuleInstance.from_dict(
+                        item.data(QtCore.Qt.ItemDataRole.UserRole)
+                    )
+                )
+            return modules
+
+        def _accept_matching_module(self, event: Any) -> None:
+            """
+            Shared category gate for drag-enter and drag-move events.
+
+            Rejecting here gives immediate visual feedback and prevents the user
+            from dropping source modules into sense/external/plot boxes.
+            """
+            if not event.mimeData().hasFormat(MIME_TYPE):
+                event.ignore()
+                return
+            definition = _module_definition_from_json(
+                bytes(event.mimeData().data(MIME_TYPE))
+            )
+            if definition.category == self.category:
+                event.acceptProposedAction()
+            else:
+                event.ignore()
+
+    class RecipeBuilderWindow(QtWidgets.QMainWindow):
+        """Main standalone builder window."""
+
+        def __init__(self, modules: Iterable[ModuleDefinition]) -> None:
+            super().__init__()
+            self.setWindowTitle("PyFlexLab Recipe Builder")
+            self.resize(1180, 720)
+            # Store the drop widgets by category so _current_spec can assemble a
+            # GuiRecipeSpec without depending on layout positions.
+            self._drop_lists: dict[ModuleCategory, ModuleDropList] = {}
+            self._build_ui(modules)
+            self._refresh_preview()
+
+        def _build_ui(self, modules: Iterable[ModuleDefinition]) -> None:
+            """Build the three-column UI: library, drop boxes, JSON preview."""
+            central = QtWidgets.QWidget()
+            self.setCentralWidget(central)
+            root_layout = QtWidgets.QHBoxLayout(central)
+
+            library_group = QtWidgets.QGroupBox("Module Library")
+            library_layout = QtWidgets.QVBoxLayout(library_group)
+            library_layout.addWidget(ModuleLibraryList(modules))
+            root_layout.addWidget(library_group, 1)
+
+            boxes_widget = QtWidgets.QWidget()
+            boxes_layout = QtWidgets.QGridLayout(boxes_widget)
+            for index, (category, title) in enumerate(
+                (
+                    ("source", "Source"),
+                    ("sense", "Sense"),
+                    ("external", "External"),
+                    ("plot", "Plot"),
+                )
+            ):
+                # Four independent category boxes.  There is no ordering or graph
+                # semantics between boxes in this prototype.
+                group = QtWidgets.QGroupBox(title)
+                layout = QtWidgets.QVBoxLayout(group)
+                drop_list = ModuleDropList(category, self._refresh_preview)
+                self._drop_lists[category] = drop_list
+                layout.addWidget(drop_list)
+
+                remove_button = QtWidgets.QPushButton("Remove Selected")
+                remove_button.clicked.connect(drop_list.remove_selected)
+                layout.addWidget(remove_button)
+
+                boxes_layout.addWidget(group, index // 2, index % 2)
+            root_layout.addWidget(boxes_widget, 2)
+
+            preview_group = QtWidgets.QGroupBox("Recipe Spec Preview")
+            preview_layout = QtWidgets.QVBoxLayout(preview_group)
+            self._preview = QtWidgets.QPlainTextEdit()
+            self._preview.setReadOnly(True)
+            self._preview.setFont(QtGui.QFont("Consolas", 10))
+            preview_layout.addWidget(self._preview)
+
+            refresh_button = QtWidgets.QPushButton("Refresh Preview")
+            refresh_button.clicked.connect(self._refresh_preview)
+            preview_layout.addWidget(refresh_button)
+            root_layout.addWidget(preview_group, 2)
+
+        def _current_spec(self) -> GuiRecipeSpec:
+            """Collect all drop-box contents into a validated GUI spec."""
+            return GuiRecipeSpec(
+                sources=self._drop_lists["source"].instances(),
+                senses=self._drop_lists["sense"].instances(),
+                externals=self._drop_lists["external"].instances(),
+                plots=self._drop_lists["plot"].instances(),
+            )
+
+        def _refresh_preview(self) -> None:
+            """Render the current GUI spec as JSON in the preview pane."""
+            self._preview.setPlainText(self._current_spec().to_json())
+
+    app = QtWidgets.QApplication.instance()
+    owns_app = app is None
+    if app is None:
+        app = QtWidgets.QApplication(sys.argv)
+
+    # Keep a local reference to the window until app.exec() returns.  Without
+    # this, Python could garbage-collect the window after launch().
+    window = RecipeBuilderWindow(module_library)
+    window.show()
+    if owns_app:
+        return app.exec()
+    return 0
+
+
+def main() -> None:
+    raise SystemExit(launch())
+
+
+if __name__ == "__main__":
+    main()
