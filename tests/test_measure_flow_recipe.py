@@ -47,7 +47,7 @@ def test_run_recipe_records_rows_from_measure_dict():
         args=(1, 2),
         wrapper_lst=["meter"],
         compliance_lst=[None],
-        get_measure_kwargs={"special_name": "recipe-test"},
+        measure_kwargs={"special_name": "recipe-test"},
     )
 
     result = flow.run_recipe(recipe)
@@ -75,7 +75,7 @@ def test_run_recipe_records_complete_fake_source_sense_external_recipe():
         args=(0.1, 0.1, 1, 0, "0-max-0", "", 1, 0, 0, 300),
         wrapper_lst=[source_meter, sense_meter],
         compliance_lst=[1e-3],
-        get_measure_kwargs={
+        measure_kwargs={
             "with_timer": False,
             "source_wait": 0,
             "special_name": "fake-full-run",

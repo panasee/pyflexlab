@@ -4,6 +4,18 @@ High-level measurement flow interface.
 The legacy method collection lives in measure_flow_old.py. This module keeps
 those public methods available while adding a smaller recipe/runner layer for
 new measurement flows.
+
+HOOKS:
+after_prepare(PrepareHook)
+on_measure(MeasureHook)
+on_record(RecordHook)
+shutdown(ShutdownTarget)
+
+notes for Hooks:
+1. `on_measure` and `on_record` hooks are similar, only difference is
+    `on_measure` follows measurement(@`for i in mea_gen`, when activating generator)
+    `record_update` follows record writing(record_update)
+2. Use `on_measure` or `on_record` for changes during measurement (like start varying); use `after_prepare` for extra configuration before measurement (like change settings not in `get_measure_dict`)
 """
 
 from __future__ import annotations
@@ -20,11 +32,27 @@ from .measure_flow_old import MeasureFlow as LegacyMeasureFlow
 
 logger = get_logger(__name__)
 
-RecordTuple = tuple[Any, ...] # actual measured values tuple from the whole generator
+RecordTuple = tuple[Any, ...]  # actual measured values tuple from the whole generator
 PlotUpdate = Callable[[DataManipulator, RecordTuple], None]
 RecordHook = Callable[[RecordTuple], None]
+MeasureHook = Callable[[RecordTuple], None]
 PrepareHook = Callable[[dict[str, Any]], None]
 ShutdownTarget = SourceMeter | Callable[[], None]
+
+
+def default_time_update(plotobj: DataManipulator, records: RecordTuple) -> None:
+    """
+    used when no manual appointed plot functions, plot first three
+    measured values with time.
+    """
+    plotobj.live_plot_update(
+        0,
+        0,
+        0,
+        [records[0], records[0], records[0]],
+        [records[1], records[2], records[3]],
+        incremental=True,
+    )
 
 
 @dataclass(slots=True)
@@ -37,7 +65,7 @@ class PlotRecipe:
     init_args: tuple[Any, ...] = ()
     init_kwargs: dict[str, Any] = field(default_factory=dict)
 
-    update: Optional[PlotUpdate] = None
+    update: PlotUpdate = default_time_update
     saving_interval: float = 7
     inline_jupyter: Optional[bool] = None
 
@@ -60,6 +88,7 @@ class MeasurementRecipe:
     step_time: float = 0
     plot: Optional[PlotRecipe] = None
     on_record: Optional[RecordHook] = None
+    on_measure: Optional[MeasureHook] = None
     after_prepare: Optional[PrepareHook] = None
     shutdown: Sequence[ShutdownTarget] = ()
 
@@ -97,10 +126,9 @@ class MeasureFlow(LegacyMeasureFlow):
         """
         # set up measurement configuration
         mea_dict = self.prepare_recipe(recipe)
-        ##TODO:: check##
+        # HOOK: after_prepare
         if recipe.after_prepare is not None:
             recipe.after_prepare(mea_dict)
-        ##::TODO##
 
         # start plotting and periodic plot saving
         plotobj = self._init_recipe_plot(recipe.plot, mea_dict)
@@ -109,7 +137,9 @@ class MeasureFlow(LegacyMeasureFlow):
         logger.info("vary modules: %s", mea_dict["vary_mod"])
 
         try:
-            for record_tuple in self._iter_records(mea_dict["gen_lst"]):
+            for record_tuple in self._iter_records(
+                mea_dict["gen_lst"], recipe.on_measure
+            ):
                 self.record_update(
                     mea_dict["file_path"],
                     mea_dict["record_num"],
@@ -136,9 +166,13 @@ class MeasureFlow(LegacyMeasureFlow):
     _run_recipe = run_recipe
 
     @staticmethod
-    def _iter_records(gen_lst: Iterable[RecordTuple]) -> Iterable[RecordTuple]:
+    def _iter_records(
+        gen_lst: Iterable[RecordTuple], on_measure: MeasureHook | None = None
+    ) -> Iterable[RecordTuple]:
         for record_tuple in gen_lst:
             # here can add steps for execution during measurement
+            if callable(on_measure):
+                on_measure(gen_lst)
             yield record_tuple
 
     def _init_recipe_plot(
