@@ -1,15 +1,16 @@
-import uuid
 import inspect
+import uuid
 from pathlib import Path
 
-from pyflexlab.measure_flow import MeasureFlow, MeasurementRecipe
+from pyflexlab.measure_flow import MeasureFlow, MeasurementRecipe, default_time_update
 from pyflexlab.measure_flow_old import MeasureFlow as LegacyMeasureFlow
+from pyflexlab.recipe_builders import build_vi_curve_recipe
 
 
 def test_legacy_measure_methods_are_suffixed():
     assert issubclass(MeasureFlow, LegacyMeasureFlow)
     assert hasattr(MeasureFlow, "measure_Vswp_I_vicurve_legacy")
-    assert not hasattr(MeasureFlow, "measure_Vswp_I_vicurve")
+    assert hasattr(MeasureFlow, "measure_Vswp_I_vicurve")
 
     legacy_measure_names = [
         name
@@ -18,6 +19,92 @@ def test_legacy_measure_methods_are_suffixed():
     ]
     assert legacy_measure_names
     assert all(name.endswith("_legacy") for name in legacy_measure_names)
+
+
+def test_default_plot_update_uses_first_two_columns():
+    class FakePlot:
+        def __init__(self):
+            self.updates = []
+
+        def live_plot_update(self, *args, **kwargs):
+            self.updates.append((args, kwargs))
+
+    plot = FakePlot()
+
+    default_time_update(plot, (0.0, 1.0))
+
+    assert plot.updates == [
+        ((0, 0, 0, [0.0], [1.0]), {"incremental": True}),
+    ]
+
+
+def test_build_vi_curve_recipe_reuses_legacy_configuration():
+    class FakeMeter:
+        pass
+
+    source = FakeMeter()
+    sense = FakeMeter()
+
+    recipe = build_vi_curve_recipe(
+        vmax=1.0,
+        vstep=0.1,
+        high=1,
+        low=0,
+        swpmode="0-max-0",
+        meter=[source, sense],
+        compliance=1e-3,
+        folder_name="sample",
+        step_time=0.2,
+        source_wait=0.05,
+        sense_range=1e-6,
+        source_range=2.0,
+        if_plot=True,
+        saving_interval=3,
+        use_dash=True,
+    )
+
+    assert recipe.measure_mods == ("V_source_sweep_dc", "I_sense_dc")
+    assert recipe.args == (1.0, 0.1, 1, 0, "0-max-0", "", 1, 0)
+    assert recipe.wrapper_lst == [source, sense]
+    assert recipe.compliance_lst == [1e-3]
+    assert recipe.measure_kwargs == {
+        "special_name": "sample",
+        "measure_nickname": "vi-curve-dc",
+        "source_wait": 0.05,
+    }
+    assert recipe.step_time == 0.2
+    assert recipe.shutdown == (source,)
+    assert recipe.plot is not None
+    assert recipe.plot.init_args == (1, 1, 1)
+    assert recipe.plot.init_kwargs["titles"] == [[r"$V-I Curve$"]]
+    assert recipe.plot.inline_jupyter is False
+    assert recipe.plot.saving_interval == 3
+
+    recipe.after_prepare({})
+
+    assert sense.sense_range_volt == 1e-6
+    assert source.source_range == 2.0
+
+
+def test_build_vi_curve_recipe_can_disable_plot():
+    class FakeMeter:
+        pass
+
+    meter = FakeMeter()
+
+    recipe = build_vi_curve_recipe(
+        vmax=1.0,
+        vstep=0.1,
+        high=1,
+        low=0,
+        swpmode="0-max-0",
+        meter=meter,
+        compliance=1e-3,
+        if_plot=False,
+    )
+
+    assert recipe.wrapper_lst == [meter, meter]
+    assert recipe.plot is None
 
 
 def test_run_recipe_records_rows_from_measure_dict():

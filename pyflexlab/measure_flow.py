@@ -27,8 +27,8 @@ from typing import Any, Callable, Iterable, Optional, Sequence
 from pyomnix.data_process import DataManipulator
 from pyomnix.omnix_logger import get_logger
 
-from .equip_wrapper import SourceMeter
-from .measure_flow_old import MeasureFlow as LegacyMeasureFlow
+from pyflexlab.equip_wrapper import Meter, SourceMeter
+from pyflexlab.measure_flow_old import MeasureFlow as LegacyMeasureFlow
 
 logger = get_logger(__name__)
 
@@ -42,27 +42,30 @@ ShutdownTarget = SourceMeter | Callable[[], None]
 
 def default_time_update(plotobj: DataManipulator, records: RecordTuple) -> None:
     """
-    used when no manual appointed plot functions, plot first three
-    measured values with time.
+    used when no manual appointed plot functions, plot only first two cols 
     """
+    logger.validate(
+        len(records) >= 2, "length of records is less than 2, cannot draw figures"
+    )
     plotobj.live_plot_update(
         0,
         0,
         0,
-        [records[0], records[0], records[0]],
-        [records[1], records[2], records[3]],
+        [records[0]],
+        [records[1]],
         incremental=True,
     )
 
 
 @dataclass(slots=True)
 class PlotRecipe:
-    """Plot configuration for a recipe runner."""
+    """Plot configuration for a recipe runner.
+    keep all default to get basic testing config"""
 
     enabled: bool = True
     plotobj: Optional[DataManipulator] = None
     # args & kwargs are all directly fed into live_plot_init
-    init_args: tuple[Any, ...] = ()
+    init_args: tuple[Any, ...] = (1,1,1)
     init_kwargs: dict[str, Any] = field(default_factory=dict)
 
     update: PlotUpdate = default_time_update
@@ -134,7 +137,6 @@ class MeasureFlow(LegacyMeasureFlow):
         plotobj = self._init_recipe_plot(recipe.plot, mea_dict)
         logger.info("filepath: %s", mea_dict["file_path"])
         logger.info("no of columns(with time column): %d", mea_dict["record_num"])
-        logger.info("vary modules: %s", mea_dict["vary_mod"])
 
         try:
             for record_tuple in self._iter_records(
@@ -172,7 +174,7 @@ class MeasureFlow(LegacyMeasureFlow):
         for record_tuple in gen_lst:
             # here can add steps for execution during measurement
             if callable(on_measure):
-                on_measure(gen_lst)
+                on_measure(record_tuple)
             yield record_tuple
 
     def _init_recipe_plot(
@@ -197,3 +199,49 @@ class MeasureFlow(LegacyMeasureFlow):
                 target()
             else:
                 target.output_switch("off")
+
+    # template for using recipe_builder
+    def measure_Vswp_I_vicurve(
+        self,
+        *,
+        vmax: float,
+        vstep: float,
+        freq: Optional[float] = None,
+        high: int | str,
+        low: int | str,
+        swpmode: str,
+        meter: Meter | list[Meter],
+        compliance: float,
+        folder_name: str = "",
+        step_time: float = 0.5,
+        if_plot: bool = True,
+        saving_interval: float = 7,
+        plotobj: Optional[DataManipulator] = None,
+        source_wait: float = 0.1,
+        use_dash: bool = False,
+        sense_range: float | None = None,
+        source_range: float | None = None,
+    ) -> dict[str, Any]:
+        """Measure a V-I curve through the reusable recipe runner."""
+        from .recipe_builders import build_vi_curve_recipe
+
+        recipe = build_vi_curve_recipe(
+            vmax=vmax,
+            vstep=vstep,
+            freq=freq,
+            high=high,
+            low=low,
+            swpmode=swpmode,
+            meter=meter,
+            compliance=compliance,
+            folder_name=folder_name,
+            step_time=step_time,
+            if_plot=if_plot,
+            saving_interval=saving_interval,
+            plotobj=plotobj,
+            source_wait=source_wait,
+            use_dash=use_dash,
+            sense_range=sense_range,
+            source_range=source_range,
+        )
+        return self.run_recipe(recipe)
