@@ -20,8 +20,7 @@ from .measure_flow_old import MeasureFlow as LegacyMeasureFlow
 
 logger = get_logger(__name__)
 
-
-RecordTuple = tuple[Any, ...]
+RecordTuple = tuple[Any, ...] # actual measured values tuple from the whole generator
 PlotUpdate = Callable[[DataManipulator, RecordTuple], None]
 RecordHook = Callable[[RecordTuple], None]
 PrepareHook = Callable[[dict[str, Any]], None]
@@ -34,8 +33,10 @@ class PlotRecipe:
 
     enabled: bool = True
     plotobj: Optional[DataManipulator] = None
+    # args & kwargs are all directly fed into live_plot_init
     init_args: tuple[Any, ...] = ()
     init_kwargs: dict[str, Any] = field(default_factory=dict)
+
     update: Optional[PlotUpdate] = None
     saving_interval: float = 7
     inline_jupyter: Optional[bool] = None
@@ -55,7 +56,7 @@ class MeasurementRecipe:
     args: tuple[Any, ...] = ()
     wrapper_lst: list[Any] = field(default_factory=list)
     compliance_lst: list[Any] = field(default_factory=list)
-    get_measure_kwargs: dict[str, Any] = field(default_factory=dict)
+    measure_kwargs: dict[str, Any] = field(default_factory=dict)
     step_time: float = 0
     plot: Optional[PlotRecipe] = None
     on_record: Optional[RecordHook] = None
@@ -74,7 +75,7 @@ class MeasureFlow(LegacyMeasureFlow):
 
     def prepare_recipe(self, recipe: MeasurementRecipe) -> dict[str, Any]:
         """Create the measure dictionary for a recipe."""
-        measure_kwargs = dict(recipe.get_measure_kwargs)
+        measure_kwargs = dict(recipe.measure_kwargs)
         return self.get_measure_dict(
             recipe.measure_mods,
             *recipe.args,
@@ -94,11 +95,19 @@ class MeasureFlow(LegacyMeasureFlow):
         Return:
             Just for record, irrelevant to actual running
         """
+        # set up measurement configuration
         mea_dict = self.prepare_recipe(recipe)
+        ##TODO:: check##
         if recipe.after_prepare is not None:
             recipe.after_prepare(mea_dict)
+        ##::TODO##
 
+        # start plotting and periodic plot saving
         plotobj = self._init_recipe_plot(recipe.plot, mea_dict)
+        logger.info("filepath: %s", mea_dict["file_path"])
+        logger.info("no of columns(with time column): %d", mea_dict["record_num"])
+        logger.info("vary modules: %s", mea_dict["vary_mod"])
+
         try:
             for record_tuple in self._iter_records(mea_dict["gen_lst"]):
                 self.record_update(
@@ -128,7 +137,9 @@ class MeasureFlow(LegacyMeasureFlow):
 
     @staticmethod
     def _iter_records(gen_lst: Iterable[RecordTuple]) -> Iterable[RecordTuple]:
-        yield from gen_lst
+        for record_tuple in gen_lst:
+            # here can add steps for execution during measurement
+            yield record_tuple
 
     def _init_recipe_plot(
         self, plotrec: Optional[PlotRecipe], mea_dict: dict[str, Any]
@@ -137,11 +148,10 @@ class MeasureFlow(LegacyMeasureFlow):
             return None
 
         plotobj = plotrec.plotobj if plotrec.plotobj is not None else DataManipulator(5)
-        init_kwargs = dict(plotrec.init_kwargs)
         if plotrec.inline_jupyter is not None:
-            init_kwargs.setdefault("inline_jupyter", plotrec.inline_jupyter)
-        if plotrec.init_args or init_kwargs:
-            plotobj.live_plot_init(*plotrec.init_args, **init_kwargs)
+            plotrec.init_kwargs.setdefault("inline_jupyter", plotrec.inline_jupyter)
+        if plotrec.init_args or plotrec.init_kwargs:
+            plotobj.live_plot_init(*plotrec.init_args, **plotrec.init_kwargs)
         plotobj.start_saving(mea_dict["plot_record_path"], plotrec.saving_interval)
         self._active_plotobj = plotobj
         return plotobj
