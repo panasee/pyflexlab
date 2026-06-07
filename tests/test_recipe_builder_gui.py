@@ -6,6 +6,7 @@ from pyflexlab.recipe_builder_gui import (
     DEFAULT_MODULE_LIBRARY,
     GuiRecipeSpec,
     ModuleInstance,
+    _spec_has_live_plot,
 )
 
 
@@ -42,3 +43,21 @@ def test_recipe_spec_exports_structured_json():
     assert exported["sources"][0]["module_id"] == source_module.module_id
     assert exported["externals"][0]["category"] == "external"
     assert exported["senses"] == []
+
+
+def test_only_live_xy_plot_enables_dash_preview():
+    live_plot = next(
+        module for module in DEFAULT_MODULE_LIBRARY if module.module_id == "plot.live_xy"
+    )
+    record_only = next(
+        module
+        for module in DEFAULT_MODULE_LIBRARY
+        if module.module_id == "plot.record_only"
+    )
+
+    assert _spec_has_live_plot(
+        GuiRecipeSpec(plots=[ModuleInstance.from_definition(live_plot)])
+    )
+    assert not _spec_has_live_plot(
+        GuiRecipeSpec(plots=[ModuleInstance.from_definition(record_only)])
+    )

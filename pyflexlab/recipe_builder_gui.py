@@ -9,7 +9,11 @@ into a MeasurementRecipe is kept as a future, explicit step.
 from __future__ import annotations
 
 import json
+import math
+import socket
 import sys
+import threading
+import webbrowser
 from dataclasses import dataclass, field
 from typing import Any, ClassVar, Iterable, Literal
 
@@ -30,6 +34,13 @@ CATEGORY_ATTRS: dict[ModuleCategory, str] = {
 # moving opaque bytes through QMimeData; this value prevents our module payloads
 # from being confused with plain text, files, or other draggable data.
 MIME_TYPE = "application/x-pyflexlab-module"
+
+
+def _find_free_local_port() -> int:
+    """Reserve a free localhost TCP port for the embedded Dash preview."""
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
+        sock.bind(("127.0.0.1", 0))
+        return int(sock.getsockname()[1])
 
 
 @dataclass(frozen=True, slots=True)
@@ -159,6 +170,123 @@ class GuiRecipeSpec:
         return json.dumps(self.to_dict(), indent=2, sort_keys=True)
 
 
+def _spec_has_live_plot(spec: GuiRecipeSpec) -> bool:
+    """Return whether the GUI spec asks for an active live plot."""
+    return any(module.module_id == "plot.live_xy" for module in spec.plots)
+
+
+class _RecipeDashPreview:
+    """Small Dash/Plotly preview used by the standalone recipe builder."""
+
+    def __init__(self, port: int | None = None) -> None:
+        self.port = port if port is not None else _find_free_local_port()
+        self._lock = threading.Lock()
+        self._live_plot_enabled = False
+        self._started = False
+
+    @property
+    def url(self) -> str:
+        return f"http://127.0.0.1:{self.port}"
+
+    def update_from_spec(self, spec: GuiRecipeSpec) -> None:
+        with self._lock:
+            self._live_plot_enabled = _spec_has_live_plot(spec)
+
+    def _is_live_plot_enabled(self) -> bool:
+        with self._lock:
+            return self._live_plot_enabled
+
+    def start(self) -> None:
+        """
+        Start the local Dash server in a daemon thread.
+
+        Dash/Plotly are imported here so the data model remains importable in
+        non-GUI and test environments.
+        """
+        if self._started:
+            return
+
+        try:
+            from dash import Dash, Input, Output, dcc, html
+            import plotly.graph_objects as go
+        except ImportError as exc:  # pragma: no cover - optional runtime deps
+            raise RuntimeError(
+                "Dash and Plotly are required for the recipe plot preview."
+            ) from exc
+
+        app = Dash(__name__)
+        app.layout = html.Div(
+            [
+                html.Div(
+                    "Recipe Plot Preview",
+                    style={
+                        "fontFamily": "Arial, sans-serif",
+                        "fontSize": "16px",
+                        "fontWeight": "600",
+                        "margin": "8px 12px 0",
+                    },
+                ),
+                dcc.Graph(id="recipe-live-plot", style={"height": "360px"}),
+                dcc.Interval(
+                    id="recipe-live-plot-timer",
+                    interval=1000,
+                    n_intervals=0,
+                ),
+            ],
+            style={"backgroundColor": "#ffffff", "height": "100vh"},
+        )
+
+        @app.callback(
+            Output("recipe-live-plot", "figure"),
+            Input("recipe-live-plot-timer", "n_intervals"),
+        )
+        def _update_plot(n_intervals: int) -> Any:
+            live_plot_enabled = self._is_live_plot_enabled()
+            fig = go.Figure()
+            if live_plot_enabled:
+                count = min(max(n_intervals + 1, 2), 120)
+                start = max(0, n_intervals - count + 1)
+                x_values = list(range(start, start + count))
+                y_values = [
+                    math.sin(value / 6) + 0.15 * math.cos(value / 2)
+                    for value in x_values
+                ]
+                fig.add_trace(
+                    go.Scatter(
+                        x=x_values,
+                        y=y_values,
+                        mode="lines+markers",
+                        name="live_xy",
+                    )
+                )
+                title = "Live XY Plot"
+            else:
+                title = "Drop Live XY Plot into the Plot box"
+            fig.update_layout(
+                title=title,
+                margin={"l": 48, "r": 24, "t": 48, "b": 48},
+                xaxis_title="sample",
+                yaxis_title="value",
+                template="plotly_white",
+                uirevision="recipe-preview",
+            )
+            return fig
+
+        thread = threading.Thread(
+            target=app.run,
+            kwargs={
+                "host": "127.0.0.1",
+                "port": self.port,
+                "debug": False,
+                "use_reloader": False,
+            },
+            daemon=True,
+            name="recipe-dash-preview",
+        )
+        thread.start()
+        self._started = True
+
+
 # Initial module library for the prototype UI.  These are intentionally broad
 # logical roles rather than concrete driver classes; the future translator can
 # map them to MeasureManager/get_measure_dict inputs once the GUI contract is
@@ -276,6 +404,18 @@ def launch(
     """Launch the standalone PyQt recipe builder."""
 
     QtCore, QtGui, QtWidgets = _require_pyqt6()
+    try:
+        from PyQt6 import QtWebEngineWidgets
+    except ImportError:  # pragma: no cover - optional GUI extra
+        QtWebEngineWidgets = None
+
+    dash_preview: _RecipeDashPreview | None = _RecipeDashPreview()
+    dash_error = ""
+    try:
+        dash_preview.start()
+    except RuntimeError as exc:  # pragma: no cover - depends on optional deps
+        dash_preview = None
+        dash_error = str(exc)
 
     # The Qt widget classes live inside launch() so importing this module stays
     # PyQt-free until a user explicitly starts the GUI.
@@ -414,6 +554,7 @@ def launch(
             # Store the drop widgets by category so _current_spec can assemble a
             # GuiRecipeSpec without depending on layout positions.
             self._drop_lists: dict[ModuleCategory, ModuleDropList] = {}
+            self._dash_preview = dash_preview
             self._build_ui(modules)
             self._refresh_preview()
 
@@ -465,6 +606,35 @@ def launch(
             preview_layout.addWidget(refresh_button)
             root_layout.addWidget(preview_group, 2)
 
+            plot_group = QtWidgets.QGroupBox("Dash Plot")
+            plot_layout = QtWidgets.QVBoxLayout(plot_group)
+            plot_header_layout = QtWidgets.QHBoxLayout()
+            open_browser_button = QtWidgets.QPushButton("Open in Browser")
+            open_browser_button.setEnabled(self._dash_preview is not None)
+            open_browser_button.clicked.connect(self._open_dash_in_browser)
+            plot_header_layout.addStretch()
+            plot_header_layout.addWidget(open_browser_button)
+            plot_layout.addLayout(plot_header_layout)
+            if self._dash_preview is None:
+                error_label = QtWidgets.QLabel(dash_error)
+                error_label.setWordWrap(True)
+                error_label.setAlignment(QtCore.Qt.AlignmentFlag.AlignCenter)
+                plot_layout.addWidget(error_label)
+            elif QtWebEngineWidgets is None:
+                info_label = QtWidgets.QLabel(
+                    "PyQt6-WebEngine is not installed. "
+                    "Use Open in Browser to view the Dash plot."
+                )
+                info_label.setWordWrap(True)
+                info_label.setAlignment(QtCore.Qt.AlignmentFlag.AlignCenter)
+                plot_layout.addWidget(info_label)
+            else:
+                dash_view = QtWebEngineWidgets.QWebEngineView()
+                dash_view.setMinimumHeight(260)
+                dash_view.setUrl(QtCore.QUrl(self._dash_preview.url))
+                plot_layout.addWidget(dash_view)
+            root_layout.addWidget(plot_group, 2)
+
         def _current_spec(self) -> GuiRecipeSpec:
             """Collect all drop-box contents into a validated GUI spec."""
             return GuiRecipeSpec(
@@ -476,7 +646,16 @@ def launch(
 
         def _refresh_preview(self) -> None:
             """Render the current GUI spec as JSON in the preview pane."""
-            self._preview.setPlainText(self._current_spec().to_json())
+            spec = self._current_spec()
+            self._preview.setPlainText(spec.to_json())
+            if self._dash_preview is not None:
+                self._dash_preview.update_from_spec(spec)
+
+        def _open_dash_in_browser(self) -> None:
+            """Open the local Dash preview in the user's default browser."""
+            if self._dash_preview is None:
+                return
+            webbrowser.open(self._dash_preview.url)
 
     app = QtWidgets.QApplication.instance()
     owns_app = app is None

@@ -90,6 +90,9 @@ class MeasureFlow(LegacyMeasureFlow):
         The runner owns the repeated flow mechanics: prepare generators, record
         each row, update optional live plots, stop plot saving, and shut down
         requested source outputs.
+
+        Return:
+            Just for record, irrelevant to actual running
         """
         mea_dict = self.prepare_recipe(recipe)
         if recipe.after_prepare is not None:
@@ -105,7 +108,11 @@ class MeasureFlow(LegacyMeasureFlow):
                 )
                 if recipe.on_record is not None:
                     recipe.on_record(record_tuple)
-                if plotobj is not None and recipe.plot is not None and recipe.plot.update is not None:
+                if (
+                    plotobj is not None
+                    and recipe.plot is not None
+                    and recipe.plot.update is not None
+                ):
                     recipe.plot.update(plotobj, record_tuple)
                 if recipe.step_time > 0:
                     time.sleep(recipe.step_time)
@@ -124,18 +131,18 @@ class MeasureFlow(LegacyMeasureFlow):
         yield from gen_lst
 
     def _init_recipe_plot(
-        self, plot: Optional[PlotRecipe], mea_dict: dict[str, Any]
+        self, plotrec: Optional[PlotRecipe], mea_dict: dict[str, Any]
     ) -> Optional[DataManipulator]:
-        if plot is None or not plot.enabled:
+        if plotrec is None or not plotrec.enabled:
             return None
 
-        plotobj = plot.plotobj if plot.plotobj is not None else DataManipulator(1)
-        init_kwargs = dict(plot.init_kwargs)
-        if plot.inline_jupyter is not None:
-            init_kwargs.setdefault("inline_jupyter", plot.inline_jupyter)
-        if plot.init_args or init_kwargs:
-            plotobj.live_plot_init(*plot.init_args, **init_kwargs)
-        plotobj.start_saving(mea_dict["plot_record_path"], plot.saving_interval)
+        plotobj = plotrec.plotobj if plotrec.plotobj is not None else DataManipulator(5)
+        init_kwargs = dict(plotrec.init_kwargs)
+        if plotrec.inline_jupyter is not None:
+            init_kwargs.setdefault("inline_jupyter", plotrec.inline_jupyter)
+        if plotrec.init_args or init_kwargs:
+            plotobj.live_plot_init(*plotrec.init_args, **init_kwargs)
+        plotobj.start_saving(mea_dict["plot_record_path"], plotrec.saving_interval)
         self._active_plotobj = plotobj
         return plotobj
 
