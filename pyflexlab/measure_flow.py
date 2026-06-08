@@ -23,6 +23,7 @@ from __future__ import annotations
 import time
 from dataclasses import dataclass, field
 from typing import Any, Callable, Iterable, Optional, Sequence
+from functools import wraps
 
 from pyomnix.data_process import DataManipulator
 from pyomnix.omnix_logger import get_logger
@@ -42,6 +43,15 @@ ShutdownTarget = SourceMeter | Callable[[], None]
 def noop(*args, **kwargs):
     "used for None case"
     pass
+
+def add_after(func: Callable | None, action: Callable):
+    # decorator for add action to func, both return None
+    base_func = func or noop
+    @wraps(base_func)
+    def wrapper(*args, **kwargs) -> None:
+        base_func(*args, **kwargs)
+        action(*args, **kwargs)
+    return wrapper
 
 def default_time_update(plotobj: DataManipulator, records: RecordTuple) -> None:
     """
@@ -123,57 +133,63 @@ class MeasureFlow(LegacyMeasureFlow):
         """
         Execute a measurement recipe end-to-end.
 
-        The runner owns the repeated flow mechanics: prepare generators, record
-        each row, update optional live plots, stop plot saving, and shut down
-        requested source outputs.
+        The runner owns the repeated flow mechanics: prepare generators, record each row, update optional live plots, stop plot saving, and shut down requested source outputs.
+
+        Hooks are used for do mea_dict or record_tuple treatment, for recipe treatment, place them in this function directly
 
         Return:
             Just for record, irrelevant to actual running
         """
         # set up measurement configuration
         mea_dict = self.prepare_recipe(recipe)
-        # HOOK: after_prepare
-        if recipe.after_prepare is not None:
-            recipe.after_prepare(mea_dict)
 
-        # print basic infos for measurement
-        logger.info("filepath: %s", mea_dict["file_path"])
-        logger.info("no of columns(with time column): %d", mea_dict["record_num"])
+        # HOOK: hook modification
+        after_prepare_hook: PrepareHook = add_after(recipe.after_prepare, MeasureFlow.basic_info_meadict)
+        on_measure_hook: MeasureHook = recipe.on_measure or noop
+
         # print infos and register on_record hook for varying action
         if mea_dict["vary_mod"]:
             vary_infos = MeasureFlow._extract_vary(mea_dict)
             logger.validate("vary_loop" in recipe.measure_kwargs, "vary_loop setting not found")
-            logger.info(f"vary module: {mea_dict["vary_mod"]}, bound: {vary_infos[-1]}, loop: {recipe.measure_kwargs["vary_loop"]}")
-            vary_flag = False  # only support one-start vary(all modules start at same time) 
-            def new_on_record(record_tuple):
-                (recipe.on_record or noop)(record_tuple)
+            logger.info(f"bound: {vary_infos[-1]}, loop: {recipe.measure_kwargs['vary_loop']}")
+            vary_flag = False   
+            def start_varys(*args, **kwargs):
+                # only support one-start vary(all modules start at same time)
+                nonlocal vary_flag
                 if not vary_flag:
                     for funci in vary_infos[0]:
                         funci()
                     vary_flag = True
-            recipe.on_record = new_on_record
+            on_record_hook: RecordHook = add_after(recipe.on_record, start_varys)
+
+        # execute after_prepare hook
+        after_prepare_hook(mea_dict)
 
         # start plotting and periodic plot saving
         plotobj = self._init_recipe_plot(recipe.plot, mea_dict)
         try:
-            for record_tuple in self._iter_records(
-                mea_dict["gen_lst"], recipe.on_measure
-            ):
+            mea_iter = self._iter_records(mea_dict["gen_lst"], on_measure_hook)
+            while True:
+                t0 = time.perf_counter()
+                try:
+                    record_tuple = next(mea_iter)
+                except StopIteration:
+                    break
                 self.record_update(
                     mea_dict["file_path"],
                     mea_dict["record_num"],
                     record_tuple,
                 )
-                if recipe.on_record is not None:
-                    recipe.on_record(record_tuple)
+                on_record_hook(record_tuple)
                 if (
                     plotobj is not None
                     and recipe.plot is not None
                     and recipe.plot.update is not None
                 ):
                     recipe.plot.update(plotobj, record_tuple)
+                elapsed = time.perf_counter() - t0
                 if recipe.step_time > 0:
-                    time.sleep(recipe.step_time)
+                    time.sleep(max(0, recipe.step_time - elapsed))
         finally:
             if plotobj is not None:
                 plotobj.stop_saving()
@@ -185,13 +201,19 @@ class MeasureFlow(LegacyMeasureFlow):
     _run_recipe = run_recipe
 
     @staticmethod
+    def basic_info_meadict(mea_dict: dict)->None:
+        logger.info("filepath: %s", mea_dict["file_path"])
+        logger.info("no of columns(with time column): %d", mea_dict["record_num"])
+        if mea_dict["vary_mod"]:
+            logger.info(f"vary module: {mea_dict['vary_mod']}")
+
+    @staticmethod
     def _iter_records(
-        gen_lst: Iterable[RecordTuple], on_measure: MeasureHook | None = None
+        gen_lst: Iterable[RecordTuple], on_measure: MeasureHook = noop 
     ) -> Iterable[RecordTuple]:
         for record_tuple in gen_lst:
             # here can add steps for execution during measurement
-            if callable(on_measure):
-                on_measure(record_tuple)
+            on_measure(record_tuple)
             yield record_tuple
 
     def _init_recipe_plot(
