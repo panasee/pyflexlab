@@ -120,9 +120,14 @@ def test_run_recipe_records_rows_from_measure_dict():
             assert kwargs["special_name"] == "recipe-test"
             return {
                 "gen_lst": iter([(0.0, 1.0), (0.1, 1.1)]),
+                "swp_idx": [],
                 "file_path": "fake.csv",
                 "plot_record_path": "fake_plot.csv",
                 "record_num": 2,
+                "vary_mod": [],
+                "tmp_vary": None,
+                "mag_vary": None,
+                "angle_vary": None,
             }
 
         def record_update(self, file_path, record_num, record_tuple, *, force_write=False):

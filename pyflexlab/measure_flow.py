@@ -146,6 +146,7 @@ class MeasureFlow(LegacyMeasureFlow):
         # HOOK: hook modification
         after_prepare_hook: PrepareHook = add_after(recipe.after_prepare, MeasureFlow.basic_info_meadict)
         on_measure_hook: MeasureHook = recipe.on_measure or noop
+        on_record_hook: RecordHook = recipe.on_record or noop
 
         # print infos and register on_record hook for varying action
         if mea_dict["vary_mod"]:
@@ -160,7 +161,7 @@ class MeasureFlow(LegacyMeasureFlow):
                     for funci in vary_infos[0]:
                         funci()
                     vary_flag = True
-            on_record_hook: RecordHook = add_after(recipe.on_record, start_varys)
+            on_record_hook: RecordHook = add_after(on_record_hook, start_varys)
 
         # execute after_prepare hook
         after_prepare_hook(mea_dict)
