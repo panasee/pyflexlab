@@ -220,7 +220,7 @@ class SimMag(Magnet):
         def _vary_field():
             t = 0
             field_ini = self.f
-            while t < 100:
+            while t < 30:
                 self.f = self.f_set + (field_ini - self.f_set) * np.exp(-t / 10)
                 time.sleep(1)
                 t += 1
@@ -303,43 +303,5 @@ class SimMag(Magnet):
                 time.sleep(1)
             logger.info("ramping finished")
 
-
-class FakeMag(Magnet):
-    """
-    a fake magnet that always gives zero field
-    """
-
-    def __init__(self, *args, **kwargs):
-        self.cache = CacheArray(30)
-
-    def ramp_to_field(
-        self,
-        field: float | int | tuple[float] | list[float],
-        *,
-        rate: float | tuple[float] = (0.2,) * 3,
-        wait: bool = True,
-        tolerance: float = 1e-3,
-    ) -> None:
-        if field != 0:
-            logger.warning("You are ramping a fake magnet, the field will not change")
-
-    @property
-    def field(self) -> float:
-        return 0
-
-    @property
-    def field_set(self) -> float:
-        return 0
-
-    @field_set.setter
-    def field_set(self, value: float) -> None:
-        pass
-
-    def status(self) -> Literal["TO SET", "HOLD"]:
-        return "HOLD"
-
-    def if_reach_target(self, tolerance: float = 3e-3) -> bool:
-        return True
-
-
 FakeITC = SimITC
+FakeMag = SimMag

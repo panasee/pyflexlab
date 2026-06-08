@@ -49,3 +49,7 @@ def initialize_with_templates():
             if not target_path.exists():
                 shutil.copy2(template_file, target_path)
                 logger.info(f"Copied template: {rel_path}")
+            else:
+                logger.warning(
+                    f"Skipped existing template: {rel_path} already exists at {target_path}; not overwriting local file."
+                )

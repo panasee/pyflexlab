@@ -39,6 +39,9 @@ MeasureHook = Callable[[RecordTuple], None]
 PrepareHook = Callable[[dict[str, Any]], None]
 ShutdownTarget = SourceMeter | Callable[[], None]
 
+def noop(*args, **kwargs):
+    "used for None case"
+    pass
 
 def default_time_update(plotobj: DataManipulator, records: RecordTuple) -> None:
     """
@@ -133,11 +136,25 @@ class MeasureFlow(LegacyMeasureFlow):
         if recipe.after_prepare is not None:
             recipe.after_prepare(mea_dict)
 
-        # start plotting and periodic plot saving
-        plotobj = self._init_recipe_plot(recipe.plot, mea_dict)
+        # print basic infos for measurement
         logger.info("filepath: %s", mea_dict["file_path"])
         logger.info("no of columns(with time column): %d", mea_dict["record_num"])
+        # print infos and register on_record hook for varying action
+        if mea_dict["vary_mod"]:
+            vary_infos = MeasureFlow._extract_vary(mea_dict)
+            logger.validate("vary_loop" in recipe.measure_kwargs, "vary_loop setting not found")
+            logger.info(f"vary module: {mea_dict["vary_mod"]}, bound: {vary_infos[-1]}, loop: {recipe.measure_kwargs["vary_loop"]}")
+            vary_flag = False  # only support one-start vary(all modules start at same time) 
+            def new_on_record(record_tuple):
+                (recipe.on_record or noop)(record_tuple)
+                if not vary_flag:
+                    for funci in vary_infos[0]:
+                        funci()
+                    vary_flag = True
+            recipe.on_record = new_on_record
 
+        # start plotting and periodic plot saving
+        plotobj = self._init_recipe_plot(recipe.plot, mea_dict)
         try:
             for record_tuple in self._iter_records(
                 mea_dict["gen_lst"], recipe.on_measure
@@ -199,6 +216,47 @@ class MeasureFlow(LegacyMeasureFlow):
                 target()
             else:
                 target.output_switch("off")
+
+    
+    @staticmethod
+    def _extract_vary(
+        mea_dict: dict
+    ) -> tuple[list[Callable], list[Callable], list[Callable], list[Callable]]:
+        """
+        extract the vary functions, current value getters and set value getters for using in varying cases
+
+        Currently the vary number is limited to 1
+        """
+
+        vary_lst = []
+        curr_val_lst = []
+        set_val_lst = []
+        vary_bound_lst = []
+        for i in mea_dict["vary_mod"]:
+            match i:
+                case "T":
+                    vary_lst.append(mea_dict["tmp_vary"][0])
+                    curr_val_lst.append(mea_dict["tmp_vary"][1])
+                    set_val_lst.append(mea_dict["tmp_vary"][2])
+                    vary_bound_lst.append(mea_dict["tmp_vary"][3])
+                case "B":
+                    vary_lst.append(mea_dict["mag_vary"][0])
+                    curr_val_lst.append(mea_dict["mag_vary"][1])
+                    set_val_lst.append(mea_dict["mag_vary"][2])
+                    vary_bound_lst.append(mea_dict["mag_vary"][3])
+                case "Theta":
+                    vary_lst.append(mea_dict["angle_vary"][0])
+                    curr_val_lst.append(mea_dict["angle_vary"][1])
+                    set_val_lst.append(mea_dict["angle_vary"][2])
+                    vary_bound_lst.append(mea_dict["angle_vary"][3])
+
+        logger.validate(
+            min(len(vary_lst), len(curr_val_lst), len(set_val_lst), len(vary_bound_lst))
+            == 1,
+            "only one varying parameter is allowed",
+        )
+
+        return vary_lst, curr_val_lst, set_val_lst, vary_bound_lst
 
     # template for using recipe_builder
     def measure_Vswp_I_vicurve(
