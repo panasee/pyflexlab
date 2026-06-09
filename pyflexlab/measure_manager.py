@@ -271,7 +271,6 @@ class MeasureManager(FileOrganizer):
         sweepmode: Optional[
             Literal["0-max-0", "0--max-max-0", "0-max--max-max-0", "0-max", "manual"]
         ] = None,
-        resistor: Optional[float] = None,
         sweep_table: Optional[list[float | str, ...]] = None,
         ramp_step: bool = False,
         source_wait: float = 0.1,
@@ -290,8 +289,6 @@ class MeasureManager(FileOrganizer):
             freq (float): the frequency of the ac current
             sweepmode (Literal["0-max-0","0--max-max-0","0-max--max-max-0","manual"]): the mode of the dc current sweep, note that the
                 "manual" mode is for both ac and dc source, requiring the sweep_table to be provided
-            resistor (float): the resistance of the resistor, used only for sr830 source. Once it is provided, the
-                source value will be regarded automatically as current
             sweep_table (list[float|str,...]): the table of the sweep values (only if sweepmode is "manual")
             ramp_step (bool): whether to ramp the step value, if true,
               the step value will be ramped to the next value with the interval set by safe_step of each meter
@@ -371,74 +368,44 @@ class MeasureManager(FileOrganizer):
                 time.sleep(source_wait)
                 yield value_i
         elif ac_dc == "ac":
-            if (
-                resistor is not None and source_type == "curr"
-            ):  # automatically regard the source value as current and set output mode to volt
-                if sweepmode == "manual":
-                    volt_gen = (i * resistor for i in convert_unit(sweep_table, "")[0])
-                    instr.ramp_output(
-                        "volt",
-                        sweep_table[0] * resistor,
-                        interval=safe_step,
-                        compliance=compliance,
-                    )
-                elif sweepmode == "0-max-0":
-                    volt_gen = self.sweep_values(
-                        0, max_value * resistor, step_value, mode="start-end-start"
-                    )
-                elif sweepmode == "0-max":
-                    volt_gen = self.sweep_values(
-                        0, max_value * resistor, step_value, mode="start-end"
-                    )
-                else:
-                    raise ValueError("sweepmode not recognized")
-                for value_i in volt_gen:
-                    instr.uni_output(value_i, freq=freq, type_str="volt")
-                    time.sleep(source_wait)
-                    yield value_i
+            if sweepmode == "manual":
+                value_gen = (i for i in convert_unit(sweep_table, "")[0])
+                instr.ramp_output(
+                    source_type,
+                    sweep_table[0],
+                    interval=safe_step,
+                    freq=freq,
+                    compliance=compliance,
+                )
+            elif sweepmode == "0-max-0":
+                value_gen = self.sweep_values(
+                    0, max_value, step_value, mode="start-end-start"
+                )
+            elif sweepmode == "0-max":
+                value_gen = self.sweep_values(
+                    0, max_value, step_value, mode="start-end"
+                )
             else:
-                if resistor is not None:
-                    logger.warning(
-                        "resistor is provided but source type is not current, ignored"
-                    )
-                if sweepmode == "manual":
-                    value_gen = (i for i in convert_unit(sweep_table, "")[0])
+                raise ValueError(f"sweepmode {sweepmode} not recognized")
+            for value_i in value_gen:
+                if ramp_step:
                     instr.ramp_output(
                         source_type,
-                        sweep_table[0],
+                        value_i,
                         interval=safe_step,
                         freq=freq,
                         compliance=compliance,
-                    )
-                elif sweepmode == "0-max-0":
-                    value_gen = self.sweep_values(
-                        0, max_value, step_value, mode="start-end-start"
-                    )
-                elif sweepmode == "0-max":
-                    value_gen = self.sweep_values(
-                        0, max_value, step_value, mode="start-end"
+                        no_progress=True,
                     )
                 else:
-                    raise ValueError(f"sweepmode {sweepmode} not recognized")
-                for value_i in value_gen:
-                    if ramp_step:
-                        instr.ramp_output(
-                            source_type,
-                            value_i,
-                            interval=safe_step,
-                            freq=freq,
-                            compliance=compliance,
-                            no_progress=True,
-                        )
-                    else:
-                        instr.uni_output(
-                            value_i,
-                            freq=freq,
-                            compliance=compliance,
-                            type_str=source_type,
-                        )
-                    time.sleep(source_wait)
-                    yield value_i
+                    instr.uni_output(
+                        value_i,
+                        freq=freq,
+                        compliance=compliance,
+                        type_str=source_type,
+                    )
+                time.sleep(source_wait)
+                yield value_i
 
     def ext_sweep_apply(
         self,
@@ -824,7 +791,6 @@ class MeasureManager(FileOrganizer):
         *var_tuple: float | str,
         wrapper_lst: list[Meter | SourceMeter] = None,
         compliance_lst: list[float | str],
-        sr830_current_resistor: float = None,
         if_combine_gen: bool = True,
         sweep_tables: list[list[float | str, ...]]
         | tuple[tuple[float | str, ...]] = None,
@@ -861,7 +827,6 @@ class MeasureManager(FileOrganizer):
             var_tuple (tuple): the variables of the measurement, use "-h" to see the variables' list
             wrapper_lst (list[Meter]): the list of the wrappers to be used (only for source and sense)
             compliance_lst (list[float]): the list of the compliance to be used (sources)
-            sr830_current_resistor (float): the resistance of the resistor, used only for sr830 curr source
             if_combine_gen (bool): whether to combine the generators as a whole list generator,
                                 if False, return the list of generators for further operations
                                 (useful for combination of VARY and SWEEP)
@@ -914,7 +879,6 @@ class MeasureManager(FileOrganizer):
                     *var_tuple,
                     wrapper_lst=wrapper_lst,
                     compliance_lst=compliance_lst,
-                    sr830_current_resistor=sr830_current_resistor,
                     if_combine_gen=if_combine_gen,
                     sweep_tables=list(sweep_tables),
                     special_name=special_name,
@@ -937,7 +901,6 @@ class MeasureManager(FileOrganizer):
                     *var_tuple,
                     wrapper_lst=wrapper_lst,
                     compliance_lst=compliance_lst,
-                    sr830_current_resistor=sr830_current_resistor,
                     if_combine_gen=if_combine_gen,
                     sweep_tables=sweep_tables.tolist(),
                     special_name=special_name,
@@ -1028,7 +991,6 @@ class MeasureManager(FileOrganizer):
                         compliance=compliance_lst[idx],
                         freq=src_mod[mod_i]["freq"],
                         sweepmode=src_mod[mod_i]["mode"],
-                        resistor=sr830_current_resistor,
                         sweep_table=sweep_table,
                         source_wait=source_wait,
                         allow_large_jump=allow_large_jump,
