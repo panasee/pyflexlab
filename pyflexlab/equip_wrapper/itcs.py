@@ -190,7 +190,7 @@ class ITC(ABC):
 
     def ramp_to_temperature(
         self,
-        temp,
+        temp: float | str,
         *,
         delta=0.02,
         check_interval=1,
@@ -201,6 +201,7 @@ class ITC(ABC):
         wait=True,
     ):
         """ramp temperature to the target value (not necessary sample temperature)"""
+        temp = convert_unit(temp, "K")[0]
         self.temperature_set = temp
         if pid is not None:
             self.set_pid(pid)
@@ -480,7 +481,7 @@ class ITCMercury(ITC):
 
     def ramp_to_temperature(
         self,
-        temp,
+        temp: float | str,
         *,
         check_interval=1,
         stability_counter=10,
@@ -625,11 +626,12 @@ class ITCs(ITC):
         self.itc_down.temperature_setpoint = temp
 
     def ramp_to_temperature_selective(
-        self, temp, itc_name: Literal["up", "down"], P=None, I=None, D=None
+        self, temp: float | str, itc_name: Literal["up", "down"], P=None, I=None, D=None
     ):
         """
         used to ramp the temperature of the ITCs, this method will wait for the temperature to stablize and thermalize for a certain time length
         """
+        temp = convert_unit(temp, "K")[0]
         self.control_mode = ("RU", itc_name)
         if itc_name == "up":
             itc_here = self.itc_up

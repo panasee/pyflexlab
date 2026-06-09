@@ -9,7 +9,7 @@ from abc import ABC, abstractmethod
 
 import numpy as np
 from pyomnix.omnix_logger import get_logger
-from pyomnix.utils import print_progress_bar, SWITCH_DICT
+from pyomnix.utils import print_progress_bar, SWITCH_DICT, convert_unit
 
 from ..drivers.MercuryiPS_VISA import OxfordMercuryiPS
 
@@ -38,7 +38,7 @@ class Magnet(ABC):
 
     @abstractmethod
     def ramp_to_field(
-        self, field: float, *, rate: float, stability: float, check_interval: float
+        self, field: float | int | str, *, rate: float, stability: float, check_interval: float
     ):
         pass
 
@@ -149,7 +149,7 @@ class WrapperIPS(Magnet):
 
     def ramp_to_field(
         self,
-        field: float | int | tuple[float] | list[float],
+        field: float | int | str,
         *,
         rate: float | tuple[float] = (0.2,) * 3,
         wait: bool = True,
@@ -165,6 +165,9 @@ class WrapperIPS(Magnet):
             wait (bool): whether to wait for the ramping to finish
             tolerance (float): the tolerance of the field (T)
         """
+        logger.validate(isinstance(field, str | float | int), "currently only support scalar Bz")
+        field  = convert_unit(field, "T")[0]
+
         if not self.sw_heater() and field != 0:
             self.sw_heater("on")
             for i in range(310):

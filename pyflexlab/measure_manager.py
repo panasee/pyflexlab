@@ -1041,7 +1041,6 @@ class MeasureManager(FileOrganizer):
                     # define a function instead of directly calling the ramp_to_temperature method
                     # to avoid possible interruption or delay
                     else:
-
                         def temp_vary(reverse: bool = False, oth_mod=oth_mod):
                             target = oth_mod["start"] if reverse else oth_mod["stop"]
                             self.instrs["itc"].ramp_to_temperature(target, wait=False)
@@ -1116,8 +1115,8 @@ class MeasureManager(FileOrganizer):
                 rec_lst.append(
                     self.ext_sweep_apply(
                         oth_mod["name"],
-                        min_value=oth_mod["min"],
-                        max_value=oth_mod["max"],
+                        min_value=oth_mod["start"],
+                        max_value=oth_mod["stop"],
                         step_value=oth_mod["step"],
                         sweepmode=oth_mod["mode"],
                         sweep_table=sweep_table,
