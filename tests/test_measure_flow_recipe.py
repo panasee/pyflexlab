@@ -4,7 +4,19 @@ from pathlib import Path
 
 from pyflexlab.measure_flow import MeasureFlow, MeasurementRecipe, default_time_update
 from pyflexlab.measure_flow_old import MeasureFlow as LegacyMeasureFlow
-from pyflexlab.recipe_builders import build_vi_curve_recipe
+from pyflexlab.recipe_builders import (
+    RecipeOptions,
+    assemble_recipe,
+    build_iv_vi_bvaryt_rhloop_recipe,
+    build_vi_curve_recipe,
+    current_sense,
+    fixed_current_source,
+    fixed_temperature,
+    fixed_voltage_source,
+    rh_loop_plot,
+    vary_magnetic_field,
+    voltage_sense,
+)
 
 
 def test_legacy_measure_methods_are_suffixed():
@@ -105,6 +117,167 @@ def test_build_vi_curve_recipe_can_disable_plot():
 
     assert recipe.wrapper_lst == [meter, meter]
     assert recipe.plot is None
+
+
+def test_build_iv_vi_bvaryt_rhloop_recipe_uses_named_parameters():
+    class FakeMeter:
+        pass
+
+    ds_source = FakeMeter()
+    ds_sense = FakeMeter()
+    gate = FakeMeter()
+
+    recipe = build_iv_vi_bvaryt_rhloop_recipe(
+        ids=1,
+        ds_high=0,
+        ds_low=0,
+        ds_meter=[ds_source, ds_sense],
+        ds_compliance=1,
+        vg=2,
+        vg_high=0,
+        vg_meter=gate,
+        vg_compliance=1,
+        field_start=-1,
+        field_end=1,
+        temperature=0,
+        folder_name="specialname",
+        measure_nickname="nickmea",
+        step_time=0.1,
+        source_wait=0.2,
+        vary_loop=True,
+        saving_interval=3,
+        use_dash=True,
+    )
+
+    assert recipe.measure_mods == (
+        "I_source_fixed_dc",
+        "V_source_fixed_dc",
+        "V_sense_dc",
+        "I_sense_dc",
+        "B_vary",
+        "T_fixed",
+    )
+    assert recipe.args == (1, 0, 0, 2, 0, 0, "", 0, 0, "", 0, 0, -1, 1, 0)
+    assert recipe.wrapper_lst == [ds_source, gate, ds_sense, gate]
+    assert recipe.compliance_lst == [1, 1]
+    assert recipe.measure_kwargs == {
+        "if_combine_gen": True,
+        "special_name": "specialname",
+        "measure_nickname": "nickmea",
+        "vary_loop": True,
+        "wait_before_vary": 5,
+        "source_wait": 0.2,
+    }
+    assert recipe.step_time == 0.1
+    assert recipe.plot is not None
+    assert recipe.plot.init_args == (1, 3, 1)
+    assert recipe.plot.init_kwargs == {"titles": [["B I", "B T", "t B"]]}
+    assert recipe.plot.saving_interval == 3
+    assert recipe.plot.inline_jupyter is False
+    assert recipe.after_prepare is None
+    assert recipe.on_record is None
+    assert recipe.shutdown == ()
+
+
+def test_module_fragments_assemble_rhloop_recipe_without_preset_function():
+    class FakeMeter:
+        pass
+
+    ds_source = FakeMeter()
+    ds_sense = FakeMeter()
+    gate = FakeMeter()
+
+    recipe = assemble_recipe(
+        fixed_current_source(
+            1,
+            high=0,
+            low=0,
+            meter=ds_source,
+            compliance=1,
+        ),
+        fixed_voltage_source(
+            2,
+            high=0,
+            low=0,
+            meter=gate,
+            compliance=1,
+        ),
+        voltage_sense(high=0, low=0, meter=ds_sense),
+        current_sense(high=0, low=0, meter=gate),
+        vary_magnetic_field(start=-1, stop=1),
+        fixed_temperature(0),
+        options=RecipeOptions(
+            if_combine_gen=True,
+            special_name="specialname",
+            measure_nickname="nickmea",
+            vary_loop=True,
+            wait_before_vary=5,
+            source_wait=0.2,
+        ),
+        step_time=0.1,
+        plot=rh_loop_plot(saving_interval=3, use_dash=True),
+    )
+
+    assert recipe.measure_mods == (
+        "I_source_fixed_dc",
+        "V_source_fixed_dc",
+        "V_sense_dc",
+        "I_sense_dc",
+        "B_vary",
+        "T_fixed",
+    )
+    assert recipe.args == (1, 0, 0, 2, 0, 0, "", 0, 0, "", 0, 0, -1, 1, 0)
+    assert recipe.wrapper_lst == [ds_source, gate, ds_sense, gate]
+    assert recipe.compliance_lst == [1, 1]
+    assert recipe.measure_kwargs == {
+        "if_combine_gen": True,
+        "special_name": "specialname",
+        "measure_nickname": "nickmea",
+        "vary_loop": True,
+        "wait_before_vary": 5,
+        "source_wait": 0.2,
+    }
+    assert recipe.plot is not None
+    assert recipe.plot.init_args == (1, 3, 1)
+    assert recipe.plot.inline_jupyter is False
+
+
+def test_iv_vi_bvaryt_rhloop_plot_update_uses_float_columns_separately():
+    class FakePlot:
+        def __init__(self):
+            self.updates = []
+
+        def live_plot_update(self, *args, **kwargs):
+            self.updates.append((args, kwargs))
+
+    class FakeMeter:
+        pass
+
+    plot = FakePlot()
+    recipe = build_iv_vi_bvaryt_rhloop_recipe(
+        ids=1,
+        ds_high=0,
+        ds_low=0,
+        ds_meter=FakeMeter(),
+        ds_compliance=1,
+        vg=2,
+        vg_high=0,
+        vg_meter=FakeMeter(),
+        vg_compliance=1,
+        field_start=-1,
+        field_end=1,
+        temperature=0,
+    )
+
+    recipe.plot.update(plot, (0, "src", "gate", 3, "sense", 5, 6))
+
+    assert plot.updates == [
+        (
+            ([0, 0], [0, 1], [0, 0], [5, 5], [3, 6]),
+            {"incremental": True},
+        ),
+        ((0, 2, 0, 0, 5), {"incremental": True}),
+    ]
 
 
 def test_run_recipe_records_rows_from_measure_dict():

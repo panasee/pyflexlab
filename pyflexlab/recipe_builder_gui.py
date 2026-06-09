@@ -35,6 +35,8 @@ CATEGORY_ATTRS: dict[ModuleCategory, str] = {
 # from being confused with plain text, files, or other draggable data.
 MIME_TYPE = "application/x-pyflexlab-module"
 
+LIVE_PLOT_MODULE_IDS = frozenset({"plot.vi_curve", "plot.rh_loop"})
+
 
 def _find_free_local_port() -> int:
     """Reserve a free localhost TCP port for the embedded Dash preview."""
@@ -172,7 +174,7 @@ class GuiRecipeSpec:
 
 def _spec_has_live_plot(spec: GuiRecipeSpec) -> bool:
     """Return whether the GUI spec asks for an active live plot."""
-    return any(module.module_id == "plot.live_xy" for module in spec.plots)
+    return any(module.module_id in LIVE_PLOT_MODULE_IDS for module in spec.plots)
 
 
 class _RecipeDashPreview:
@@ -293,34 +295,34 @@ class _RecipeDashPreview:
 # settled.
 DEFAULT_MODULE_LIBRARY: tuple[ModuleDefinition, ...] = (
     ModuleDefinition(
-        module_id="source.dc_voltage",
-        label="DC Voltage Source",
+        module_id="source.fixed_voltage",
+        label="Fixed Voltage Source",
         category="source",
-        description="Voltage source or sweep provided by a source meter.",
+        description="Fixed DC voltage source provided by a source meter.",
     ),
     ModuleDefinition(
-        module_id="source.dc_current",
-        label="DC Current Source",
+        module_id="source.fixed_current",
+        label="Fixed Current Source",
         category="source",
-        description="Current source or sweep provided by a source meter.",
+        description="Fixed DC or AC current source provided by a source meter.",
     ),
     ModuleDefinition(
-        module_id="source.lockin_sine",
-        label="Lock-in Sine Output",
+        module_id="source.sweep_voltage",
+        label="Sweep Voltage Source",
         category="source",
-        description="AC excitation from a lock-in amplifier sine output.",
+        description="DC or AC voltage sweep provided by a source meter.",
     ),
     ModuleDefinition(
-        module_id="sense.dc_voltage",
-        label="DC Voltage Sense",
+        module_id="sense.voltage",
+        label="Voltage Sense",
         category="sense",
-        description="Voltage readback from a meter or source meter.",
+        description="DC or AC voltage readback from a meter or source meter.",
     ),
     ModuleDefinition(
-        module_id="sense.dc_current",
-        label="DC Current Sense",
+        module_id="sense.current",
+        label="Current Sense",
         category="sense",
-        description="Current readback from a meter or source meter.",
+        description="DC or AC current readback from a meter or source meter.",
     ),
     ModuleDefinition(
         module_id="sense.lockin_xy",
@@ -329,16 +331,22 @@ DEFAULT_MODULE_LIBRARY: tuple[ModuleDefinition, ...] = (
         description="Lock-in demodulated X and Y channels.",
     ),
     ModuleDefinition(
-        module_id="external.magnetic_field",
-        label="Magnetic Field",
+        module_id="external.fixed_magnetic_field",
+        label="Fixed Magnetic Field",
         category="external",
-        description="External magnet or field controller.",
+        description="Fixed external magnet field.",
     ),
     ModuleDefinition(
-        module_id="external.temperature",
-        label="Temperature",
+        module_id="external.vary_magnetic_field",
+        label="Vary Magnetic Field",
         category="external",
-        description="Temperature controller or thermometer channel.",
+        description="External magnet field ramp or loop.",
+    ),
+    ModuleDefinition(
+        module_id="external.fixed_temperature",
+        label="Fixed Temperature",
+        category="external",
+        description="Fixed temperature controller target.",
     ),
     ModuleDefinition(
         module_id="external.rotation",
@@ -347,10 +355,17 @@ DEFAULT_MODULE_LIBRARY: tuple[ModuleDefinition, ...] = (
         description="Probe rotator or angular stage.",
     ),
     ModuleDefinition(
-        module_id="plot.live_xy",
-        label="Live XY Plot",
+        module_id="plot.vi_curve",
+        label="V-I Curve Plot",
         category="plot",
-        description="Live plot view for selected recipe columns.",
+        description="Live V-I curve plot matching vi_curve_plot().",
+        default_parameters={"saving_interval": 7},
+    ),
+    ModuleDefinition(
+        module_id="plot.rh_loop",
+        label="R-H Loop Plot",
+        category="plot",
+        description="Live R-H loop plot matching rh_loop_plot().",
         default_parameters={"saving_interval": 7},
     ),
     ModuleDefinition(
