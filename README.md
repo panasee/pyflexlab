@@ -228,13 +228,14 @@ Installed console scripts:
 ```bash
 gui_measure
 gui_coor_trans
+gui_recipe_builder
 ```
 
 GUI surfaces:
 
 - 🔬 `gui_measure`: main PyFlexLab measurement studio
 - 🧭 `gui_coor_trans`: coordinate transformation helper for sample navigation
-- 🧩 `pyflexlab.recipe_builder_gui`: experimental recipe-spec builder with
+- 🧩 `gui_recipe_builder`: experimental recipe-spec builder with
   module drag/drop, parameter editing, ordering inside source/sense/external/plot
   boxes, JSON preview, and optional Dash preview
 

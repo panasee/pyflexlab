@@ -35,6 +35,7 @@ logger = get_logger(__name__)
 
 RecordTuple = tuple[Any, ...]  # actual measured values tuple from the whole generator
 PlotUpdate = Callable[[DataManipulator, RecordTuple], None]
+PlotGetter = Callable[[], Any]
 RecordHook = Callable[[RecordTuple], None]
 MeasureHook = Callable[[RecordTuple], None]
 PrepareHook = Callable[[dict[str, Any]], None]
@@ -82,6 +83,8 @@ class PlotRecipe:
     init_kwargs: dict[str, Any] = field(default_factory=dict)
 
     update: PlotUpdate = default_time_update
+    # Values appended only for plot.update; they are not recorded to CSV.
+    extra_getters: Sequence[PlotGetter] = ()
     saving_interval: float = 7
     inline_jupyter: Optional[bool] = None
 
@@ -187,7 +190,8 @@ class MeasureFlow(LegacyMeasureFlow):
                     and recipe.plot is not None
                     and recipe.plot.update is not None
                 ):
-                    recipe.plot.update(plotobj, record_tuple)
+                    plot_records = self._with_plot_getters(record_tuple, recipe.plot)
+                    recipe.plot.update(plotobj, plot_records)
                 elapsed = time.perf_counter() - t0
                 if recipe.step_time > 0:
                     time.sleep(max(0, recipe.step_time - elapsed))
@@ -216,6 +220,14 @@ class MeasureFlow(LegacyMeasureFlow):
             # here can add steps for execution during measurement
             on_measure(record_tuple)
             yield record_tuple
+
+    @staticmethod
+    def _with_plot_getters(
+        record_tuple: RecordTuple, plotrec: PlotRecipe
+    ) -> RecordTuple:
+        if not plotrec.extra_getters:
+            return record_tuple
+        return (*record_tuple, *(getter() for getter in plotrec.extra_getters))
 
     def _init_recipe_plot(
         self, plotrec: Optional[PlotRecipe], mea_dict: dict[str, Any]

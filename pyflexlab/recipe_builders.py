@@ -11,6 +11,7 @@ from pyflexlab.equip_wrapper import Meter
 from pyflexlab.measure_flow import (
     MeasurementRecipe,
     MeasureHook,
+    PlotGetter,
     PlotRecipe,
     PrepareHook,
     RecordHook,
@@ -429,6 +430,7 @@ class PlotModules:
         saving_interval: float = 7,
         plotobj: Optional[DataManipulator] = None,
         use_dash: bool = False,
+        extra_getters: Sequence[PlotGetter] = (),
         init_kwargs: dict[str, Any] | None = None,
         update_kwargs: dict[str, Any] | None = None,
     ) -> PlotRecipe:
@@ -452,6 +454,7 @@ class PlotModules:
             init_args=init_args,
             init_kwargs=plot_init_kwargs,
             update=PlotModules._build_update(series, update_kwargs=update_kwargs),
+            extra_getters=extra_getters,
             saving_interval=saving_interval,
             inline_jupyter=not use_dash,
         )

@@ -1,0 +1,70 @@
+from pyflexlab.measure_flow import MeasurementRecipe, MeasureFlow, PlotRecipe
+from pyflexlab.recipe_builders import PlotModules, PlotSeries
+
+
+class FakePlot:
+    def stop_saving(self) -> None:
+        pass
+
+
+class RecordingFlow(MeasureFlow):
+    def __init__(self) -> None:
+        self.recorded = []
+
+    def prepare_recipe(self, recipe: MeasurementRecipe) -> dict:
+        return {
+            "gen_lst": iter(((1, 2), (3, 4))),
+            "file_path": "unused.csv",
+            "plot_record_path": "unused.png",
+            "record_num": 2,
+            "vary_mod": [],
+        }
+
+    def record_update(self, file_path, record_num, record_tuple, **kwargs) -> None:
+        assert len(record_tuple) == record_num
+        self.recorded.append(record_tuple)
+
+    def _init_recipe_plot(self, plotrec: PlotRecipe | None, mea_dict: dict):
+        return FakePlot()
+
+
+def test_plot_getters_extend_plot_records_without_recording():
+    flow = RecordingFlow()
+    getter_values = iter((99, 100))
+    seen_by_record = []
+    seen_by_plot = []
+
+    def on_record(records):
+        seen_by_record.append(records)
+
+    def update(plotobj, records):
+        seen_by_plot.append(records)
+
+    recipe = MeasurementRecipe(
+        measure_mods=("I_source_sweep_dc", "V_sense_dc"),
+        plot=PlotRecipe(
+            update=update,
+            extra_getters=(lambda: next(getter_values),),
+        ),
+        on_record=on_record,
+    )
+
+    flow.run_recipe(recipe)
+
+    assert flow.recorded == [(1, 2), (3, 4)]
+    assert seen_by_record == [(1, 2), (3, 4)]
+    assert seen_by_plot == [(1, 2, 99), (3, 4, 100)]
+
+
+def test_mapped_plot_accepts_extra_getters():
+    getter = lambda: 99
+
+    plot = PlotModules.mapped_plot(
+        init_args=(1, 1, 1),
+        series=(
+            PlotSeries(row=0, col=0, line=0, x_col=0, y_col=2),
+        ),
+        extra_getters=(getter,),
+    )
+
+    assert plot.extra_getters == (getter,)

@@ -26,6 +26,7 @@ class SimMeter(ACSourceMeter, DCSourceMeter):
         self.safe_step = {"curr": 2e-3, "volt": 1e-1}
         self._source_range = 1
         self.sense_range = {"curr": 1, "volt": 1}
+        self.comp = 1
 
     @property
     def sense_range_curr(self):
@@ -86,7 +87,7 @@ class SimMeter(ACSourceMeter, DCSourceMeter):
 
     def sense(self, type_str: Literal["curr"] | Literal["volt"]) -> float:
         if self.info_dict["ac_dc"] == "dc":
-            return np.random.randn()
+            return np.clip(np.random.randn(),-self.comp, self.comp)
         else:
             x = np.random.randn()
             y = np.random.randn()
@@ -102,6 +103,7 @@ class SimMeter(ACSourceMeter, DCSourceMeter):
         type_str: Literal["curr"] | Literal["volt"],
         alter_range: bool = False,
     ) -> float:
+        self.comp = abs(convert_unit(compliance,"")[0])
         if freq is not None and self.info_dict["ac_dc"] == "dc":
             raise ValueError("freq should be None for dc output")
         elif freq is None and self.info_dict["ac_dc"] == "ac":

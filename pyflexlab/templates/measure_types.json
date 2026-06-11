@@ -12,6 +12,9 @@
             "sweep": {
                 "dc": "Vmax{maxv}V-step{stepv}V-{vhigh}-{vlow}-swpmode{mode}",
                 "ac": "Vmax{maxv}V-step{stepv}V-freq{freq}Hz-{vhigh}-{vlow}-swpmode{mode}"
+            },
+            "biased":{
+                "ac": "Vac{fixv}V-freq{freq}Hz-Vdcmax{maxv}V-step{stepv}V-{vhigh}-{vlow}-swpmode{mode}"
             }
         }
     },
@@ -28,6 +31,9 @@
             "sweep": {
                 "dc": "Imax{maxi}A-step{stepi}A-{iin}-{iout}-swpmode{mode}",
                 "ac": "Imax{maxi}A-step{stepi}A-freq{freq}Hz-{iin}-{iout}-swpmode{mode}"
+            },
+            "biased":{
+                "ac": "Iac{fixi}A-freq{freq}Hz-Idcmax{maxi}A-step{stepi}A-{ihigh}-{ilow}-swpmode{mode}"
             }
         }
     },
