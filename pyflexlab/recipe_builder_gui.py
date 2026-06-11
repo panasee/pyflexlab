@@ -122,6 +122,21 @@ class ModuleInstance:
             "parameters": self.parameters,
         }
 
+    def with_parameters(self, parameters: dict[str, Any]) -> "ModuleInstance":
+        """Return a copy with edited parameters."""
+        return ModuleInstance(
+            module_id=self.module_id,
+            label=self.label,
+            category=self.category,
+            parameters=dict(parameters),
+        )
+
+    def display_label(self) -> str:
+        """Compact label for list widgets that hints when parameters are set."""
+        if not self.parameters:
+            return self.label
+        return f"{self.label}  {json.dumps(self.parameters, sort_keys=True)}"
+
 
 @dataclass(slots=True)
 class GuiRecipeSpec:
@@ -171,10 +186,38 @@ class GuiRecipeSpec:
         """Pretty-print the current spec for the right-side preview panel."""
         return json.dumps(self.to_dict(), indent=2, sort_keys=True)
 
+    def _modules_for_category(self, category: ModuleCategory) -> list[ModuleInstance]:
+        return getattr(self, CATEGORY_ATTRS[category])
+
+    def move_module(
+        self, category: ModuleCategory, from_index: int, to_index: int
+    ) -> None:
+        """Move one module within its category list while preserving category order."""
+        modules = self._modules_for_category(category)
+        if from_index == to_index:
+            return
+        module = modules.pop(from_index)
+        modules.insert(to_index, module)
+
+    def update_module_parameters(
+        self, category: ModuleCategory, index: int, parameters: dict[str, Any]
+    ) -> None:
+        """Update one dropped module's editable parameter dict."""
+        modules = self._modules_for_category(category)
+        modules[index] = modules[index].with_parameters(parameters)
+
 
 def _spec_has_live_plot(spec: GuiRecipeSpec) -> bool:
     """Return whether the GUI spec asks for an active live plot."""
     return any(module.module_id in LIVE_PLOT_MODULE_IDS for module in spec.plots)
+
+
+def _parse_parameters_json(raw: str) -> dict[str, Any]:
+    """Parse the parameter editor content and require a JSON object."""
+    data = json.loads(raw)
+    if not isinstance(data, dict):
+        raise ValueError("parameters JSON must be an object")
+    return data
 
 
 class _RecipeDashPreview:
@@ -299,73 +342,177 @@ DEFAULT_MODULE_LIBRARY: tuple[ModuleDefinition, ...] = (
         label="Fixed Voltage Source",
         category="source",
         description="Fixed DC voltage source provided by a source meter.",
+        default_parameters={
+            "value": 0,
+            "high": 0,
+            "low": 0,
+            "meter": "",
+            "compliance": 1,
+            "freq": None,
+        },
     ),
     ModuleDefinition(
         module_id="source.fixed_current",
         label="Fixed Current Source",
         category="source",
         description="Fixed DC or AC current source provided by a source meter.",
+        default_parameters={
+            "value": 0,
+            "high": 0,
+            "low": 0,
+            "meter": "",
+            "compliance": 1,
+            "freq": None,
+        },
     ),
     ModuleDefinition(
         module_id="source.sweep_voltage",
         label="Sweep Voltage Source",
         category="source",
         description="DC or AC voltage sweep provided by a source meter.",
+        default_parameters={
+            "max_value": 0,
+            "step_value": 0,
+            "high": 0,
+            "low": 0,
+            "sweepmode": "0-max-0",
+            "meter": "",
+            "compliance": 1,
+            "freq": None,
+        },
+    ),
+    ModuleDefinition(
+        module_id="source.sweep_current",
+        label="Sweep Current Source",
+        category="source",
+        description="DC or AC current sweep provided by a source meter.",
+        default_parameters={
+            "max_value": 0,
+            "step_value": 0,
+            "high": 0,
+            "low": 0,
+            "sweepmode": "0-max-0",
+            "meter": "",
+            "compliance": 1,
+            "freq": None,
+        },
     ),
     ModuleDefinition(
         module_id="sense.voltage",
         label="Voltage Sense",
         category="sense",
         description="DC or AC voltage readback from a meter or source meter.",
+        default_parameters={
+            "high": 0,
+            "low": 0,
+            "comment": "",
+            "meter": "",
+            "ac_dc": "dc",
+        },
     ),
     ModuleDefinition(
         module_id="sense.current",
         label="Current Sense",
         category="sense",
         description="DC or AC current readback from a meter or source meter.",
-    ),
-    ModuleDefinition(
-        module_id="sense.lockin_xy",
-        label="Lock-in X/Y Sense",
-        category="sense",
-        description="Lock-in demodulated X and Y channels.",
+        default_parameters={
+            "high": 0,
+            "low": 0,
+            "comment": "",
+            "meter": "",
+            "ac_dc": "dc",
+        },
     ),
     ModuleDefinition(
         module_id="external.fixed_magnetic_field",
         label="Fixed Magnetic Field",
         category="external",
         description="Fixed external magnet field.",
+        default_parameters={"value": 0},
     ),
     ModuleDefinition(
         module_id="external.vary_magnetic_field",
         label="Vary Magnetic Field",
         category="external",
         description="External magnet field ramp or loop.",
+        default_parameters={"start": 0, "stop": 0},
+    ),
+    ModuleDefinition(
+        module_id="external.sweep_magnetic_field",
+        label="Sweep Magnetic Field",
+        category="external",
+        description="External magnet field sweep.",
+        default_parameters={
+            "start": 0,
+            "stop": 0,
+            "step": 0,
+            "sweepmode": "0-max-0",
+        },
     ),
     ModuleDefinition(
         module_id="external.fixed_temperature",
         label="Fixed Temperature",
         category="external",
         description="Fixed temperature controller target.",
+        default_parameters={"value": 0},
     ),
     ModuleDefinition(
-        module_id="external.rotation",
-        label="Rotation Angle",
+        module_id="external.vary_temperature",
+        label="Vary Temperature",
         category="external",
-        description="Probe rotator or angular stage.",
+        description="Temperature controller vary range.",
+        default_parameters={"start": 0, "stop": 0},
+    ),
+    ModuleDefinition(
+        module_id="external.sweep_temperature",
+        label="Sweep Temperature",
+        category="external",
+        description="Temperature controller sweep.",
+        default_parameters={
+            "start": 0,
+            "stop": 0,
+            "step": 0,
+            "sweepmode": "0-max-0",
+        },
+    ),
+    ModuleDefinition(
+        module_id="external.fixed_angle",
+        label="Fixed Angle",
+        category="external",
+        description="Fixed rotator angle.",
+        default_parameters={"value": 0},
+    ),
+    ModuleDefinition(
+        module_id="external.vary_angle",
+        label="Vary Angle",
+        category="external",
+        description="Rotator angle vary range.",
+        default_parameters={"start": 0, "stop": 0},
+    ),
+    ModuleDefinition(
+        module_id="external.sweep_angle",
+        label="Sweep Angle",
+        category="external",
+        description="Rotator angle sweep.",
+        default_parameters={
+            "start": 0,
+            "stop": 0,
+            "step": 0,
+            "sweepmode": "0-max-0",
+        },
     ),
     ModuleDefinition(
         module_id="plot.vi_curve",
         label="V-I Curve Plot",
         category="plot",
-        description="Live V-I curve plot matching vi_curve_plot().",
+        description="Live V-I curve plot using mapped PlotSeries columns.",
         default_parameters={"saving_interval": 7},
     ),
     ModuleDefinition(
         module_id="plot.rh_loop",
         label="R-H Loop Plot",
         category="plot",
-        description="Live R-H loop plot matching rh_loop_plot().",
+        description="Live R-H loop plot using mapped PlotSeries columns.",
         default_parameters={"saving_interval": 7},
     ),
     ModuleDefinition(
@@ -481,7 +628,10 @@ def launch(
             # should not know about the preview widget directly.
             self._on_changed = on_changed
             self.setAcceptDrops(True)
-            self.setDragDropMode(QtWidgets.QAbstractItemView.DragDropMode.DropOnly)
+            self.setDragEnabled(True)
+            self.setDragDropMode(QtWidgets.QAbstractItemView.DragDropMode.DragDrop)
+            self.setDefaultDropAction(QtCore.Qt.DropAction.MoveAction)
+            self.setDropIndicatorShown(True)
             self.setSelectionMode(
                 QtWidgets.QAbstractItemView.SelectionMode.SingleSelection
             )
@@ -497,7 +647,8 @@ def launch(
         def dropEvent(self, event: Any) -> None:
             """Convert an accepted module definition into a module instance."""
             if not event.mimeData().hasFormat(MIME_TYPE):
-                event.ignore()
+                super().dropEvent(event)
+                self._on_changed()
                 return
 
             definition = _module_definition_from_json(
@@ -519,9 +670,67 @@ def launch(
 
         def add_module(self, module: ModuleInstance) -> None:
             """Add a dropped/loaded instance to this visual box."""
-            item = QtWidgets.QListWidgetItem(module.label)
+            item = QtWidgets.QListWidgetItem(module.display_label())
             item.setData(QtCore.Qt.ItemDataRole.UserRole, module.to_dict())
             self.addItem(item)
+
+        def edit_selected(self) -> None:
+            """Edit the selected module parameters as a JSON object."""
+            selected_items = self.selectedItems()
+            if not selected_items:
+                return
+
+            item = selected_items[0]
+            module = ModuleInstance.from_dict(
+                item.data(QtCore.Qt.ItemDataRole.UserRole)
+            )
+            dialog = QtWidgets.QDialog(self)
+            dialog.setWindowTitle(f"Edit {module.label} Parameters")
+            layout = QtWidgets.QVBoxLayout(dialog)
+            editor = QtWidgets.QPlainTextEdit()
+            editor.setPlainText(json.dumps(module.parameters, indent=2, sort_keys=True))
+            editor.setFont(QtGui.QFont("Consolas", 10))
+            layout.addWidget(editor)
+
+            buttons = QtWidgets.QDialogButtonBox(
+                QtWidgets.QDialogButtonBox.StandardButton.Ok
+                | QtWidgets.QDialogButtonBox.StandardButton.Cancel
+            )
+            buttons.accepted.connect(dialog.accept)
+            buttons.rejected.connect(dialog.reject)
+            layout.addWidget(buttons)
+
+            if dialog.exec() != QtWidgets.QDialog.DialogCode.Accepted:
+                return
+            try:
+                parameters = _parse_parameters_json(editor.toPlainText())
+            except (json.JSONDecodeError, ValueError) as exc:
+                QtWidgets.QMessageBox.warning(
+                    self,
+                    "Invalid parameters",
+                    str(exc),
+                )
+                return
+
+            edited_module = module.with_parameters(parameters)
+            item.setText(edited_module.display_label())
+            item.setData(QtCore.Qt.ItemDataRole.UserRole, edited_module.to_dict())
+            self._on_changed()
+
+        def move_selected(self, delta: int) -> None:
+            """Move selected module up or down within this category box."""
+            selected_items = self.selectedItems()
+            if not selected_items:
+                return
+            item = selected_items[0]
+            row = self.row(item)
+            new_row = row + delta
+            if new_row < 0 or new_row >= self.count():
+                return
+            moved_item = self.takeItem(row)
+            self.insertItem(new_row, moved_item)
+            self.setCurrentItem(moved_item)
+            self._on_changed()
 
         def remove_selected(self) -> None:
             """Remove selected dropped modules and refresh the preview."""
@@ -549,7 +758,10 @@ def launch(
             from dropping source modules into sense/external/plot boxes.
             """
             if not event.mimeData().hasFormat(MIME_TYPE):
-                event.ignore()
+                if event.source() is self:
+                    event.acceptProposedAction()
+                else:
+                    event.ignore()
                 return
             definition = _module_definition_from_json(
                 bytes(event.mimeData().data(MIME_TYPE))
@@ -595,16 +807,35 @@ def launch(
                 )
             ):
                 # Four independent category boxes.  There is no ordering or graph
-                # semantics between boxes in this prototype.
+                # semantics between boxes in this prototype, but the item order
+                # inside each box is the get_measure_dict order for that category.
                 group = QtWidgets.QGroupBox(title)
                 layout = QtWidgets.QVBoxLayout(group)
                 drop_list = ModuleDropList(category, self._refresh_preview)
                 self._drop_lists[category] = drop_list
                 layout.addWidget(drop_list)
 
-                remove_button = QtWidgets.QPushButton("Remove Selected")
+                button_layout = QtWidgets.QHBoxLayout()
+                edit_button = QtWidgets.QPushButton("Edit Parameters")
+                edit_button.clicked.connect(drop_list.edit_selected)
+                button_layout.addWidget(edit_button)
+
+                up_button = QtWidgets.QPushButton("Move Up")
+                up_button.clicked.connect(
+                    lambda _, item_list=drop_list: item_list.move_selected(-1)
+                )
+                button_layout.addWidget(up_button)
+
+                down_button = QtWidgets.QPushButton("Move Down")
+                down_button.clicked.connect(
+                    lambda _, item_list=drop_list: item_list.move_selected(1)
+                )
+                button_layout.addWidget(down_button)
+
+                remove_button = QtWidgets.QPushButton("Remove")
                 remove_button.clicked.connect(drop_list.remove_selected)
-                layout.addWidget(remove_button)
+                button_layout.addWidget(remove_button)
+                layout.addLayout(button_layout)
 
                 boxes_layout.addWidget(group, index // 2, index % 2)
             root_layout.addWidget(boxes_widget, 2)

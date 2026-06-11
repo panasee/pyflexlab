@@ -2,124 +2,304 @@
 
 <div align="center">
 
-[![Python 3.11+](https://img.shields.io/badge/python-3.11+-blue.svg)](https://www.python.org/downloads/)
-[![PyMeasure](https://img.shields.io/badge/PyMeasure-0.14.0+-orange.svg)](https://github.com/pymeasure/pymeasure)
-[![QCoDeS](https://img.shields.io/badge/QCoDeS-0.47.0+-green.svg)](https://github.com/microsoft/Qcodes)
+[![Version](https://img.shields.io/badge/version-2.0-blue.svg)](pyproject.toml)
+[![Python](https://img.shields.io/badge/python-3.12%2B-blue.svg)](https://www.python.org/downloads/)
+[![PyMeasure](https://img.shields.io/badge/PyMeasure-0.14.0%2B-orange.svg)](https://github.com/pymeasure/pymeasure)
+[![QCoDeS](https://img.shields.io/badge/QCoDeS-0.47.0%2B-green.svg)](https://github.com/microsoft/Qcodes)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
-**An integrated package for scientific data collection, processing, and visualization**
+**Flexible laboratory measurement workflows for instrument control, recording, and live visualization**
 
 </div>
 
-**pyflexlab** is an integrated package based on [PyMeasure](https://github.com/pymeasure/pymeasure) and [QCoDeS](https://github.com/microsoft/Qcodes),
-designed for collecting, processing, and plotting experimental data.
+PyFlexLab is a laboratory measurement package for flexible instrument control,
+data recording, live plotting, and post-processing. It wraps PyMeasure/QCoDeS
+drivers behind local workflow utilities, while keeping enough low-level control
+for custom condensed-matter and cryogenic measurement scripts.
 
-> **Why pyflexlab instead of QCoDeS/PyMeasure?**  While QCoDeS/PyMeasure provides excellent out-of-box experience for experiments, pyflexlab offers a more flexible, lower-level interface that enables direct control over instruments, as if sitting right beside them. This approach allows researchers to implement highly customized experimental workflows. *More to mention, the drivers of QCoDeS or PyMeasure alone are not complete. It's often the case one needs to assemble different versions of drivers.*
+> **Why PyFlexLab instead of plain QCoDeS/PyMeasure?** PyFlexLab keeps the
+> direct-control feel of low-level instrument work, while adding local
+> conventions for file organization, measurement recipes, live plotting, and
+> workflow templates.
 
-> **Brief Summary of What it does:** Utilize the basic interface of PyMeasure & QCoDeS to manipulate instruments and encapsulate similar instruments with unified interface, thus providing basic modules for measurement workflow.
+---
 
-## 📋 Table of Contents
+## 📋 Table Of Contents
 
-- [🚀 Installation](#-installation)
 - [✨ Key Features](#-key-features)
-- [📖 Usage](#-usage)
-    - [Set Environmental Variables](#set-environmental-variables)
-    - [Configure Local Setting Files](#configure-local-setting-files)
-    - [Start Measurement](#start-measurement)
-    - [Provided GUIs](#provided-guis)
+- [🧭 What's New In 2.0](#-whats-new-in-20)
+- [🚀 Installation](#-installation)
+- [⚙️ Environment Setup](#️-environment-setup)
+- [📖 Measurement Workflows](#-measurement-workflows)
+  - [Recipe Runner](#recipe-runner)
+  - [Modular Builders](#modular-builders)
+  - [Direct Recipes](#direct-recipes)
+- [🖥️ GUIs](#️-guis)
+- [🗂️ Data And Templates](#️-data-and-templates)
 - [🔌 Supported Instruments](#-supported-instruments)
-- [⚠️ Known Issues](#️-known-issues)
-- [📦 Dependencies](#-dependencies)
+- [⚠️ Known Notes](#️-known-notes)
+- [🧪 Development Checks](#-development-checks)
 
 ## ✨ Key Features
-- 🔧 **Flexible Architecture**: Lower-level interface and modularized components, enabling flexible composition of complex functionalities
-- 🎛️ **Unified Control**: Seamless interface for instruments control
-- 💾 **Automatic File Organization**: Structured data storage with automatic file organization
-- 📊 **Live Visualization**: Real-time visualization and data recording (Jupyter / Dash web interface)
-- 📈 **Data Analysis**: Comprehensive tools for data analysis and processing
+
+- 🔧 **Recipe-based measurement flow**: describe measurement structure with
+  `MeasurementRecipe`, then execute through `MeasureFlow.run_recipe()`.
+- 🧩 **Modular builders**: compose source, sense, external-control, and plot
+  fragments through `RecipeBuilder` and `MeasureModules`.
+- 📊 **Live visualization**: use Jupyter inline plotting for short runs or Dash
+  plotting for longer measurements.
+- 💾 **Structured data storage**: organize local templates and output records
+  through `PYLAB_DB_LOCAL` and `PYLAB_DB_OUT`.
+- 🖥️ **GUI tooling**: launch the main measurement GUI, coordinate-transform GUI,
+  or experimental recipe-spec builder.
+- 🔌 **Driver bridge**: combine PyMeasure/QCoDeS drivers with lab-specific
+  wrappers under a unified local workflow.
+
+## 🧭 What's New In 2.0
+
+Version 2.0 marks the first recipe-based measurement workflow in this project.
+Legacy `MeasureFlow.measure_*_legacy` methods are still available, but new
+workflows should prefer:
+
+- `MeasurementRecipe` and `PlotRecipe` from `pyflexlab.measure_flow`
+- `MeasureFlow.run_recipe()` as the common execution boundary
+- `RecipeBuilder`, `RecipeOptions`, `MeasureModules`, and `PlotModules` from
+  `pyflexlab.recipe_builders`
+- `PlotModules.mapped_plot()` with declarative `PlotSeries` column mappings
+- `pyflexlab.recipe_builder_gui` for visual recipe-spec editing
+
+The current template also supports external `T`, `B`, and `Theta` controls in
+fixed, sweep, and vary forms.
 
 ## 🚀 Installation
 
-Ensure you have Python 3.11 or higher installed. Virtual environment is recommended. You can install it through pypi or local package downloaded here (add [gui] option for using GUI):
+Install from a local checkout:
 
 ```bash
-# local package installation
-cd ${PACKAGE_DIR}  # replace with folder path
-python -m pip install . 
-# pypi installation
-python -m pip install pyflexlab 
+python -m pip install .
 ```
 
-## 📖 Usage
+Install with GUI dependencies:
 
-### Set Environmental Variables
+```bash
+python -m pip install ".[gui]"
+```
 
-- `PYLAB_DB_LOCAL`: the path to the local database, storing rarely changing data like `measure_type.json`
-- `PYLAB_DB_OUT`: the path to the out database, storing the main experimental data and records
+Install from PyPI when the package release is available:
 
-(set them via `os.environ` or directly in the system setting, the suffixes of the env vars do not matter, like `PYLAB_DB_OUT` and `PYLAB_DB_OUT_User` are the same. The package will automatically choose the first one found in alphabetic order)
+```bash
+python -m pip install pyflexlab
+```
 
-### Configure Local Setting Files
+## ⚙️ Environment Setup
 
-`measure_types.json` is used for automatically naming data files. This highly depends on personal preferences and research needs. A template is provided. 
-`assist_measure.ipynb` and `assist_post.ipynb` are jupyter notebook files used for convenience of measurements. The program will automatically retrieve them from local database path and paste them to the measurement directory.
+PyFlexLab uses two database roots:
 
-These files should be placed in the local database directory specified by [PYLAB_DB_LOCAL](#set-environmental-variables).
+- `PYLAB_DB_LOCAL`: local templates and relatively stable configuration files
+- `PYLAB_DB_OUT`: measurement output, project folders, records, and generated data
 
-Also, templates for them are provided with the package, run follow command to initialize the local database folder:
+The package also accepts suffixed variants such as `PYLAB_DB_OUT_USER`; when
+multiple matching variables exist, the first one in alphabetical order is used.
+For fully explicit paths, set both `PYLAB_LOCAL_SPECIFIC` and
+`PYLAB_OUT_SPECIFIC` before importing `pyflexlab`.
+
+Initialize template files into the local database:
+
 ```python
 import pyflexlab
+
 pyflexlab.initialize_with_templates()
 ```
 
-### Start Measurement
+This seeds files such as `measure_types.json`, `assist_measure.ipynb`, and
+`assist_post.ipynb`. Existing local files are not overwritten.
 
-Detailed examples of a few typical measurements have been demonstrated in `assist_measure.ipynb`. But just as the reason why this package exists, the measurement workflow can be easily established via basic python knowledge and understanding of instruments.
+## 📖 Measurement Workflows
 
-### Provided GUIs
+### Recipe Runner
 
-- 🔄 **gui-coor-trans**: A GUI for coordinate transformation used to locate objects using two reference points on a flat surface (linear transform solver)
-- 🎨 **gui-pan-color**: A color palette for choosing colors. This function has been migrated to PyOmnix package, which is a dependence of this package. 
+The 2.0 workflow describes a measurement as a `MeasurementRecipe` and executes
+it with `MeasureFlow.run_recipe()`. The runner owns the common measurement
+mechanics:
+
+- call `MeasureManager.get_measure_dict()`
+- iterate measurement generators
+- write records with `record_update()`
+- update optional live plots
+- run hooks
+- shut down requested outputs
+
+Supported hooks are:
+
+- `after_prepare(mea_dict)`
+- `on_measure(record_tuple)`
+- `on_record(record_tuple)`
+- `plot.update(plotobj, record_tuple)`
+- `shutdown` targets
+
+`record_update()` is part of the fixed runner pipeline, not a user hook.
+
+### Modular Builders
+
+`pyflexlab.recipe_builders` provides small module fragments that assemble into a
+`MeasurementRecipe` while preserving the underlying `get_measure_dict()` order:
+sources first, then senses, then external controls.
+
+```python
+from pyflexlab import MeasureFlow
+from pyflexlab.recipe_builders import (
+    MeasureModules,
+    PlotModules,
+    PlotSeries,
+    RecipeBuilder,
+    RecipeOptions,
+)
+
+flow = MeasureFlow("demo")
+flow.load_fakes(2)
+source_meter, sense_meter = flow.instrs["fakes"]
+
+plot = PlotModules.mapped_plot(
+    init_args=(1, 1, 1),
+    titles=[["B I"]],
+    series=[
+        PlotSeries(
+            row=0,
+            col=0,
+            line=0,
+            x_col=3,
+            y_col=1,
+            x_label="B",
+            y_label="I",
+        )
+    ],
+    use_dash=True,
+)
+
+recipe = (
+    RecipeBuilder(
+        options=RecipeOptions(
+            if_combine_gen=True,
+            special_name="demo",
+            vary_loop=True,
+            source_wait=0,
+            wait_before_vary=5,
+        )
+    )
+    .add(
+        MeasureModules.fixed_current_source(
+            1e-6,
+            high=0,
+            low=0,
+            meter=source_meter,
+            compliance=1,
+        )
+    )
+    .add(MeasureModules.voltage_sense(high=0, low=0, meter=sense_meter, ac_dc="dc"))
+    .add(MeasureModules.vary_magnetic_field(start=-1, stop=1))
+    .add(MeasureModules.fixed_temperature(300))
+    .build(step_time=0, plot=plot, shutdown=(source_meter,))
+)
+
+result = flow.run_recipe(recipe)
+print(result["file_path"])
+```
+
+Available builder module groups:
+
+- **Sources**: fixed/sweep current source, fixed/sweep voltage source
+- **Senses**: current sense, voltage sense
+- **External controls**: magnetic field, temperature, and angle as fixed/sweep/vary
+- **Plots**: declarative `PlotSeries` mappings through `PlotModules.mapped_plot()`
+
+For complete runnable examples, see `pyflexlab/templates/assist_measure.ipynb`.
+
+### Direct Recipes
+
+For workflows that need tighter control than the builder provides, construct
+`MeasurementRecipe` and `PlotRecipe` directly from `pyflexlab.measure_flow`.
+This is the stable boundary when porting one legacy `measure_*` method at a
+time.
+
+## 🖥️ GUIs
+
+Installed console scripts:
+
+```bash
+gui_measure
+gui_coor_trans
+```
+
+GUI surfaces:
+
+- 🔬 `gui_measure`: main PyFlexLab measurement studio
+- 🧭 `gui_coor_trans`: coordinate transformation helper for sample navigation
+- 🧩 `pyflexlab.recipe_builder_gui`: experimental recipe-spec builder with
+  module drag/drop, parameter editing, ordering inside source/sense/external/plot
+  boxes, JSON preview, and optional Dash preview
+
+Launch the recipe builder GUI from Python:
+
+```python
+from pyflexlab.recipe_builder_gui import main
+
+main()
+```
+
+The recipe builder GUI currently edits a structured spec. Translation from that
+spec into real instrument-bound `MeasurementRecipe` objects remains an explicit
+step.
+
+## 🗂️ Data And Templates
+
+`measure_types.json` defines naming and sweep/vary metadata for measurement
+types. The current template supports external `T`, `B`, and `Theta` controls in
+fixed, sweep, and vary forms.
+
+`assist_measure.ipynb` is the primary interactive measurement template. It now
+contains both direct recipe examples and a modular recipe-builder flow.
+
+`assist_post.ipynb` is the post-processing template.
+
+New project creation copies notebooks from the configured local database, so run
+`initialize_with_templates()` after installing or updating the package templates.
 
 ## 🔌 Supported Instruments
 
-Currently supported instruments are listed here (some are directly from or modified from PyMeasure/QCoDeS; others are self-written):
+Supported or wrapped instruments include:
 
-- **Meters**: Keithley 2182a/2400/2401/2450/6221/6430/6500; KeySight b2902b; SR830/860
-- **Temperature Controllers**: Oxford ITC503, Oxford Mercury ITC, LakeShore336
-- **Magnet Controllers**: Oxford IPS
-- **Other Instruments**: Probe Rotator (need C++ interface WJ_API.dll)
+- **Meters and source meters**: Keithley 2182A, 2400, 2401, 2450, 6221, 6430,
+  6500; Keysight B2902B; SR830; SR860
+- **Temperature controllers**: Oxford ITC503, Oxford Mercury ITC, Lake Shore 336
+- **Magnet controllers**: Oxford IPS
+- **Other hardware**: probe rotator and local lab-specific devices
 
-Custom instrument drivers can be easily added referring to the abstract classes in `equip_wrapper.py`.
-Drivers with good universality will be contributed back to PyMeasure or QCoDeS, hopefully.
+Some drivers are adapted from PyMeasure/QCoDeS and some are lab-specific. Add
+new wrappers by following the abstractions under `pyflexlab.equip_wrapper`.
 
-## ⚠️ Known Issues
+## ⚠️ Known Notes
 
-- The memory management of plotly drawing remains a problem for long-time measurement in jupyter inline mode. Use dash mode for long-time measurement.
-- The driver of the rotator is not working properly due to weird interaction between C++ dll and python
-- Currently no keyboard interruption actions implemented, if the measurement is interrupted, the meters would be left in the last state (data is saved in real-time, interruption won't affect data)
+- For long measurements, prefer Dash plotting over inline Jupyter plotting.
+- `measure_flow_old.py` remains as the legacy method collection.
+- New public workflows should be thin wrappers that build recipes and delegate
+  execution to `run_recipe()`.
+- The recipe builder GUI is an editing surface, not yet a full instrument
+  execution front end.
 
-## 📦 Dependencies
+## 🧪 Development Checks
 
-- Python >= 3.11 (earlier version is not tested)
-- Required packages:
-  - numpy
-  - pandas
-  - matplotlib
-  - plotly >= 5.24.1
-  - kaleido >= 1.2.0
-  - pyvisa
-  - pyvisa-py
-  - pymeasure >= 0.14.0
-  - qcodes >= 0.47.0
-  - jupyter
-  - dash
-  - pyomnix
-- Optional packages:
-  - PyQt6
+Useful focused checks during recipe/GUI work:
+
+```bash
+python -m pytest tests/test_recipe_builder_gui.py -q
+python -m py_compile pyflexlab/recipe_builder_gui.py pyflexlab/recipe_builders.py
+```
+
+Use the Python executable from the project environment when working on the local
+Windows checkout.
 
 ---
 
 <div align="center">
-  <sub>Built with ❤️ for science</sub>
+  <sub>Built for flexible lab automation and scientific measurement workflows.</sub>
 </div>

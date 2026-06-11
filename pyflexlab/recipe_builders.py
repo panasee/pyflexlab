@@ -386,6 +386,37 @@ class MeasureModules:
             args=(value,),
         )
 
+    @staticmethod
+    def vary_angle(*, start: float | str, stop: float | str) -> RecipeModule:
+        return RecipeModule(
+            module_id="external.vary_angle",
+            category="external",
+            measure_mod="Theta_vary",
+            args=(start, stop),
+        )
+
+
+    @staticmethod
+    def sweep_angle(
+        *, start: float | str, stop: float | str, step: float | str, 
+        sweepmode: Literal["0-max-0", "0--max-max-0", "min-max", "manual"],
+    ) -> RecipeModule:
+        return RecipeModule(
+            module_id="external.sweep_angle",
+            category="external",
+            measure_mod="Theta_sweep",
+            args=(start, stop, step, sweepmode),
+        )
+
+
+    @staticmethod
+    def fixed_angle(value: float) -> RecipeModule:
+        return RecipeModule(
+            module_id="external.fixed_angle",
+            category="external",
+            measure_mod="Theta_fixed",
+            args=(value,),
+        )
 
 # ===========plot modules=============
 class PlotModules:

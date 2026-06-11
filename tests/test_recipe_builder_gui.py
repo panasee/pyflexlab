@@ -9,6 +9,7 @@ from pyflexlab.recipe_builder_gui import (
     _parse_parameters_json,
     _spec_has_live_plot,
 )
+from pyflexlab.recipe_builders import MeasureModules
 
 
 def test_default_module_library_has_four_gui_boxes():
@@ -77,6 +78,113 @@ def test_gui_library_uses_recipe_builder_module_ids():
         "plot.rh_loop",
         "plot.vi_curve",
     }.issubset(module_ids)
+
+
+def test_gui_library_matches_recipe_builder_measure_module_ids():
+    meter = object()
+    builder_modules = (
+        MeasureModules.fixed_current_source(
+            0, high=0, low=0, meter=meter, compliance=1
+        ),
+        MeasureModules.fixed_voltage_source(
+            0, high=0, low=0, meter=meter, compliance=1
+        ),
+        MeasureModules.sweep_current_source(
+            0, 0, high=0, low=0, sweepmode="0-max-0", meter=meter, compliance=1
+        ),
+        MeasureModules.sweep_voltage_source(
+            0, 0, high=0, low=0, sweepmode="0-max-0", meter=meter, compliance=1
+        ),
+        MeasureModules.voltage_sense(high=0, low=0, meter=meter, ac_dc="dc"),
+        MeasureModules.current_sense(high=0, low=0, meter=meter, ac_dc="dc"),
+        MeasureModules.fixed_magnetic_field(0),
+        MeasureModules.vary_magnetic_field(start=0, stop=0),
+        MeasureModules.sweep_magnetic_field(
+            start=0, stop=0, step=0, sweepmode="0-max-0"
+        ),
+        MeasureModules.fixed_temperature(0),
+        MeasureModules.vary_temperature(start=0, stop=0),
+        MeasureModules.sweep_temperature(
+            start=0, stop=0, step=0, sweepmode="0-max-0"
+        ),
+        MeasureModules.fixed_angle(0),
+        MeasureModules.vary_angle(start=0, stop=0),
+        MeasureModules.sweep_angle(start=0, stop=0, step=0, sweepmode="0-max-0"),
+    )
+    builder_ids = {module.module_id for module in builder_modules}
+    gui_measure_ids = {
+        module.module_id
+        for module in DEFAULT_MODULE_LIBRARY
+        if module.category != "plot"
+    }
+
+    assert gui_measure_ids == builder_ids
+
+
+def test_gui_library_default_parameters_match_builder_factories():
+    default_keys_by_id = {
+        module.module_id: set(module.default_parameters)
+        for module in DEFAULT_MODULE_LIBRARY
+    }
+
+    assert default_keys_by_id["source.fixed_current"] == {
+        "value",
+        "high",
+        "low",
+        "meter",
+        "compliance",
+        "freq",
+    }
+    assert default_keys_by_id["source.fixed_voltage"] == {
+        "value",
+        "high",
+        "low",
+        "meter",
+        "compliance",
+        "freq",
+    }
+    assert default_keys_by_id["source.sweep_current"] == {
+        "max_value",
+        "step_value",
+        "high",
+        "low",
+        "sweepmode",
+        "meter",
+        "compliance",
+        "freq",
+    }
+    assert default_keys_by_id["source.sweep_voltage"] == {
+        "max_value",
+        "step_value",
+        "high",
+        "low",
+        "sweepmode",
+        "meter",
+        "compliance",
+        "freq",
+    }
+    assert default_keys_by_id["sense.voltage"] == {
+        "high",
+        "low",
+        "comment",
+        "meter",
+        "ac_dc",
+    }
+    assert default_keys_by_id["sense.current"] == {
+        "high",
+        "low",
+        "comment",
+        "meter",
+        "ac_dc",
+    }
+    assert default_keys_by_id["external.fixed_angle"] == {"value"}
+    assert default_keys_by_id["external.vary_angle"] == {"start", "stop"}
+    assert default_keys_by_id["external.sweep_angle"] == {
+        "start",
+        "stop",
+        "step",
+        "sweepmode",
+    }
 
 
 def test_recipe_spec_can_reorder_modules_within_a_box():
