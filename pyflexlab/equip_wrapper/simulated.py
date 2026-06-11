@@ -5,8 +5,7 @@ import time
 from . import ACSourceMeter, DCSourceMeter, ITC, Magnet
 from pyomnix.omnix_logger import get_logger
 from pyomnix.utils.math import SWITCH_DICT
-from pyomnix.utils import CacheArray
-from pyomnix.utils import print_progress_bar
+from pyomnix.utils import CacheArray, convert_unit, print_progress_bar
 
 logger = get_logger(__name__)
 
@@ -278,6 +277,7 @@ class SimMag(Magnet):
             wait (bool): whether to wait for the ramping to finish
             tolerance (float): the tolerance of the field (T)
         """
+        field = convert_unit(field, "T")[0]
         if abs(self.field - field) < tolerance:
             return
         if isinstance(rate, (float, int)):

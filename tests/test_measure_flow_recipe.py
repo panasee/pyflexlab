@@ -5,6 +5,8 @@ from pathlib import Path
 from pyflexlab.measure_flow import MeasureFlow, MeasurementRecipe, default_time_update
 from pyflexlab.measure_flow_old import MeasureFlow as LegacyMeasureFlow
 from pyflexlab.recipe_builders import (
+    PlotModules,
+    PlotSeries,
     RecipeOptions,
     assemble_recipe,
     build_iv_vi_bvaryt_rhloop_recipe,
@@ -98,6 +100,44 @@ def test_build_vi_curve_recipe_reuses_legacy_configuration():
     assert source.source_range == 2.0
 
 
+def test_build_vi_curve_recipe_passes_plot_kwargs():
+    class FakeMeter:
+        pass
+
+    class FakePlot:
+        def __init__(self):
+            self.updates = []
+
+        def live_plot_update(self, *args, **kwargs):
+            self.updates.append((args, kwargs))
+
+    source = FakeMeter()
+    sense = FakeMeter()
+
+    recipe = build_vi_curve_recipe(
+        vmax=1.0,
+        vstep=0.1,
+        high=1,
+        low=0,
+        swpmode="0-max-0",
+        meter=[source, sense],
+        compliance=1e-3,
+        if_plot=True,
+        plot_init_kwargs={"webgl": "on", "marker_toggle_threshold": 50000},
+        plot_update_kwargs={"max_points": 1000},
+    )
+
+    assert recipe.plot is not None
+    assert recipe.plot.init_kwargs["webgl"] == "on"
+    assert recipe.plot.init_kwargs["marker_toggle_threshold"] == 50000
+
+    plot = FakePlot()
+    recipe.plot.update(plot, (0, 1, 2))
+    assert plot.updates == [
+        ((0, 0, 0, 1, 2), {"incremental": True, "max_points": 1000}),
+    ]
+
+
 def test_build_vi_curve_recipe_can_disable_plot():
     class FakeMeter:
         pass
@@ -171,7 +211,12 @@ def test_build_iv_vi_bvaryt_rhloop_recipe_uses_named_parameters():
     assert recipe.step_time == 0.1
     assert recipe.plot is not None
     assert recipe.plot.init_args == (1, 3, 1)
-    assert recipe.plot.init_kwargs == {"titles": [["B I", "B T", "t B"]]}
+    assert recipe.plot.init_kwargs["titles"] == [["B I", "B T", "t B"]]
+    assert recipe.plot.init_kwargs["axes_labels"] == [[
+        ["B", "I"],
+        ["B", "T"],
+        ["time", "B"],
+    ]]
     assert recipe.plot.saving_interval == 3
     assert recipe.plot.inline_jupyter is False
     assert recipe.after_prepare is None
@@ -272,11 +317,65 @@ def test_iv_vi_bvaryt_rhloop_plot_update_uses_float_columns_separately():
     recipe.plot.update(plot, (0, "src", "gate", 3, "sense", 5, 6))
 
     assert plot.updates == [
-        (
-            ([0, 0], [0, 1], [0, 0], [5, 5], [3, 6]),
-            {"incremental": True},
-        ),
+        ((0, 0, 0, 5, 3), {"incremental": True}),
+        ((0, 1, 0, 5, 6), {"incremental": True}),
         ((0, 2, 0, 0, 5), {"incremental": True}),
+    ]
+
+
+def test_mapped_plot_uses_column_numbers_and_axis_labels():
+    class FakePlot:
+        def __init__(self):
+            self.updates = []
+
+        def live_plot_update(self, *args, **kwargs):
+            self.updates.append((args, kwargs))
+
+    plot_recipe = PlotModules.mapped_plot(
+        init_args=(1, 2, 1),
+        titles=[["left", "right"]],
+        series=[
+            PlotSeries(row=0, col=0, line=0, x_col=2, y_col=4, x_label="V", y_label="I"),
+            PlotSeries(row=0, col=1, line=0, x_col=5, y_col=6, x_label="B", y_label="T"),
+        ],
+    )
+
+    assert plot_recipe.init_kwargs["axes_labels"] == [[["V", "I"], ["B", "T"]]]
+
+    plot_recipe.update(FakePlot(), (0, 1, 2, 3, 4, 5, 6))
+
+    plot = FakePlot()
+    plot_recipe.update(plot, (0, 1, 2, 3, 4, 5, 6))
+    assert plot.updates == [
+        ((0, 0, 0, 2, 4), {"incremental": True}),
+        ((0, 1, 0, 5, 6), {"incremental": True}),
+    ]
+
+
+def test_mapped_plot_passes_init_and_update_kwargs():
+    class FakePlot:
+        def __init__(self):
+            self.updates = []
+
+        def live_plot_update(self, *args, **kwargs):
+            self.updates.append((args, kwargs))
+
+    plot_recipe = PlotModules.mapped_plot(
+        init_args=(1, 1, 1),
+        series=[
+            PlotSeries(row=0, col=0, line=0, x_col=2, y_col=4, x_label="V", y_label="I"),
+        ],
+        init_kwargs={"webgl": "on"},
+        update_kwargs={"max_points": 25, "with_str": True},
+    )
+
+    assert plot_recipe.init_kwargs["webgl"] == "on"
+    assert plot_recipe.init_kwargs["axes_labels"] == [[["V", "I"]]]
+
+    plot = FakePlot()
+    plot_recipe.update(plot, (0, 1, 2, 3, 4))
+    assert plot.updates == [
+        ((0, 0, 0, 2, 4), {"incremental": True, "max_points": 25, "with_str": True}),
     ]
 
 
