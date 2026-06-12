@@ -165,6 +165,30 @@ def test_biased_source_record_columns_include_ac_and_bias(manager):
     )
 
 
+def test_record_init_appends_extra_columns(manager):
+    file_path, record_num, _ = MeasureManager.record_init(
+        manager,
+        ("V_source_biased_ac", "V_sense_ac"),
+        "10mV",
+        17,
+        "100mV",
+        "10mV",
+        1,
+        0,
+        "0-max-0",
+        "",
+        2,
+        0,
+        extra_columns=("aux",),
+        use_fast_writer=False,
+    )
+
+    assert record_num == 8
+    assert file_path.read_text(encoding="utf-8").splitlines()[0] == (
+        "time,V_ac_source,V_bias,X,Y,R,Theta,aux"
+    )
+
+
 def test_source_biased_apply_sweeps_offset_and_records_ac_and_bias(manager):
     source = FakeBiasedSource()
 

@@ -14,6 +14,7 @@ from pyflexlab.measure_flow import (
     PlotGetter,
     PlotRecipe,
     PrepareHook,
+    RecordGetter,
     RecordHook,
     RecordTuple,
 )
@@ -105,6 +106,8 @@ def assemble_recipe(
     on_measure: Optional[MeasureHook] = None,
     on_record: Optional[RecordHook] = None,
     shutdown: Sequence[Any] = (),
+    extra_record_columns: Sequence[str] = (),
+    extra_record_getters: Sequence[RecordGetter] = (),
 ) -> MeasurementRecipe:
     """Assemble named source/sense/external fragments into a MeasurementRecipe."""
 
@@ -126,6 +129,8 @@ def assemble_recipe(
         on_measure=on_measure,
         on_record=on_record,
         shutdown=shutdown,
+        extra_record_columns=extra_record_columns,
+        extra_record_getters=extra_record_getters
     )
 
 
@@ -149,6 +154,8 @@ class RecipeBuilder:
         on_measure: Optional[MeasureHook] = None,
         on_record: Optional[RecordHook] = None,
         shutdown: Sequence[Any] = (),
+        extra_record_columns: Sequence[str] = (),
+        extra_record_getters: Sequence[RecordGetter] = (),
     ) -> MeasurementRecipe:
         return assemble_recipe(
             *self._modules,
@@ -158,6 +165,8 @@ class RecipeBuilder:
             after_prepare=after_prepare,
             on_measure=on_measure,
             on_record=on_record,
+            extra_record_columns=extra_record_columns,
+            extra_record_getters=extra_record_getters,
             shutdown=shutdown,
         )
 

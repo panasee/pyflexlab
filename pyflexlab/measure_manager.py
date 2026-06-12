@@ -712,6 +712,7 @@ class MeasureManager(FileOrganizer):
         measure_mods: tuple[str],
         *var_tuple: float | str,
         manual_columns: Optional[list[str]] = None,
+        extra_columns: Sequence[str] | None = None,
         return_df: bool = False,
         special_folder: str = "",
         measure_nickname: str = "",
@@ -729,6 +730,7 @@ class MeasureManager(FileOrganizer):
             measure_mods (str): the full name of the measurement (put main source as the first source module term)
             var_tuple (tuple): the variables of the measurement, use "-h" to see the available options
             manual_columns (list[str]): manually appoint the columns (default to None, automatically generate columns)
+            extra_columns (Sequence[str]): columns appended after automatic or manual record columns
             return_df (bool): if the final record dataframe will be returned (default not, and saved as a member)
             special_folder (str): the special folder to store the record file (last subfolder, parents[0])
             with_timer (bool): whether to contain time generator
@@ -801,6 +803,9 @@ class MeasureManager(FileOrganizer):
                     columns_lst.append(name)
 
             columns_lst = rename_duplicates(columns_lst)
+
+        if extra_columns is not None:
+            columns_lst += list(extra_columns)
 
         data_df = pd.DataFrame(columns=columns_lst)
         
@@ -895,6 +900,7 @@ class MeasureManager(FileOrganizer):
         wait_before_vary: int = 7,
         source_wait: float = 0.05,
         manual_record_columns: Optional[list[str]] = None,
+        extra_record_columns: Sequence[str] | None = None,
         appendix_str: str = "",
         allow_large_jump: bool = False,
     ) -> dict:
@@ -932,6 +938,7 @@ class MeasureManager(FileOrganizer):
             wait_before_vary (int): the wait time before varying
             source_wait (float): the wait time after source changes
             manual_record_columns (list[str]): the columns to be manually recorded, used for special measurement
+            extra_record_columns (Sequence[str]): columns appended after automatic or manual record columns
 
         Returns:
             dict: a dictionary containing the list of generators, dataframe csv filepath and record number
@@ -981,6 +988,7 @@ class MeasureManager(FileOrganizer):
                     measure_nickname=measure_nickname,
                     wait_before_vary=wait_before_vary,
                     source_wait=source_wait,
+                    extra_record_columns=extra_record_columns,
                     appendix_str=appendix_str,
                     allow_large_jump=allow_large_jump,
                 )
@@ -1003,6 +1011,7 @@ class MeasureManager(FileOrganizer):
                     measure_nickname=measure_nickname,
                     wait_before_vary=wait_before_vary,
                     source_wait=source_wait,
+                    extra_record_columns=extra_record_columns,
                     appendix_str=appendix_str,
                     allow_large_jump=allow_large_jump,
                 )
@@ -1024,6 +1033,7 @@ class MeasureManager(FileOrganizer):
             special_folder=special_name,
             measure_nickname=measure_nickname,
             manual_columns=manual_record_columns,
+            extra_columns=extra_record_columns,
             with_timer=with_timer,
             appendix_str=appendix_str,
         )

@@ -36,6 +36,7 @@ logger = get_logger(__name__)
 RecordTuple = tuple[Any, ...]  # actual measured values tuple from the whole generator
 PlotUpdate = Callable[[DataManipulator, RecordTuple], None]
 PlotGetter = Callable[[], Any]
+RecordGetter = Callable[[], Any]
 RecordHook = Callable[[RecordTuple], None]
 MeasureHook = Callable[[RecordTuple], None]
 PrepareHook = Callable[[dict[str, Any]], None]
@@ -105,6 +106,8 @@ class MeasurementRecipe:
     compliance_lst: list[Any] = field(default_factory=list)
     measure_kwargs: dict[str, Any] = field(default_factory=dict)
     step_time: float = 0
+    extra_record_columns: Sequence[str] = ()
+    extra_record_getters: Sequence[RecordGetter] = ()
     plot: Optional[PlotRecipe] = None
     on_record: Optional[RecordHook] = None
     on_measure: Optional[MeasureHook] = None
@@ -124,6 +127,7 @@ class MeasureFlow(LegacyMeasureFlow):
     def prepare_recipe(self, recipe: MeasurementRecipe) -> dict[str, Any]:
         """Create the measure dictionary for a recipe."""
         measure_kwargs = dict(recipe.measure_kwargs)
+        self._prepare_record_getters(recipe, measure_kwargs)
         return self.get_measure_dict(
             recipe.measure_mods,
             *recipe.args,
@@ -179,6 +183,7 @@ class MeasureFlow(LegacyMeasureFlow):
                     record_tuple = next(mea_iter)
                 except StopIteration:
                     break
+                record_tuple = self._with_record_getters(record_tuple, recipe)
                 self.record_update(
                     mea_dict["file_path"],
                     mea_dict["record_num"],
@@ -220,6 +225,31 @@ class MeasureFlow(LegacyMeasureFlow):
             # here can add steps for execution during measurement
             on_measure(record_tuple)
             yield record_tuple
+
+    @staticmethod
+    def _prepare_record_getters(
+        recipe: MeasurementRecipe, measure_kwargs: dict[str, Any]
+    ) -> None:
+        """add extra records from recipe to measure_kwargs"""
+        logger.validate(
+            len(recipe.extra_record_columns) == len(recipe.extra_record_getters),
+            "record_columns and record_getters must have the same length",
+        )
+        if not recipe.extra_record_getters:
+            return
+        logger.validate(
+            "extra_record_columns" not in measure_kwargs,
+            "extra_record_columns is managed by MeasurementRecipe.extra_record_columns, not manually",
+        )
+        measure_kwargs["extra_record_columns"] = tuple(recipe.extra_record_columns)
+
+    @staticmethod
+    def _with_record_getters(
+        record_tuple: RecordTuple, recipe: MeasurementRecipe
+    ) -> RecordTuple:
+        if not recipe.extra_record_getters:
+            return record_tuple
+        return (*record_tuple, *(getter() for getter in recipe.extra_record_getters))
 
     @staticmethod
     def _with_plot_getters(
