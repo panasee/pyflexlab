@@ -2,7 +2,7 @@
 
 <div align="center">
 
-[![Version](https://img.shields.io/badge/version-2.0-blue.svg)](pyproject.toml)
+[![Version](https://img.shields.io/badge/version-2.1-blue.svg)](pyproject.toml)
 [![Python](https://img.shields.io/badge/python-3.12%2B-blue.svg)](https://www.python.org/downloads/)
 [![PyMeasure](https://img.shields.io/badge/PyMeasure-0.14.0%2B-orange.svg)](https://github.com/pymeasure/pymeasure)
 [![QCoDeS](https://img.shields.io/badge/QCoDeS-0.47.0%2B-green.svg)](https://github.com/microsoft/Qcodes)
@@ -27,7 +27,7 @@ for custom condensed-matter and cryogenic measurement scripts.
 ## 📋 Table Of Contents
 
 - [✨ Key Features](#-key-features)
-- [🧭 What's New In 2.0](#-whats-new-in-20)
+- [🧭 What's New In 2.1](#-whats-new-in-21)
 - [🚀 Installation](#-installation)
 - [⚙️ Environment Setup](#️-environment-setup)
 - [📖 Measurement Workflows](#-measurement-workflows)
@@ -55,9 +55,9 @@ for custom condensed-matter and cryogenic measurement scripts.
 - 🔌 **Driver bridge**: combine PyMeasure/QCoDeS drivers with lab-specific
   wrappers under a unified local workflow.
 
-## 🧭 What's New In 2.0
+## 🧭 What's New In 2.1
 
-Version 2.0 marks the first recipe-based measurement workflow in this project.
+Version 2.1 marks the first recipe-based measurement workflow in this project.
 Legacy `MeasureFlow.measure_*_legacy` methods are still available, but new
 workflows should prefer:
 
@@ -118,7 +118,7 @@ This seeds files such as `measure_types.json`, `assist_measure.ipynb`, and
 
 ### Recipe Runner
 
-The 2.0 workflow describes a measurement as a `MeasurementRecipe` and executes
+The 2.1 workflow describes a measurement as a `MeasurementRecipe` and executes
 it with `MeasureFlow.run_recipe()`. The runner owns the common measurement
 mechanics:
 

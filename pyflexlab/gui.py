@@ -1127,7 +1127,7 @@ class MeasureFlowGui(QtWidgets.QMainWindow):
         """Show about dialog with application information."""
         about_text = """
         <h2>PyFlexLab Measurement Studio</h2>
-        <p><b>Version:</b> 2.0</p>
+        <p><b>Version:</b> 2.1</p>
         <p><b>Description:</b> A comprehensive GUI for managing and executing measurement workflows.</p>
         <br>
         <p><b>Features:</b></p>
