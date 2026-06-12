@@ -2,8 +2,8 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
-from typing import Any, Literal, Optional, Sequence
+from dataclasses import dataclass, field, fields
+from typing import Any, Callable, Literal, Optional, Sequence
 
 from pyomnix.data_process import DataManipulator
 from pyomnix.omnix_logger import get_logger
@@ -21,6 +21,7 @@ from pyflexlab.measure_flow import (
 logger = get_logger(__name__)
 
 RecipeModuleCategory = Literal["source", "sense", "external"]
+PlotSeriesValue = int | Callable[[RecordTuple], Any]
 
 
 @dataclass(frozen=True, slots=True)
@@ -41,8 +42,8 @@ class PlotSeries:
     row: int
     col: int
     line: int
-    x_col: int
-    y_col: int
+    x_col: PlotSeriesValue
+    y_col: PlotSeriesValue
     x_label: str = ""
     y_label: str = ""
     line_label: str | None = None
@@ -51,33 +52,32 @@ class PlotSeries:
 @dataclass(frozen=True, slots=True)
 class RecipeOptions:
     """Common get_measure_dict options shared by assembled recipes."""
-
-    special_name: str = ""
+    special_name: str | None = None 
     measure_nickname: str | None = None
     if_combine_gen: bool | None = None
+    sweep_tables: list[list[float | str, ...]]| tuple[tuple[float | str, ...]] | None = None
+    no_start_vary: bool | None = None
+    ramp_intervals: list[float] | tuple[float] | None = None
+    vary_criteria: Optional[int | float] = None
+    field_ramp_rate: float | None = None
+    special_mea: Literal["normal", "delta"] | None = None
+    manual_record_columns: Optional[list[str]] = None
+    appendix_str: str | None = None
+    allow_large_jump: bool | None = None
     with_timer: bool | None = None
     vary_loop: bool | None = None
     wait_before_vary: float | None = None
     source_wait: float | None = None
-    appendix_str: str | None = None
-    allow_large_jump: bool | None = None
     extra_measure_kwargs: dict[str, Any] = field(default_factory=dict)
 
     def to_measure_kwargs(self) -> dict[str, Any]:
         """output dataclass to dict for calling"""
         kwargs = dict(self.extra_measure_kwargs)
-        kwargs["special_name"] = self.special_name
-        optional_values = {
-            "measure_nickname": self.measure_nickname,
-            "if_combine_gen": self.if_combine_gen,
-            "with_timer": self.with_timer,
-            "vary_loop": self.vary_loop,
-            "wait_before_vary": self.wait_before_vary,
-            "source_wait": self.source_wait,
-            "appendix_str": self.appendix_str,
-            "allow_large_jump": self.allow_large_jump,
-        }
-        for key, value in optional_values.items():
+        for option_field in fields(self):
+            key = option_field.name
+            if key == "extra_measure_kwargs":
+                continue
+            value = getattr(self, key)
             if value is not None:
                 kwargs[key] = value
         return kwargs
@@ -547,8 +547,13 @@ class PlotModules:
         update_kwargs: dict[str, Any] | None = None,
     ):
         max_col = max(
-            max(item.x_col, item.y_col)
-            for item in series
+            (
+                value
+                for item in series
+                for value in (item.x_col, item.y_col)
+                if isinstance(value, int)
+            ),
+            default=None,
         )
         plot_update_kwargs = dict(update_kwargs or {})
         logger.validate(
@@ -557,19 +562,29 @@ class PlotModules:
         )
 
         def update(plotobj: DataManipulator, records: RecordTuple) -> None:
-            logger.validate(
-                len(records) > max_col,
-                f"plot mapping needs record column {max_col}, got {len(records)} columns",
-            )
+            if max_col is not None:
+                logger.validate(
+                    len(records) > max_col,
+                    f"plot mapping needs record column {max_col}, got {len(records)} columns",
+                )
             for item in series:
                 plotobj.live_plot_update(
                     item.row,
                     item.col,
                     item.line,
-                    records[item.x_col],
-                    records[item.y_col],
+                    PlotModules._resolve_series_value(item.x_col, records),
+                    PlotModules._resolve_series_value(item.y_col, records),
                     incremental=True,
                     **plot_update_kwargs,
                 )
 
         return update
+
+    @staticmethod
+    def _resolve_series_value(
+        value: PlotSeriesValue,
+        records: RecordTuple,
+    ) -> Any:
+        if callable(value):
+            return value(records)
+        return records[value]

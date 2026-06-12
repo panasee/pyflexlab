@@ -12,6 +12,7 @@ import csv
 from functools import wraps
 import json
 import datetime
+from numbers import Integral, Real
 from typing import Literal, Sequence
 from itertools import islice
 import shutil
@@ -372,7 +373,10 @@ class FileOrganizer:
         def remove_trailing_zeros(num):
             if isinstance(num, str):
                 return num
-            s = str(num)
+            if isinstance(num, Real) and not isinstance(num, (bool, Integral)):
+                s = f"{num:.12g}"
+            else:
+                s = str(num)
             return re.sub(r'(\.\d*?)0+\b', r'\1', s).rstrip('.') if '.' in s else s
         for value in var_tuple:
             name_str = re.sub(r"{\w+}", remove_trailing_zeros(value), name_str, count=1)

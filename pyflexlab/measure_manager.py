@@ -1369,6 +1369,9 @@ class MeasureManager(FileOrganizer):
         Args:
             lists (Sequence): the lists to be mapped
             idxs (Sequence): (from 0) the indexes of the lists (the first index corresponds to the first list)
+        Return:
+            A transposed version convenient for appointing to meters,
+            (e.g. [1,2]x[3,4]-->((1,1,2,2),(3,4,3,4)) 
         """
         if idxs is None:
             rearrange_lsts = lists

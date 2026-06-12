@@ -20,6 +20,7 @@ class SimMeter(ACSourceMeter, DCSourceMeter):
                 "voltage": 120,
                 "current": 0,
                 "frequency": None,
+                "offset": None
             },
         }
         self.output_target = 0
@@ -98,27 +99,46 @@ class SimMeter(ACSourceMeter, DCSourceMeter):
         value: float | str,
         *,
         freq: float | str | None = None,
+        offset: float | str | None = None,
         compliance: float | str | None = None,
         fix_range: float | str | None = None,
         type_str: Literal["curr"] | Literal["volt"],
         alter_range: bool = False,
     ) -> float:
         self.comp = abs(convert_unit(compliance,"")[0])
-        if freq is not None and self.info_dict["ac_dc"] == "dc":
-            raise ValueError("freq should be None for dc output")
-        elif freq is None and self.info_dict["ac_dc"] == "ac":
-            raise ValueError("freq should not be None for ac output")
-        if type_str == "curr":
-            self.info_dict["output"]["current"] = value
-            self.info_dict["output"]["frequency"] = freq
-            self.output_target = value
-        elif type_str == "volt":
-            self.info_dict["output"]["voltage"] = value
-            self.info_dict["output"]["frequency"] = freq
-            self.output_target = value
+        value = convert_unit(value, "")[0]
+        if offset is None:
+            if freq is not None and self.info_dict["ac_dc"] == "dc":
+                raise ValueError("freq should be None for dc output")
+            elif freq is None and self.info_dict["ac_dc"] == "ac":
+                raise ValueError("freq should not be None for ac output")
+            if type_str == "curr":
+                self.info_dict["output"]["current"] = value
+                self.info_dict["output"]["frequency"] = freq
+                self.output_target = value
+            elif type_str == "volt":
+                self.info_dict["output"]["voltage"] = value
+                self.info_dict["output"]["frequency"] = freq
+                self.output_target = value
+            else:
+                raise ValueError(f"Invalid type_str: {type_str}")
+            return value
         else:
-            raise ValueError(f"Invalid type_str: {type_str}")
-        return value
+            offset = convert_unit(offset, "")[0]
+            logger.validate(freq is not None, "offset is for biased ac signal, freq must be provided")
+            if type_str == "curr":
+                self.info_dict["output"]["current"] = value
+                self.info_dict["output"]["frequency"] = freq
+                self.info_dict["output"]["offset"] = offset
+                self.output_target = value
+            elif type_str == "volt":
+                self.info_dict["output"]["voltage"] = value
+                self.info_dict["output"]["frequency"] = freq
+                self.info_dict["output"]["offset"] = offset
+                self.output_target = value
+            else:
+                raise ValueError(f"Invalid type_str: {type_str}")
+            return (value, offset)
 
     def rms_output(
         self,
