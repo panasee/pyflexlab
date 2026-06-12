@@ -256,6 +256,31 @@ class MeasureModules:
 
 
     @staticmethod
+    def biased_voltage_source(
+        ac_value: float | str,
+        bias_max: float | str,
+        bias_step: float | str,
+        *,
+        freq: float | str,
+        high: int | str,
+        low: int | str,
+        sweepmode: Literal[
+            "0-max-0", "0--max-max-0", "0-max--max-max-0", "0-max", "manual"
+        ],
+        meter: Meter,
+        compliance: float | str,
+    ) -> RecipeModule:
+        return RecipeModule(
+            module_id="source.biased_voltage",
+            category="source",
+            measure_mod="V_source_biased_ac",
+            args=(ac_value, freq, bias_max, bias_step, high, low, sweepmode),
+            wrapper=meter,
+            compliance=compliance,
+        )
+
+
+    @staticmethod
     def sweep_current_source(
         max_value: float | str,
         step_value: float | str,
@@ -283,6 +308,31 @@ class MeasureModules:
             category="source",
             measure_mod="V_source_sweep_ac",
             args=(max_value, step_value, freq, high, low, sweepmode),
+            wrapper=meter,
+            compliance=compliance,
+        )
+
+
+    @staticmethod
+    def biased_current_source(
+        ac_value: float | str,
+        bias_max: float | str,
+        bias_step: float | str,
+        *,
+        freq: float | str,
+        high: int | str,
+        low: int | str,
+        sweepmode: Literal[
+            "0-max-0", "0--max-max-0", "0-max--max-max-0", "0-max", "manual"
+        ],
+        meter: Meter,
+        compliance: float | str,
+    ) -> RecipeModule:
+        return RecipeModule(
+            module_id="source.biased_current",
+            category="source",
+            measure_mod="I_source_biased_ac",
+            args=(ac_value, freq, bias_max, bias_step, high, low, sweepmode),
             wrapper=meter,
             compliance=compliance,
         )

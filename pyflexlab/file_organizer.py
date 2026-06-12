@@ -335,7 +335,7 @@ class FileOrganizer:
             for var_i in var_list:
                 if var_i in ["ac", "dc"]:
                     mods_detail_dicts_lst[i]["ac_dc"] = var_i
-                elif var_i in ["sweep", "fixed", "vary"]:
+                elif var_i in ["sweep", "fixed", "biased", "vary"]:
                     mods_detail_dicts_lst[i]["sweep_fix"] = var_i
                 elif var_i in ["source", "sense"]:
                     mods_detail_dicts_lst[i]["source_sense"] = var_i

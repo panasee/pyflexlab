@@ -258,6 +258,86 @@ class MeasureManager(FileOrganizer):
             yield value
 
 
+    def source_biased_apply(
+        self,
+        source_type: Literal["volt", "curr", "V", "I"],
+        value: float | str,
+        meter: str | SourceMeter,
+        *,
+        max_value: float | str,
+        step_value: float | str,
+        compliance: float | str,
+        freq: float | str,
+        sweepmode: Optional[
+            Literal["0-max-0", "0--max-max-0", "0-max--max-max-0", "0-max", "manual"]
+        ] = None,
+        sweep_table: Optional[list[float | str, ...]] = None,
+        source_wait: float = 0.1,
+        allow_large_jump: bool = False,
+    ) -> Generator[tuple[float, float], None, None]:
+        """
+        Source a fixed AC value while sweeping the source DC bias/offset.
+        """
+        source_type = source_type.replace("V", "volt").replace("I", "curr")
+        instr = self.extract_meter_info(meter)
+
+        value = convert_unit(value, "")[0]
+        max_value = convert_unit(max_value, "")[0]
+        step_value = convert_unit(step_value, "")[0]
+        if compliance is not None:
+            compliance = convert_unit(compliance, "")[0]
+        if freq is not None:
+            freq = convert_unit(freq, "Hz")[0]
+
+        if sweepmode == "0-max-0":
+            bias_gen = self.sweep_values(
+                0, max_value, step_value, mode="start-end-start"
+            )
+        elif sweepmode == "0--max-max-0":
+            bias_gen = self.sweep_values(
+                -max_value, max_value, step_value, mode="0-start-end-0"
+            )
+        elif sweepmode == "0-max--max-max-0":
+            bias_gen = self.sweep_values(
+                max_value, -max_value, step_value, mode="0-start-end-start-0"
+            )
+        elif sweepmode == "0-max":
+            bias_gen = self.sweep_values(
+                0, max_value, step_value, mode="start-end"
+            )
+        elif sweepmode == "manual":
+            if not allow_large_jump:
+                largest_jump = np.abs(np.diff(sweep_table)).max()
+                if source_type == "volt":
+                    logger.validate(largest_jump < 0.5, f"large jump {largest_jump} in sweep table, if want to force the sweep, set allow_large_jump to True")
+                else:
+                    logger.validate(largest_jump < 0.001, f"large jump {largest_jump} in sweep table, if want to force the sweep, set allow_large_jump to True")
+            bias_gen = (i for i in convert_unit(sweep_table, "")[0])
+        else:
+            raise ValueError(f"sweepmode {sweepmode} not recognized")
+
+        logger.info("Source Meter: %s", instr.meter)
+        logger.info("Source Type: %s", source_type)
+        logger.info("AC/DC: biased ac")
+        logger.info("AC Value: %s %s", value, "A" if source_type == "curr" else "V")
+        logger.info("Bias Max Value: %s %s", max_value, "A" if source_type == "curr" else "V")
+        logger.info("Bias Step Value: %s %s", step_value, "A" if source_type == "curr" else "V")
+        logger.info("Compliance: %s %s", compliance, "V" if source_type == "curr" else "A")
+        logger.info("Freq: %s Hz", freq)
+        logger.info("Bias Sweep Mode: %s", sweepmode)
+
+        for bias_i in bias_gen:
+            instr.uni_output(
+                value,
+                freq=freq,
+                compliance=compliance,
+                type_str=source_type,
+                offset=bias_i,
+            )
+            time.sleep(source_wait)
+            yield value, bias_i
+
+
     def source_sweep_apply(
         self,
         source_type: Literal["volt", "curr", "V", "I"],
@@ -301,7 +381,7 @@ class MeasureManager(FileOrganizer):
             if source_type == "volt":
                 logger.validate(largest_jump < 0.5, f"large jump {largest_jump} in sweep table, if want to force the sweep, set allow_large_jump to True")
             else:
-                logger.validate(largest_jump < 0.01, f"large jump {largest_jump} in sweep table, if want to force the sweep, set allow_large_jump to True")
+                logger.validate(largest_jump < 0.001, f"large jump {largest_jump} in sweep table, if want to force the sweep, set allow_large_jump to True")
 
         if meter == "6221" and source_type == "volt":
             raise ValueError("6221 cannot source voltage")
@@ -341,6 +421,10 @@ class MeasureManager(FileOrganizer):
             elif sweepmode == "0-max--max-max-0":
                 value_gen = self.sweep_values(
                     max_value, -max_value, step_value, mode="0-start-end-start-0"
+                )
+            elif sweepmode == "0-max":
+                value_gen = self.sweep_values(
+                    0, max_value, step_value, mode="start-end"
                 )
             elif sweepmode == "manual":
                 value_gen = (i for i in convert_unit(sweep_table, "")[0])
@@ -702,7 +786,12 @@ class MeasureManager(FileOrganizer):
         else:
             columns_lst = ["time"] if with_timer else []
             for name, detail in zip(list(pure_name_lst), mod_detail_lst):
-                if detail["source_sense"] == "source":
+                if (
+                    detail["source_sense"] == "source"
+                    and detail["sweep_fix"] == "biased"
+                ):
+                    columns_lst += [f"{name}_ac_source", f"{name}_bias"]
+                elif detail["source_sense"] == "source":
                     columns_lst.append(f"{name}_source")
                 elif (
                     detail["source_sense"] == "sense" and detail["ac_dc"] == "ac"
@@ -943,6 +1032,7 @@ class MeasureManager(FileOrganizer):
         # =============assemble the record generators into one list==============
         # note multiple sweeps result in multidimensional mapping
         sweep_idx = []
+        record_col_idx = 1 if with_timer else 0
         vary_mod = []  # T, B, angle
         # source part
         mod_i: Literal["I", "V"]
@@ -976,6 +1066,7 @@ class MeasureManager(FileOrganizer):
                     source_wait=source_wait,
                     ramp_interval=interval,
                 ))
+                record_col_idx += 1
             elif src_mod[mod_i]["sweep_fix"] == "sweep":
                 if src_mod[mod_i]["mode"] == "manual":
                     sweep_table = sweep_tables.pop(0)
@@ -996,7 +1087,30 @@ class MeasureManager(FileOrganizer):
                         allow_large_jump=allow_large_jump,
                     )
                 )
-                sweep_idx.append(idx)
+                sweep_idx.append(record_col_idx)
+                record_col_idx += 1
+            elif src_mod[mod_i]["sweep_fix"] == "biased":
+                if src_mod[mod_i]["mode"] == "manual":
+                    sweep_table = sweep_tables.pop(0)
+                else:
+                    sweep_table = None
+                rec_lst.append(
+                    self.source_biased_apply(
+                        mod_i,
+                        src_mod[mod_i]["fix"],
+                        wrapper_lst[idx],
+                        max_value=src_mod[mod_i]["max"],
+                        step_value=src_mod[mod_i]["step"],
+                        compliance=compliance_lst[idx],
+                        freq=src_mod[mod_i]["freq"],
+                        sweepmode=src_mod[mod_i]["mode"],
+                        sweep_table=sweep_table,
+                        source_wait=source_wait,
+                        allow_large_jump=allow_large_jump,
+                    )
+                )
+                sweep_idx.append(record_col_idx + 1)
+                record_col_idx += 2
         # sense part
         for idx, sense_mod in enumerate(sense_lst):
             if isinstance(wrapper_lst[idx + len(src_lst)], WrapperSR830) and sense_mod["type"] == "curr":
@@ -1012,6 +1126,7 @@ class MeasureManager(FileOrganizer):
             rec_lst.append(
                 self.sense_apply(sense_mod["type"], wrapper_lst[idx + len(src_lst)])
             )
+            record_col_idx += 4 if sense_mod["ac_dc"] == "ac" else 1
         # others part
         for idx, oth_mod in enumerate(oth_lst):
             if oth_mod["sweep_fix"] == "fixed":
@@ -1022,6 +1137,7 @@ class MeasureManager(FileOrganizer):
                 elif oth_mod["name"] == "Theta":
                     self.instrs["rotator"].ramp_angle(oth_mod["fix"], wait=True)
                 rec_lst.append(self.sense_apply(oth_mod["name"]))
+                record_col_idx += 1
             elif oth_mod["sweep_fix"] == "vary":
                 if oth_mod["name"] == "T":
                     vary_mod.append("T")
@@ -1107,6 +1223,7 @@ class MeasureManager(FileOrganizer):
                         wait_before_vary=wait_before_vary,
                     )
                 )
+                record_col_idx += 1
             elif oth_mod["sweep_fix"] == "sweep":
                 if oth_mod["mode"] == "manual":
                     sweep_table = sweep_tables.pop(0)
@@ -1122,14 +1239,13 @@ class MeasureManager(FileOrganizer):
                         sweep_table=sweep_table,
                     )
                 )
-                sweep_idx.append(idx + len(src_lst) + len(sense_lst))
+                sweep_idx.append(record_col_idx)
+                record_col_idx += 1
         if if_combine_gen:
             total_gen = combined_generator_list(rec_lst)
         else:
             total_gen = rec_lst
 
-        if with_timer:
-            sweep_idx = [i + 1 for i in sweep_idx]  # add 1 for the time column
         return {
             "gen_lst": total_gen,
             "swp_idx": sweep_idx,
@@ -1394,7 +1510,7 @@ class MeasureManager(FileOrganizer):
                     src_lst[idx][mod]["freq"] = var_tuple[
                         index_vars + find_positions(vars_lst, "freq")
                     ]
-                if detail["sweep_fix"] == "sweep":
+                if detail["sweep_fix"] in ["sweep", "biased"]:
                     src_lst[idx][mod]["max"] = var_tuple[
                         index_vars + find_positions(vars_lst, "max")
                     ]
@@ -1404,7 +1520,7 @@ class MeasureManager(FileOrganizer):
                     src_lst[idx][mod]["mode"] = var_tuple[
                         index_vars + find_positions(vars_lst, "mode")
                     ]
-                elif detail["sweep_fix"] == "fixed":
+                if detail["sweep_fix"] in ["fixed", "biased"]:
                     src_lst[idx][mod]["fix"] = var_tuple[
                         index_vars + find_positions(vars_lst, "fix")
                     ]
