@@ -54,7 +54,7 @@ class SR860(Instrument):
     INPUT_VOLTAGE_MODE = ['A', 'A-B']
     INPUT_COUPLING = ['AC', 'DC']
     INPUT_SHIELDS = ['Float', 'Ground']
-    INPUT_RANGE = ['1V', '300M', '100M', '30M', '10M']
+    INPUT_RANGE = ['1V', '300M', '100M', '30M', '10M'] # M = mV
     INPUT_GAIN = ['1MEG', '100MEG']
     INPUT_FILTER = ['Off', 'On']
     LIST_PARAMETER = ['i=', '0=Xoutput', '1=Youtput', '2=Routput', 'Thetaoutput', '4=Aux IN1',
@@ -507,6 +507,10 @@ class SR860(Instrument):
     get_noise_bandwidth = Instrument.measurement(
         "ENBW?",
         """Returns the equivalent noise bandwidth, in hertz."""
+    )
+    get_overload_status = Instrument.measurement(
+        "CUROVLDSTAT?",
+        """Returns the overload status"""
     )
     # Display Commands
     front_panel = Instrument.control(

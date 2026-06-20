@@ -314,6 +314,29 @@ class DCSourceMeter(SourceMeter):
         pass
 
 
+class LockinSourceMeter(ACSourceMeter):
+    @property
+    @abstractmethod
+    def input_range_volt(self) -> float:
+        # input range for lock-in, not sensitivity
+        pass
+
+    @input_range_volt.setter
+    @abstractmethod
+    def input_range_volt(self, fix_range: float):
+        pass
+
+    @property
+    @abstractmethod
+    def overload(self) -> bool:
+        pass
+
+    @abstractmethod
+    def warmup_delay(self) -> None:
+        for i in range(3):
+            self.sense_delay("volt")
+            time.sleep(1)
+
 class Wrapper6221(ACSourceMeter, DCSourceMeter):
     """
     Flow:
@@ -862,7 +885,7 @@ class Wrapper6500(Meter):
                 return self.meter.frequency
 
 
-class WrapperSR830(ACSourceMeter):
+class WrapperSR830(LockinSourceMeter):
     def __init__(self, GPIB: str = "GPIB0::8::INSTR", reset=True):
         super().__init__()
         self.meter = SR830(GPIB)
@@ -924,6 +947,21 @@ class WrapperSR830(ACSourceMeter):
     def sense_range_curr(self, fix_range: float):
         logger.warning("confirm if in curr mode")
         self.meter.sensitivity = fix_range
+
+    @property
+    def input_range_volt(self):
+        logger.info("SR830 has no direct input_range setting, check dynamic reserve for input range")
+
+    @input_range_volt.setter
+    def input_range_volt(self, input_range: float):
+        logger.info("SR830 has no direct input_range setting, check dynamic reserve for input range")
+
+    @property
+    def overload(self) -> tuple[bool, bool]:
+        status = int(self.meter.lia_status)
+        input_ovld = bool(status & 1)
+        sense_ovld = bool(status & 4)
+        return input_ovld, sense_ovld
 
     def setup(
         self,
@@ -1256,8 +1294,8 @@ class WrapperSR830Aux(SourceMeter):
             self.output_switch("off")
 
 
-class WrapperSR860(ACSourceMeter):
-    def __init__(self, GPIB: str = "GPIB0::8::INSTR", reset=True):
+class WrapperSR860(LockinSourceMeter):
+    def __init__(self, GPIB: str = "GPIB0::4::INSTR", reset=True):
         super().__init__()
         self.meter = SR860(GPIB)
         self.output_target = 0
@@ -1283,6 +1321,7 @@ class WrapperSR860(ACSourceMeter):
                 "time_constant": self.meter.time_constant,
                 "input_config": self.meter.input_config,
                 "input_coupling": self.meter.input_coupling,
+                "input_range": self.input_range_volt,
                 "input_grounding": self.meter.input_shields,
                 "sine_dc_level": self.meter.sine_dc_level,
                 "sine_dc_mode": self.meter.dcmode,
@@ -1392,6 +1431,32 @@ class WrapperSR860(ACSourceMeter):
     def sense_range_curr(self, fix_range: float):
         logger.warning("confirm if in current mode")
         self.meter.sensitivity = fix_range
+
+    @property
+    def overload(self) -> tuple[bool, bool]:
+        """
+        Return boolean tuple, (if_input_ovld, if_sense_ovld)
+        """
+        input_ovld = (self.meter.get_signal_strength_indicator == 4)
+        # sense ovld only matters when sync-filter is on
+        sense_ovld = (self.meter.sensitivity * 0.9 <= float(self.meter.ask("OUTP? 2").rstrip("\n")))
+        output_channel_ovld = (self.meter.get_overload_status >= 1)
+        return (input_ovld, sense_ovld or output_channel_ovld)
+
+    @property
+    def input_range_volt(self):
+        return convert_unit((self.meter.input_range.rstrip("V")+"V").lower(), "V")[0]
+
+    @input_range_volt.setter
+    def input_range_volt(self, input_range: float | str):
+        range_mv = convert_unit(input_range, "mV")[0]
+        range_lst = {10: "10M", 30: "30M", 100: "100M", 300: "300M", 1000: "1V",}
+        for i in range_lst.keys():
+            if i >= range_mv:
+                self.meter.input_range = range_lst[i]
+                return
+        self.meter.input_range = "1V"
+        logger.warning("Exceeds maximum input range, set to 1V")
 
     def sense(
         self, type_str: Literal["volt", "curr"] = "volt"

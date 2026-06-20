@@ -28,7 +28,7 @@ from functools import wraps
 from pyomnix.data_process import DataManipulator
 from pyomnix.omnix_logger import get_logger
 
-from pyflexlab.equip_wrapper import Meter, SourceMeter
+from pyflexlab.equip_wrapper import Meter, SourceMeter, WrapperSR830, WrapperSR860
 from pyflexlab.measure_flow_old import MeasureFlow as LegacyMeasureFlow
 
 logger = get_logger(__name__)
