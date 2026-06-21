@@ -584,13 +584,14 @@ class Wrapper6221(ACSourceMeter, DCSourceMeter):
         type_str: Literal["curr", "volt"] = "curr",
         fix_range: float | str | None = None,
         alter_range: bool = False,
-        offset: float | str = 0,
+        offset: float | str | None = 0,
     ) -> float:
         # judge if the output exceeds the range first
         # since 6221 use the same source_range for both ac and dc
         # so the range could be treated in this unified method
-        offset = convert_unit(offset, "")[0]
-        if freq is None and offset != 0:
+        if offset is not None:
+            offset = convert_unit(offset, "")[0]
+        if freq is None and offset is not None:
             logger.warning("offset is not supported for dc mode, will be ignored")
 
         if self.mea_mode == "normal":
@@ -655,7 +656,7 @@ class Wrapper6221(ACSourceMeter, DCSourceMeter):
         freq: Optional[float | str] = None,
         compliance: Optional[float | str] = None,
         type_str: Literal["curr"] = "curr",
-        offset: float | str = 0,
+        offset: float | str | None = None,
     ):
         """
         6221 is a current source, so the output is always current
@@ -663,8 +664,9 @@ class Wrapper6221(ACSourceMeter, DCSourceMeter):
         if current config is dc, then call setup to reset to ac default settings
         set config manually before calling this method if special params are needed
         """
-        offset = convert_unit(offset, "")[0]
-        self.meter.waveform_offset = offset
+        if offset is not None:
+            offset = convert_unit(offset, "")[0]
+            self.meter.waveform_offset = offset
         assert type_str == "curr", (
             "6221 is a current source, so the output is always current"
         )
