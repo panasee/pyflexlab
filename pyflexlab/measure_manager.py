@@ -39,6 +39,8 @@ from pyflexlab.equip_wrapper import (
     Wrapper2450,
     Meter,
     SourceMeter,
+    ACSourceMeter,
+    DCSourceMeter,
     WrapperIPS,
     WrapperB2902Bchannel,
     ITCLakeshore,
@@ -223,6 +225,25 @@ class MeasureManager(FileOrganizer):
         )
         self.instrs["itc"] = self.instrs["lakeshore"]
 
+    @staticmethod
+    def _validate_source_mode(
+        meter: SourceMeter,
+        ac_dc: Literal["ac", "dc"],
+    ) -> None:
+        if ac_dc == "ac":
+            is_supported = isinstance(meter, ACSourceMeter)
+        elif ac_dc == "dc":
+            is_supported = isinstance(meter, DCSourceMeter)
+        else:
+            logger.raise_error(f"source mode should be ac or dc, got {ac_dc}", ValueError)
+            return
+
+        if not is_supported:
+            logger.raise_error(
+                f"{meter.__class__.__name__} does not support {ac_dc} source mode",
+                ValueError,
+            )
+
     def source_fixed_apply(self,
                            source_type: Literal["volt", "curr", "V", "I"],
                            value: float | str,
@@ -241,6 +262,7 @@ class MeasureManager(FileOrganizer):
         #        meter.setup(function="sense", sense_type="volt")
         #    elif source_type == "volt":
         #        meter.setup(function="sense", sense_type="curr")
+        self._validate_source_mode(meter, "ac" if freq is not None else "dc")
         if freq is not None:
             freq = convert_unit(freq, "Hz")[0]
         if compliance is not None:
@@ -280,6 +302,7 @@ class MeasureManager(FileOrganizer):
         """
         source_type = source_type.replace("V", "volt").replace("I", "curr")
         instr = self.extract_meter_info(meter)
+        self._validate_source_mode(instr, "ac")
 
         value = convert_unit(value, "")[0]
         max_value = convert_unit(max_value, "")[0]
@@ -388,6 +411,7 @@ class MeasureManager(FileOrganizer):
         # for string meter param, could be like "6430"(call the first meter under the type)
         # or "6430-0"(call the first meter under the type), or "6430-1"(call the second meter under the type)
         instr = self.extract_meter_info(meter)
+        self._validate_source_mode(instr, ac_dc)
 
         # convert values to SI and print info
         max_value = convert_unit(max_value, "")[0]

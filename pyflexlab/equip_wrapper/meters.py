@@ -1129,7 +1129,7 @@ class WrapperSR830(LockinSourceMeter):
             self.output_switch("off")
 
 
-class WrapperSR830Aux(SourceMeter):
+class WrapperSR830Aux(DCSourceMeter):
     """
     Virtual DC voltage source/sense wrapper for one SR830 AUX OUT/IN pair.
 
@@ -1261,6 +1261,23 @@ class WrapperSR830Aux(SourceMeter):
             self.set_aux_output(0)
             self.info_dict["output_status"] = False
 
+    def dc_output(
+        self,
+        value: float | str,
+        *,
+        compliance: float | str,
+        type_str: Literal["curr", "volt"],
+        fix_range: Optional[float | str] = None,
+    ):
+        if type_str not in ["volt", "V"]:
+            logger.raise_error("SR830 AUX OUT can only source voltage", ValueError)
+        if compliance is not None:
+            logger.raise_error("SR830 AUX OUT does not support compliance", ValueError)
+        if fix_range is not None:
+            logger.raise_error("SR830 AUX OUT range is fixed", ValueError)
+        self.info_dict["output_type"] = "volt"
+        return self.set_aux_output(value)
+
     def uni_output(
         self,
         value: float | str,
@@ -1271,19 +1288,17 @@ class WrapperSR830Aux(SourceMeter):
         fix_range: Optional[float | str] = None,
         alter_range: bool = False,
     ) -> float:
-        if type_str not in ["volt", "V"]:
-            logger.raise_error("SR830 AUX OUT can only source voltage", ValueError)
         if freq is not None:
             logger.raise_error(
                 "SR830 AUX OUT is DC only and does not support frequency",
                 ValueError,
             )
-        if compliance is not None:
-            logger.raise_error("SR830 AUX OUT does not support compliance", ValueError)
-        if fix_range is not None:
-            logger.raise_error("SR830 AUX OUT range is fixed", ValueError)
-        self.info_dict["output_type"] = "volt"
-        return self.set_aux_output(value)
+        return self.dc_output(
+            value,
+            compliance=compliance,
+            type_str=type_str,
+            fix_range=fix_range,
+        )
 
     def get_output_status(self) -> tuple[float, float]:
         return self.get_aux_output(), self.output_target
@@ -1355,7 +1370,7 @@ class WrapperSR860(LockinSourceMeter):
         sense_type: Literal["curr", "volt"] = "volt",
     ) -> None:
         """
-        setup the SR830 instruments using pre-stored setups here, this function will not fully reset the instruments,
+        setup the SR860 instruments using pre-stored setups here, this function will not fully reset the instruments,
         only overwrite the specific settings here, other settings will all be reserved
         """
         if reset:
@@ -1571,7 +1586,7 @@ class WrapperSR860(LockinSourceMeter):
             self.output_switch("off")
 
 
-class WrapperSR860Aux(SourceMeter):
+class WrapperSR860Aux(DCSourceMeter):
     """
     Virtual DC voltage source/sense wrapper for one SR830 AUX OUT/IN pair.
 
@@ -1703,6 +1718,23 @@ class WrapperSR860Aux(SourceMeter):
             self.set_aux_output(0)
             self.info_dict["output_status"] = False
 
+    def dc_output(
+        self,
+        value: float | str,
+        *,
+        compliance: float | str,
+        type_str: Literal["curr", "volt"],
+        fix_range: Optional[float | str] = None,
+    ):
+        if type_str not in ["volt", "V"]:
+            logger.raise_error("SR860 AUX OUT can only source voltage", ValueError)
+        if compliance is not None:
+            logger.raise_error("SR860 AUX OUT does not support compliance", ValueError)
+        if fix_range is not None:
+            logger.raise_error("SR860 AUX OUT range is fixed", ValueError)
+        self.info_dict["output_type"] = "volt"
+        return self.set_aux_output(value)
+
     def uni_output(
         self,
         value: float | str,
@@ -1713,19 +1745,17 @@ class WrapperSR860Aux(SourceMeter):
         fix_range: Optional[float | str] = None,
         alter_range: bool = False,
     ) -> float:
-        if type_str not in ["volt", "V"]:
-            logger.raise_error("SR860 AUX OUT can only source voltage", ValueError)
         if freq is not None:
             logger.raise_error(
                 "SR860 AUX OUT is DC only and does not support frequency",
                 ValueError,
             )
-        if compliance is not None:
-            logger.raise_error("SR860 AUX OUT does not support compliance", ValueError)
-        if fix_range is not None:
-            logger.raise_error("SR860 AUX OUT range is fixed", ValueError)
-        self.info_dict["output_type"] = "volt"
-        return self.set_aux_output(value)
+        return self.dc_output(
+            value,
+            compliance=compliance,
+            type_str=type_str,
+            fix_range=fix_range,
+        )
 
     def get_output_status(self) -> tuple[float, float]:
         return self.get_aux_output(), self.output_target
