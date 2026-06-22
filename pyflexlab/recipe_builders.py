@@ -307,7 +307,7 @@ class MeasureModules:
             return RecipeModule(
                 module_id="source.sweep_current",
                 category="source",
-                measure_mod="V_source_sweep_dc",
+                measure_mod="I_source_sweep_dc",
                 args=(max_value, step_value, high, low, sweepmode),
                 wrapper=meter,
                 compliance=compliance,
@@ -315,7 +315,7 @@ class MeasureModules:
         return RecipeModule(
             module_id="source.sweep_current",
             category="source",
-            measure_mod="V_source_sweep_ac",
+            measure_mod="I_source_sweep_ac",
             args=(max_value, step_value, freq, high, low, sweepmode),
             wrapper=meter,
             compliance=compliance,

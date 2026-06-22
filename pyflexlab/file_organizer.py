@@ -378,8 +378,30 @@ class FileOrganizer:
             else:
                 s = str(num)
             return re.sub(r'(\.\d*?)0+\b', r'\1', s).rstrip('.') if '.' in s else s
+
+        def replace_next_placeholder(template: str, value) -> str:
+            match = re.search(r"{\w+}", template)
+            if match is None:
+                return template
+
+            formatted_value = remove_trailing_zeros(value)
+            unit_match = re.match(r"[A-Za-z]+", template[match.end():])
+            skip_len = 0
+            if (
+                isinstance(value, str)
+                and unit_match is not None
+                and formatted_value.endswith(unit_match.group(0))
+            ):
+                skip_len = len(unit_match.group(0))
+
+            return (
+                template[:match.start()]
+                + formatted_value
+                + template[match.end() + skip_len:]
+            )
+
         for value in var_tuple:
-            name_str = re.sub(r"{\w+}", remove_trailing_zeros(value), name_str, count=1)
+            name_str = replace_next_placeholder(name_str, value)
         # the method needs to throw an error if there are still {} in the name_str
         if re.search(r"{\w+}", name_str):
             logger.raise_error(

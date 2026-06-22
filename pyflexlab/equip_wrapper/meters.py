@@ -1331,7 +1331,7 @@ class WrapperSR860(LockinSourceMeter):
                 out_channel=channel,
                 in_channel=channel,
             )
-            for channel in range(1, 5)
+            for channel in range(0, 4)
         }
 
     def info_sync(self):
@@ -1601,7 +1601,7 @@ class WrapperSR860Aux(DCSourceMeter):
         self,
         sr860: WrapperSR860 | SR860,
         *,
-        out_channel: int = 1,
+        out_channel: int = 0,
         in_channel: int | None = None,
     ):
         super().__init__()
@@ -1624,8 +1624,8 @@ class WrapperSR860Aux(DCSourceMeter):
 
     @staticmethod
     def _validate_channel(channel: int, name: str) -> int:
-        if channel not in (1, 2, 3, 4):
-            logger.raise_error(f"{name} must be one of 1, 2, 3, 4", ValueError)
+        if channel not in (0, 1, 2, 3):
+            logger.raise_error(f"{name} must be one of 0, 1, 2, 3", ValueError)
         return channel
 
     @staticmethod
@@ -2489,7 +2489,8 @@ class Wrapper2400(DCSourceMeter):
 
     @property
     def four_wire(self) -> bool:
-        return bool(self.meter.ask(":SYST:RSEN?"))
+        logger.warning("this is not usual 4-wire mode, please check the device manual for more details.")
+        return bool(int(self.meter.ask(":SYST:RSEN?")))
 
     @four_wire.setter
     def four_wire(self, four_wire: bool):
