@@ -47,9 +47,9 @@
         "sweep": "B{Bstart}-{Bstop}T-step{stepB}T-swpmode{mode}",
         "vary": "B{Bstart}-{Bstop}T"
     },
-    "Theta": {
-        "fixed": "Theta{fixTheta}deg",
-        "sweep": "Theta{Thetastart}-{Thetastop}deg-step{stepTheta}deg-swpmode{mode}",
-        "vary": "Theta{Thetastart}-{Thetastop}deg"
+    "a": {
+        "fixed": "a{fixa}deg",
+        "sweep": "a{astart}-{astop}deg-step{stepa}deg-swpmode{mode}",
+        "vary": "a{astart}-{astop}deg"
     }
 }

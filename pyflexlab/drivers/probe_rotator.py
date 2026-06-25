@@ -133,7 +133,7 @@ class RotatorProbe:
         print("Speed set to: ", value)
 
     @avoid_running
-    def ramp_angle(self, angle, *, progress=False, axis_no=None, wait=False) -> None:
+    def ramp_angle(self, angle, *, progress=False, axis_no=None, wait=True) -> None:
         """
         Moves the rotator to the specified angle
 

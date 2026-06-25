@@ -451,7 +451,7 @@ class MeasureModules:
         return RecipeModule(
             module_id="external.vary_angle",
             category="external",
-            measure_mod="Theta_vary",
+            measure_mod="a_vary",
             args=(start, stop),
         )
 
@@ -464,7 +464,7 @@ class MeasureModules:
         return RecipeModule(
             module_id="external.sweep_angle",
             category="external",
-            measure_mod="Theta_sweep",
+            measure_mod="a_sweep",
             args=(start, stop, step, sweepmode),
         )
 
@@ -474,7 +474,7 @@ class MeasureModules:
         return RecipeModule(
             module_id="external.fixed_angle",
             category="external",
-            measure_mod="Theta_fixed",
+            measure_mod="a_fixed",
             args=(value,),
         )
 

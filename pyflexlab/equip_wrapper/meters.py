@@ -1558,7 +1558,6 @@ class WrapperSR860(LockinSourceMeter):
         value = convert_unit(value, "V")[0]
         if offset is None:
             offset_value = self.meter.sine_dc_level
-            logger.info(f"no offset provided, keep current offset value: {offset_value}")
         else:
             offset_value = convert_unit(offset, "V")[0]
             if not -5 <= offset_value <= 5:

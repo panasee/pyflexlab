@@ -6299,7 +6299,7 @@ class MeasureFlow(MeasureManager):
                     curr_val_lst.append(mea_dict["mag_vary"][1])
                     set_val_lst.append(mea_dict["mag_vary"][2])
                     vary_bound_lst.append(mea_dict["mag_vary"][3])
-                case "Theta":
+                case "a":
                     vary_lst.append(mea_dict["angle_vary"][0])
                     curr_val_lst.append(mea_dict["angle_vary"][1])
                     set_val_lst.append(mea_dict["angle_vary"][2])

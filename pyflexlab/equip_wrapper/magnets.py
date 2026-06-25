@@ -153,7 +153,8 @@ class WrapperIPS(Magnet):
         *,
         rate: float | tuple[float] = (0.2,) * 3,
         wait: bool = True,
-        tolerance: float = 5e-3,
+        tolerance: float = 1e-3,
+        accurate: bool = False,
     ) -> None:
         """
         ramp the magnetic field to the target value with the rate, current the field is only in Z direction limited by the actual instrument setting
@@ -164,6 +165,7 @@ class WrapperIPS(Magnet):
             rate (float): the rate of the field change (T/min)
             wait (bool): whether to wait for the ramping to finish
             tolerance (float): the tolerance of the field (T)
+            accurate (bool): whether to use accurate ramping, for mT
         """
         logger.validate(isinstance(field, str | float | int), "currently only support scalar Bz")
         field  = convert_unit(field, "T")[0]
@@ -207,3 +209,5 @@ class WrapperIPS(Magnet):
                 )
                 time.sleep(1)
             logger.info("ramping finished")
+        if accurate:
+            time.sleep(15)

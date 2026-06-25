@@ -1168,7 +1168,7 @@ class MeasureManager(FileOrganizer):
                     self.instrs["itc"].ramp_to_temperature(oth_mod["fix"], wait=True)
                 elif oth_mod["name"] == "B":
                     self.instrs["ips"].ramp_to_field(oth_mod["fix"], wait=True)
-                elif oth_mod["name"] == "Theta":
+                elif oth_mod["name"] == "a":
                     self.instrs["rotator"].ramp_angle(oth_mod["fix"], wait=True)
                 rec_lst.append(self.sense_apply(oth_mod["name"]))
                 record_col_idx += 1
@@ -1225,8 +1225,8 @@ class MeasureManager(FileOrganizer):
                     else:
                         trigger_tuple = oth_mod["stop"]
 
-                elif oth_mod["name"] == "Theta":
-                    vary_mod.append("Theta")
+                elif oth_mod["name"] == "a":
+                    vary_mod.append("a")
                     self.instrs["rotator"].ramp_angle(oth_mod["start"], wait=True)
                     vary_bound_Theta = (oth_mod["start"], oth_mod["stop"])
 
@@ -1304,7 +1304,7 @@ class MeasureManager(FileOrganizer):
                 vary_bound_B,
             ),
             "angle_vary": None
-            if "Theta" not in vary_mod
+            if "a" not in vary_mod
             else (
                 angle_vary,
                 self.instrs["rotator"].curr_angle,
