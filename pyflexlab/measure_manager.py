@@ -919,6 +919,7 @@ class MeasureManager(FileOrganizer):
         ramp_intervals: list[float] | tuple[float] = None,
         vary_criteria: Optional[int | float] = None,
         field_ramp_rate: float = 0.2,
+        temperature_ramp_rate: float | None = None,
         special_mea: Literal["normal", "delta"] = "normal",
         vary_loop: bool = False,
         wait_before_vary: int = 7,
@@ -957,6 +958,8 @@ class MeasureManager(FileOrganizer):
             ramp_intervals (list[float]): the intervals for ramping the source, used with care, note the correspondence
             vary_criteria (deprecated): the criteria (no of steps) to judge if the field/temperature is stable
             field_ramp_rate (float): the rate of the field ramp (T/min)
+            temperature_ramp_rate (float | None): the temperature ramp rate for T_vary in K/min (not SI base units);
+                                None keeps the controller's existing non-limited ramp behavior
             special_mea (Literal["normal", "delta"]): whether to do the special measurement, "delta" means the delta current-reversal measurement
             vary_loop (bool): whether to loop the varying, if True, the varying will be looped
             wait_before_vary (int): the wait time before varying
@@ -1007,6 +1010,7 @@ class MeasureManager(FileOrganizer):
                     ramp_intervals=ramp_intervals,
                     vary_criteria=vary_criteria,
                     field_ramp_rate=field_ramp_rate,
+                    temperature_ramp_rate=temperature_ramp_rate,
                     special_mea=special_mea,
                     vary_loop=vary_loop,
                     measure_nickname=measure_nickname,
@@ -1030,6 +1034,7 @@ class MeasureManager(FileOrganizer):
                     ramp_intervals=ramp_intervals,
                     vary_criteria=vary_criteria,
                     field_ramp_rate=field_ramp_rate,
+                    temperature_ramp_rate=temperature_ramp_rate,
                     special_mea=special_mea,
                     vary_loop=vary_loop,
                     measure_nickname=measure_nickname,
@@ -1180,22 +1185,36 @@ class MeasureManager(FileOrganizer):
                     vary_bound_T = (oth_mod["start"], oth_mod["stop"])
                     if not no_start_vary:
                         self.instrs["itc"].ramp_to_temperature(
-                            oth_mod["start"], wait=True
+                            oth_mod["start"],
+                            wait=True,
+                            ramp_rate=temperature_ramp_rate,
                         )
 
                         def temp_vary(reverse: bool = False, oth_mod=oth_mod):
                             target = oth_mod["start"] if reverse else oth_mod["stop"]
                             ini = oth_mod["stop"] if reverse else oth_mod["start"]
                             while abs(self.instrs["itc"].temperature - ini) > 0.1:
-                                self.instrs["itc"].ramp_to_temperature(ini, wait=True)
-                            self.instrs["itc"].ramp_to_temperature(target, wait=False)
+                                self.instrs["itc"].ramp_to_temperature(
+                                    ini,
+                                    wait=True,
+                                    ramp_rate=temperature_ramp_rate,
+                                )
+                            self.instrs["itc"].ramp_to_temperature(
+                                target,
+                                wait=False,
+                                ramp_rate=temperature_ramp_rate,
+                            )
 
                     # define a function instead of directly calling the ramp_to_temperature method
                     # to avoid possible interruption or delay
                     else:
                         def temp_vary(reverse: bool = False, oth_mod=oth_mod):
                             target = oth_mod["start"] if reverse else oth_mod["stop"]
-                            self.instrs["itc"].ramp_to_temperature(target, wait=False)
+                            self.instrs["itc"].ramp_to_temperature(
+                                target,
+                                wait=False,
+                                ramp_rate=temperature_ramp_rate,
+                            )
 
                     if vary_loop:
                         trigger_tuple = (

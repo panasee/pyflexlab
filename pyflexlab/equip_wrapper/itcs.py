@@ -85,6 +85,13 @@ class ITC(ABC):
         """
         pass
 
+    @abstractmethod
+    def set_temperature_ramp_rate(self, ramp_rate: float) -> None:
+        """
+        set the controller-native temperature ramp rate in K/min
+        """
+        pass
+
     @property
     @abstractmethod
     def pid(self):
@@ -200,8 +207,13 @@ class ITC(ABC):
         ramp_rate=None,
         wait=True,
     ):
-        """ramp temperature to the target value (not necessary sample temperature)"""
+        """ramp temperature to the target value (not necessary sample temperature)
+
+        ramp_rate is in K/min. Subclasses translate it to controller-native commands.
+        """
         temp = convert_unit(temp, "K")[0]
+        if ramp_rate is not None:
+            self.set_temperature_ramp_rate(ramp_rate)
         self.temperature_set = temp
         if pid is not None:
             self.set_pid(pid)
@@ -335,6 +347,10 @@ class ITCLakeshore(ITC):
         self.heater_sample.I(pid_dict["I"])
         self.heater_sample.D(pid_dict["D"])
 
+    def set_temperature_ramp_rate(self, ramp_rate: float) -> None:
+        """Set Lake Shore sample-heater ramp rate in K/min."""
+        self.heater_sample.setpoint_ramp_rate(ramp_rate)
+
     def correction_ramping(
         self,
         temp: float | str,
@@ -362,7 +378,7 @@ class ITCLakeshore(ITC):
         if pid is not None:
             self.set_pid(pid)
         if ramp_rate is not None:
-            self.heater_sample.setpoint_ramp_rate(ramp_rate)
+            self.set_temperature_ramp_rate(ramp_rate)
 
         self.heater_sample.output_range("medium")
         if wait:
@@ -450,6 +466,11 @@ class ITCMercury(ITC):
         self.mercury.temp_PID = (pid_dict["P"], pid_dict["I"], pid_dict["D"])
         self.pid_control("ON")
 
+    def set_temperature_ramp_rate(self, ramp_rate: float) -> None:
+        """Set Mercury probe temperature ramp rate in K/min."""
+        self.mercury.probe_ramp_rate(ramp_rate)
+        self.mercury.probe_temp_ramp_mode("ON")
+
     def pid_control(self, control: Literal["ON", "OFF"]):
         self.mercury.temp_PID_control(control)
 
@@ -510,11 +531,7 @@ class ITCMercury(ITC):
             self.set_pid(pid)
 
         if ramp_rate is not None:
-            self.mercury.probe_ramp_rate(ramp_rate)
-            # self.mercury.vti_heater_rate(ramp_rate)
-            self.mercury.probe_temp_ramp_mode(
-                "ON"
-            )  # ramp_mode means limited ramping rate mode
+            self.set_temperature_ramp_rate(ramp_rate)
         else:
             self.mercury.probe_temp_ramp_mode("OFF")
         if wait:
@@ -624,6 +641,12 @@ class ITCs(ITC):
             itc_name (Literal["up","down","all"]): the ITC503 to set the temperature
         """
         self.itc_down.temperature_setpoint = temp
+
+    def set_temperature_ramp_rate(self, ramp_rate: float) -> None:
+        """ITC503 pair does not expose a controller-native K/min ramp-rate command here."""
+        raise NotImplementedError(
+            f"{type(self).__name__} does not support temperature ramp_rate in K/min"
+        )
 
     def ramp_to_temperature_selective(
         self, temp: float | str, itc_name: Literal["up", "down"], P=None, I=None, D=None

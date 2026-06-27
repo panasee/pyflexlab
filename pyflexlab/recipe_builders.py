@@ -61,6 +61,7 @@ class RecipeOptions:
     ramp_intervals: list[float] | tuple[float] | None = None
     vary_criteria: Optional[int | float] = None
     field_ramp_rate: float | None = None
+    temperature_ramp_rate: float | None = None  # K/min, not SI base units.
     special_mea: Literal["normal", "delta"] | None = None
     manual_record_columns: Optional[list[str]] = None
     appendix_str: str | None = None

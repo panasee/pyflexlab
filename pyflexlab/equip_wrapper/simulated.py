@@ -215,6 +215,9 @@ class SimITC(ITC):
         self.pid[1] = pid_dict.get("i", 1)
         self.pid[2] = pid_dict.get("d", 1)
 
+    def set_temperature_ramp_rate(self, ramp_rate: float) -> None:
+        print(f"Set temperature ramp rate to {ramp_rate} K/min")
+
     def correction_ramping(
         self,
         temp: float,
