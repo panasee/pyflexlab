@@ -80,6 +80,40 @@ class WrapperIPS(Magnet):
 
         self.ips.set_new_field_limits(spherical_limit)
 
+    @staticmethod
+    def _parse_sw_heater_status(status) -> bool:
+        if isinstance(status, bool):
+            return status
+        if isinstance(status, str):
+            status_norm = status.strip().upper()
+            if status_norm == "ON":
+                return True
+            if status_norm == "OFF":
+                return False
+        raise ValueError(f"The heater status is not recognized: {status!r}")
+
+    def _read_consistent_sw_heater_status(self) -> Optional[bool]:
+        statuses = []
+        for _ in range(10):
+            statuses.append(self.sw_heater())
+            time.sleep(1)
+        if all(status == statuses[0] for status in statuses):
+            return statuses[0]
+        return None
+
+    def _recover_inconsistent_sw_heater_status(self) -> bool:
+        logger.warning("sw heater return value inconsistent, will try to regain")
+        for _ in range(3):
+            status = self._read_consistent_sw_heater_status()
+            if status is not None:
+                return status
+            logger.error("sw heater regained values still inconsistent, will retry")
+            self.sw_heater("on")
+            for i in range(300):
+                print_progress_bar(i, 300, prefix="waiting for heater")
+                time.sleep(1)
+        logger.raise_error("sw heater return value continue to be inconsistent", RuntimeError)
+
     @property
     def field(self) -> float | tuple[float]:
         """
@@ -112,22 +146,19 @@ class WrapperIPS(Magnet):
         switch the heater of the magnet
         """
         if switch is not None:
-            switch = (
-                SWITCH_DICT.get(switch, False) if isinstance(switch, str) else switch
-            )
+            if isinstance(switch, str):
+                if switch not in SWITCH_DICT:
+                    raise ValueError(
+                        f"The heater switch command is not recognized: {switch!r}"
+                    )
+                switch = SWITCH_DICT[switch]
             if switch:
                 self.ips.GRPZ.sw_heater("ON")
             else:
                 self.ips.GRPZ.sw_heater("OFF")
             logger.info("Heater switched %s", "on" if switch else "off")
         else:
-            match self.ips.GRPZ.sw_heater():
-                case "ON" | "on" | True:
-                    return True
-                case "OFF" | "off" | False:
-                    return False
-                case _:
-                    raise ValueError("The heater status is not recognized")
+            return self._parse_sw_heater_status(self.ips.GRPZ.sw_heater())
 
     # =======suitable for Z-axis only ips========
     @property
@@ -170,11 +201,16 @@ class WrapperIPS(Magnet):
         logger.validate(isinstance(field, str | float | int), "currently only support scalar Bz")
         field  = convert_unit(field, "T")[0]
 
-        if not self.sw_heater() and field != 0:
-            self.sw_heater("on")
-            for i in range(310):
-                print_progress_bar(i, 310, prefix="waiting for heater")
-                time.sleep(1)
+        heater_on = self.sw_heater()
+        if not heater_on and field != 0:
+            confirm_heater_on = self.sw_heater()
+            if confirm_heater_on != heater_on:
+                heater_on = self._recover_inconsistent_sw_heater_status()
+            if not heater_on:
+                self.sw_heater("on")
+                for i in range(310):
+                    print_progress_bar(i, 310, prefix="waiting for heater")
+                    time.sleep(1)
         else:
             pass
 
