@@ -1167,7 +1167,9 @@ class MeasureManager(FileOrganizer):
                 if oth_mod["name"] == "T":
                     self.instrs["itc"].ramp_to_temperature(oth_mod["fix"], wait=True)
                 elif oth_mod["name"] == "B":
-                    self.instrs["ips"].ramp_to_field(oth_mod["fix"], wait=True)
+                    self.instrs["ips"].ramp_to_field(
+                        oth_mod["fix"], rate=field_ramp_rate, wait=True
+                    )
                 elif oth_mod["name"] == "a":
                     self.instrs["rotator"].ramp_angle(oth_mod["fix"], wait=True)
                 rec_lst.append(self.sense_apply(oth_mod["name"]))
@@ -1205,14 +1207,18 @@ class MeasureManager(FileOrganizer):
 
                 elif oth_mod["name"] == "B":
                     vary_mod.append("B")
-                    self.instrs["ips"].ramp_to_field(oth_mod["start"], wait=True)
+                    self.instrs["ips"].ramp_to_field(
+                        oth_mod["start"], rate=field_ramp_rate, wait=True
+                    )
                     vary_bound_B = (oth_mod["start"], oth_mod["stop"])
 
                     def mag_vary(reverse: bool = False, oth_mod=oth_mod):
                         target = oth_mod["start"] if reverse else oth_mod["stop"]
                         ini = oth_mod["stop"] if reverse else oth_mod["start"]
                         while abs(float(self.instrs["ips"].field) - ini) > 0.01:
-                            self.instrs["ips"].ramp_to_field(ini, wait=True)
+                            self.instrs["ips"].ramp_to_field(
+                                ini, rate=field_ramp_rate, wait=True
+                            )
                         self.instrs["ips"].ramp_to_field(
                             target, rate=field_ramp_rate, wait=False
                         )
@@ -1271,6 +1277,7 @@ class MeasureManager(FileOrganizer):
                         step_value=oth_mod["step"],
                         sweepmode=oth_mod["mode"],
                         sweep_table=sweep_table,
+                        field_ramp_rate=field_ramp_rate,
                     )
                 )
                 sweep_idx.append(record_col_idx)

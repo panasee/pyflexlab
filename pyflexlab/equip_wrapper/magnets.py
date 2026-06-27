@@ -133,8 +133,9 @@ class WrapperIPS(Magnet):
         """
         set the target field (only z direction considered)
         """
-        assert isinstance(field, (float, int, tuple, list)), (
-            "The field should be a float or a tuple of 3 floats"
+        logger.validate(
+            isinstance(field, (float, int, tuple, list)),
+            "The field should be a float or a tuple of 3 floats",
         )
         fieldz_target = field if isinstance(field, (float, int)) else field[2]
         self.ips.z_target(fieldz_target)
@@ -173,9 +174,7 @@ class WrapperIPS(Magnet):
         """
         set the status of the magnet
         """
-        assert status in ["HOLD", "TO SET", "CLAMP", "TO ZERO"], (
-            "The status is not recognized"
-        )
+        logger.validate(status in ["HOLD", "TO SET", "CLAMP", "TO ZERO"], "The status is not recognized")
         self.ips.GRPZ.ramp_status(status)
 
     def ramp_to_field(
@@ -217,12 +216,10 @@ class WrapperIPS(Magnet):
         if abs(self.field - field) < tolerance:
             return
         if isinstance(rate, (float, int)):
-            assert rate <= 0.2, "The rate is too high, the maximum rate is 0.2 T/min"
+            logger.validate(rate <= 0.2, "The rate is too high, the maximum rate is 0.2 T/min")
             self.ips.GRPZ.field_ramp_rate(rate / 60)
         else:
-            assert max(rate) <= 0.2, (
-                "The rate is too high, the maximum rate is 0.2 T/min"
-            )
+            logger.validate(max(rate) <= 0.2, "The rate is too high, the maximum rate is 0.2 T/min")
             self.ips.GRPZ.field_ramp_rate(rate[2] / 60)
         # self.ips.GRPX.field_ramp_rate(rate[0]/60)
         # self.ips.GRPY.field_ramp_rate(rate[1]/60)
