@@ -539,9 +539,12 @@ class MeasureManager(FileOrganizer):
             sweep_table (tuple[float,...]): the table of the sweep values (only if sweepmode is "manual")
             field_ramp_rate (float): the rate of the field ramp (T/min)
         """
-        ext_type = (
-            ext_type.replace("T", "temp").replace("B", "mag").replace("Theta", "angle")
-        )
+        ext_type = {
+            "T": "temp",
+            "B": "mag",
+            "Theta": "angle",
+            "a": "angle",
+        }.get(ext_type, ext_type)
         if ext_type == "temp":
             instr = self.instrs["itc"]
         elif ext_type == "mag":
@@ -634,14 +637,15 @@ class MeasureManager(FileOrganizer):
             else:
                 raise ValueError("trigger must be a tuple or a float")
 
-        sense_type = (
-            sense_type.replace("V", "volt")
-            .replace("I", "curr")
-            .replace("T", "temp")
-            .replace("B", "mag")
-            .replace("H", "mag")
-            .replace("Theta", "angle")
-        )
+        sense_type = {
+            "V": "volt",
+            "I": "curr",
+            "T": "temp",
+            "B": "mag",
+            "H": "mag",
+            "Theta": "angle",
+            "a": "angle",
+        }.get(sense_type, sense_type)
         logger.info("Sense Type: %s", sense_type)
 
         if vary_criteria is not None:
