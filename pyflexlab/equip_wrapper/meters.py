@@ -363,6 +363,8 @@ class Wrapper6221(ACSourceMeter, DCSourceMeter):
             "normal"
         )
         logger.info("note the grounding:")  # TODO: add grounding instruction#
+        self.meter.shield_connection = "guard"
+        self.meter.output_low_grounded = False
 
     def info_sync(self):
         self.info_dict.update(
@@ -453,7 +455,7 @@ class Wrapper6221(ACSourceMeter, DCSourceMeter):
         if reset:
             offset = 0
             source_auto_range = True
-            low_grounded = True
+            low_grounded = False
             wave_function = "sine"
 
         source_6221 = self.meter
@@ -769,8 +771,8 @@ class Wrapper2182(Meter):
         # source_2182.sample_continuously()
         # source_2182.ch_1.voltage_offset_enabled = True
         # source_2182.ch_1.acquire_voltage_reference()
-        self.meter.ch_1.setup_voltage(auto_range=True, nplc=10)
-        self.meter.voltage_nplc = 10
+        self.meter.ch_1.setup_voltage(auto_range=False, nplc=7)
+        self.meter.voltage_nplc = 7
 
     def info_sync(self):
         """
@@ -1796,6 +1798,7 @@ class Wrapper6430(DCSourceMeter):
                 "autozero": self.meter.autozero(),
                 "source_range_set": 0,
                 "sense_range_set": 0,
+                "source_compliance_set": 0,
             }
         )
 

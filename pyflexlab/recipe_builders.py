@@ -506,7 +506,7 @@ class PlotModules:
             init_args=init_args,
             series=series,
         )
-        if any(any(row) for row in line_labels):
+        if any(label for row in line_labels for panel in row for label in panel):
             plot_init_kwargs["line_labels"] = line_labels
 
         return PlotRecipe(
@@ -540,13 +540,19 @@ class PlotModules:
     ) -> list[list[list[str]]]:
         rows = int(init_args[0]) if len(init_args) >= 1 else 1
         cols = int(init_args[1]) if len(init_args) >= 1 else 1
-        line_labels = [[[] for _ in range(cols)] for _ in range(rows)]
+        lines_per_fig = int(init_args[2]) if len(init_args) >= 3 else 2
+        line_labels = [
+            [["" for _ in range(lines_per_fig)] for _ in range(cols)]
+            for _ in range(rows)
+        ]
         for item in series:
+            logger.validate(
+                0 <= item.line < lines_per_fig,
+                f"PlotSeries line index {item.line} is outside lines_per_fig={lines_per_fig}",
+            )
             if item.line_label is None:
                 continue
             panel_labels = line_labels[item.row][item.col]
-            while len(panel_labels) <= item.line:
-                panel_labels.append("")
             panel_labels[item.line] = item.line_label
         return line_labels
 
