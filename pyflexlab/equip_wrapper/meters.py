@@ -726,6 +726,46 @@ class Wrapper6221(ACSourceMeter, DCSourceMeter):
         self.meter.source_current = value
         self.output_switch("on")
 
+    def pulse_output(
+        self,
+        *,
+        bot_value: float | str,
+        top_value: float | str,
+        pulse_width: float | str,
+        pulse_count: int | str,
+        compliance: float | str | None = None,
+        freq: float | str,
+    ):
+        """
+        output a pulses sequence (square wave) with specified parameters
+        """
+        bot_value = convert_unit(bot_value, "")[0]
+        top_value = convert_unit(top_value, "")[0]
+        pulse_width = convert_unit(pulse_width, "s")[0]
+        if compliance is not None:
+            compliance = convert_unit(compliance, "")[0]
+            self.meter.source_compliance = compliance
+        freq = convert_unit(freq, "Hz")[0]
+        pulse_count = int(pulse_count)
+        offset = (bot_value + top_value) / 2
+        amp = (top_value - bot_value) / 2
+        period = 1 / freq
+        logger.validate(
+            pulse_width <= period,
+            "pulse width should be less than or equal to the period",
+        )
+        self.meter.waveform_function = "square"
+        self.meter.waveform_frequency = freq
+        self.meter.waveform_dutycycle = pulse_width / period * 100
+        self.meter.waveform_amplitude = amp
+        self.meter.waveform_offset = offset
+        self.meter.waveform_ranging = "fixed"
+        self.meter.waveform_duration_cycles = pulse_count
+        # no external trigger
+        self.meter.waveform_external_trigger = False
+        self.meter.waveform_arm()
+        self.meter.waveform_start()
+
     def sense(self, type_str: Literal["volt"] = "volt"):
         if self.mea_mode == "normal":
             logger.info("6221 is a source meter, no sense function")

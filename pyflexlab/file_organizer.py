@@ -277,7 +277,7 @@ class FileOrganizer:
         Args:
             params: Tuple[str] e.g. "I_source-fixed-ac","V_sense","T-sweep"
                 The variables used in the measurename string should be
-                ["source", "sense"](if "source")_["fixed","sweep"]-["ac","dc"] for I,V,
+                ["source", "sense"](if "source")_["fixed","sweep", "biased"]-["ac","dc", "pulse"] for I,V,
                 and ["fixed", "sweep"] for T,B
                 both "-" and "_" are allowed as separators
             require_detail: bool
@@ -334,7 +334,7 @@ class FileOrganizer:
                 other_dict["namestr"].append(namestr)
 
             for var_i in var_list:
-                if var_i in ["ac", "dc"]:
+                if var_i in ["ac", "dc", "pulse"]:
                     mods_detail_dicts_lst[i]["ac_dc"] = var_i
                 elif var_i in ["sweep", "fixed", "biased", "vary"]:
                     mods_detail_dicts_lst[i]["sweep_fix"] = var_i

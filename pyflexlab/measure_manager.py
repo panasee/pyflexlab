@@ -360,6 +360,179 @@ class MeasureManager(FileOrganizer):
             time.sleep(source_wait)
             yield value, bias_i
 
+    def source_fixpulse_apply(
+        self,
+        source_type: Literal["volt", "curr", "V", "I"],
+        meter: str | SourceMeter,
+        *,
+        bot_value: float | str,
+        top_value: float | str,
+        pulse_width: float | str,
+        pulse_count: int | str,
+        compliance: float | str | None = None,
+        freq: float | str,
+    ) -> Generator[tuple[float, float, float, float, int], None, None]:
+        """
+        Source pulses with fixed amplitude and uniform duration. 
+        Note that the measurements can only be done after the whole pulses sequence is finished (use pulse delta measure mode for real-time measurements).
+        Currently only Keithley 6221 is supported for current pulses.
+
+        Args:
+            source_type (Literal["volt","curr"]): the type of the source
+            meter (str | SourceMeter): the meter to be used
+            bot_value (float): the minimum value to be sourced
+            top_value (float): the maximum value to be sourced
+            pulse_width (float): the width of each pulse
+            pulse_count (int): the number of pulses to be sourced
+            compliance (float): the compliance setting of the source meter
+            freq (float): the frequency of the pulses 
+        Records:
+            tuple[float, float, float, float, int]: the tuple of (bot_value, top_value, pulse_width, frequency, pulse_count)
+        """
+        source_type = source_type.replace("V", "volt").replace("I", "curr")
+        logger.validate(
+            source_type == "curr",
+            "voltage pulse is not supported yet",
+        )
+        instr = self.extract_meter_info(meter)
+        logger.validate(
+            isinstance(instr, Wrapper6221),
+            "current pulse requires a 6221 current source wrapper",
+        )
+
+        logger.info("Source Meter: %s", instr.meter)
+        logger.info("Source Type: %s", source_type)
+        logger.info("Pulse Min Value: %s %s", bot_value, "A" if source_type == "curr" else "V")
+        logger.info("Pulse Max Value: %s %s", top_value, "A" if source_type == "curr" else "V")
+        logger.info("Pulse Width: %s s", pulse_width)
+        logger.info("Pulse Count: %s", pulse_count)
+        logger.info("Compliance: %s %s", compliance if compliance is not None else "None", "V" if source_type == "curr" else "A")
+        logger.info("Freq: %s Hz", freq)
+        while True:
+            instr.pulse_output(
+                bot_value=bot_value,
+                top_value=top_value,
+                pulse_width=pulse_width,
+                pulse_count=pulse_count,
+                compliance=compliance,
+                freq=freq,
+            )
+            yield (*[convert_unit(value, "")[0] for value in
+                     (bot_value, top_value, pulse_width, freq)], int(pulse_count))
+
+    def source_sweeppulse_apply(
+        self,
+        source_type: Literal["volt", "curr", "V", "I"],
+        meter: str | SourceMeter,
+        *,
+        top_min: float | str,
+        top_max: float | str,
+        step_value: float | str,
+        pulse_width: float | str,
+        pulse_count: int | str,
+        compliance: float | str | None = None,
+        freq: float | str,
+        sweepmode: Literal["min-max-min", "min-max", "manual"],
+        sweep_table: list[float | str] | pd.DataFrame | np.ndarray| None = None
+    ) -> Generator[tuple[float, float, float, float, int], None, None]:
+        """
+        Source pulses with sweeped amplitude and uniform/varying other parameters. 
+        Note that the measurements can only be done after the whole pulses sequence is finished (use pulse delta measure mode for real-time measurements).
+        Currently only Keithley 6221 is supported for current pulses.
+
+        Args:
+            source_type (Literal["volt","curr"]): the type of the source
+            meter (str | SourceMeter): the meter to be used
+            bot_min (float | str): the minimum value of pulse bottom to be sourced
+            bot_max (float | str): the maximum value of pulse bottom to be sourced
+            top_min (float | str): the minimum value of pulse top to be sourced
+            top_max (float | str): the maximum value of pulse top to be sourced
+            step_value (float | str): the step of the pulse top sweep
+            pulse_width (float | str): the width of each pulse
+            pulse_count (int | str): the number of pulses to be sourced
+            compliance (float | str | None): the compliance setting of the source meter
+            freq (float | str): the frequency of the pulses 
+            sweep_mode (Literal["min-max-min","min-max","manual"]): the mode of the pulse top sweep
+            sweep_table (list[float | str] | None): the table for manual sweep, note the table should contain 5 columns: bot_value, top_value, pulse_width, frequency, pulse_count
+        Records:
+            tuple[float, float, float, float, int]: the tuple of (bot_value, top_value, pulse_width, frequency, pulse_count)
+        """
+        source_type = source_type.replace("V", "volt").replace("I", "curr")
+        step_value = convert_unit(step_value, "")[0]
+        top_min = convert_unit(top_min, "")[0]
+        top_max = convert_unit(top_max, "")[0]
+        logger.validate(
+            source_type == "curr",
+            "voltage pulse is not supported yet",
+        )
+        instr = self.extract_meter_info(meter)
+        logger.validate(
+            isinstance(instr, Wrapper6221),
+            "current pulse requires a 6221 current source wrapper",
+        )
+
+        logger.info("Source Meter: %s", instr.meter)
+        logger.info("Source Type: %s", source_type)
+        logger.info("Sweep Mode: %s", sweepmode)
+        logger.info("Pulse Top Value: [%s, %s] %s", top_min, top_max, "A" if source_type == "curr" else "V")
+        logger.info("Pulse Width: %s s", pulse_width)
+        logger.info("Pulse Count: %s", pulse_count)
+        logger.info("Compliance: %s %s", compliance if compliance is not None else "None", "V" if source_type == "curr" else "A")
+        logger.info("Freq: %s Hz", freq)
+        if sweepmode != "manual":
+            if sweepmode == "min-max-min":
+                value_gen = self.sweep_values(
+                    top_min, top_max, step_value, mode="start-end-start"
+                )
+            elif sweepmode == "min-max":
+                value_gen = self.sweep_values(
+                    top_min, top_max, step_value, mode="start-end"
+                )
+            else:
+                logger.raise_error("sweepmode not recognized", ValueError)
+
+            for value_i in value_gen:
+                instr.pulse_output(
+                    bot_value=0,
+                    top_value=value_i,
+                    pulse_width=pulse_width,
+                    pulse_count=pulse_count,
+                    compliance=compliance,
+                    freq=freq,
+                )
+                yield (0, value_i, convert_unit(pulse_width, "")[0],
+                       convert_unit(freq, "")[0], int(pulse_count))
+        else:
+            logger.info("Manual sweep mode, using provided sweep_table to override all other values")
+            if isinstance(sweep_table, list):
+                logger.validate(
+                    len(sweep_table) > 0 and len(sweep_table[0]) == 5,
+                    "sweep_table should contain 5 columns: bot_value, top_value, pulse_width, frequency, pulse_count"
+                )
+            elif isinstance(sweep_table, pd.DataFrame | np.ndarray):
+                logger.validate(
+                    sweep_table.shape[1] == 5,
+                    "sweep_table should contain 5 columns: bot_value, top_value, pulse_width, frequency, pulse_count"
+                )
+                if isinstance(sweep_table, pd.DataFrame):
+                    sweep_table = sweep_table.itertuples(index=False, name=None)
+            else:
+                logger.raise_error(
+                    "sweep_table should be a list of lists, or a pandas DataFrame, or a numpy array",
+                    ValueError
+                )
+            for bot_value, top_value, pulse_width, freq, pulse_count in sweep_table:
+                instr.pulse_output(
+                    bot_value=bot_value,
+                    top_value=top_value,
+                    pulse_width=pulse_width,
+                    pulse_count=pulse_count,
+                    compliance=compliance,
+                    freq=freq,
+                )
+                yield (*[convert_unit(value, "")[0] for value in
+                         (bot_value, top_value, pulse_width, freq)], int(pulse_count))
+
 
     def source_sweep_apply(
         self,
@@ -374,7 +547,7 @@ class MeasureManager(FileOrganizer):
         sweepmode: Optional[
             Literal["0-max-0", "0--max-max-0", "0-max--max-max-0", "0-max", "manual"]
         ] = None,
-        sweep_table: Optional[list[float | str, ...]] = None,
+        sweep_table: Optional[list[float | str]] = None,
         ramp_step: bool = False,
         source_wait: float = 0.1,
         allow_large_jump: bool = False,
@@ -812,7 +985,7 @@ class MeasureManager(FileOrganizer):
             )
 
         if manual_columns is not None:
-            columns_lst = manual_columns
+            columns_lst = list(manual_columns)
         else:
             columns_lst = ["time"] if with_timer else []
             for name, detail in zip(list(pure_name_lst), mod_detail_lst):
@@ -821,6 +994,11 @@ class MeasureManager(FileOrganizer):
                     and detail["sweep_fix"] == "biased"
                 ):
                     columns_lst += [f"{name}_ac_source", f"{name}_bias"]
+                elif detail["source_sense"] == "source" and detail["ac_dc"] == "pulse":
+                    columns_lst += [
+                        f"{name}_pulse_bot", f"{name}_pulse_top", "pulse_width",
+                        "pulse_frequency", "pulse_count",
+                    ]
                 elif detail["source_sense"] == "source":
                     columns_lst.append(f"{name}_source")
                 elif (
@@ -956,6 +1134,9 @@ class MeasureManager(FileOrganizer):
                                 (useful for combination of VARY and SWEEP)
             sweep_tables (list[list[float | str, ...]]): the list of the sweep tables for manual sweep,
                                 the table will be fetched and used according to the order from left to right(0->1->2...)
+                                For I_source_sweep_pulse, one table has five columns:
+                                bottom current, top current, width, frequency, count.
+                                Pass sweep_tables=[pulse_table], including for a DataFrame.
             special_name (str): the special name used for subfolder to avoid mixing under the same measurement name
             with_timer (bool): whether to contain time generator
             no_start_vary (bool): vary without starting from a fixed start
@@ -992,6 +1173,8 @@ class MeasureManager(FileOrganizer):
             if isinstance(sweep_tables, list):
                 if isinstance(sweep_tables[0], list):
                     pass
+                elif isinstance(sweep_tables[0], pd.DataFrame):
+                    sweep_tables = [i.values.tolist() for i in sweep_tables]
                 elif isinstance(sweep_tables[0], np.ndarray):
                     sweep_tables = [i.tolist() for i in sweep_tables]
                 elif isinstance(sweep_tables[0], tuple):
@@ -1020,6 +1203,7 @@ class MeasureManager(FileOrganizer):
                     measure_nickname=measure_nickname,
                     wait_before_vary=wait_before_vary,
                     source_wait=source_wait,
+                    manual_record_columns=manual_record_columns,
                     extra_record_columns=extra_record_columns,
                     appendix_str=appendix_str,
                     allow_large_jump=allow_large_jump,
@@ -1044,6 +1228,7 @@ class MeasureManager(FileOrganizer):
                     measure_nickname=measure_nickname,
                     wait_before_vary=wait_before_vary,
                     source_wait=source_wait,
+                    manual_record_columns=manual_record_columns,
                     extra_record_columns=extra_record_columns,
                     appendix_str=appendix_str,
                     allow_large_jump=allow_large_jump,

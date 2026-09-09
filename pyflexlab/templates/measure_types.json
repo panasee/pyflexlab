@@ -26,11 +26,13 @@
         "source": {
             "fixed": {
                 "dc": "Ifix{fixi}A-{iin}-{iout}",
-                "ac": "Ifix{fixi}A-freq{freq}Hz-{iin}-{iout}"
+                "ac": "Ifix{fixi}A-freq{freq}Hz-{iin}-{iout}",
+                "pulse": "Ifixpulse-bot{boti}A-top{topi}A-width{twidth}s-freq{freq}Hz-count{count}"
             },
             "sweep": {
                 "dc": "Imax{maxi}A-step{stepi}A-{iin}-{iout}-swpmode{mode}",
-                "ac": "Imax{maxi}A-step{stepi}A-freq{freq}Hz-{iin}-{iout}-swpmode{mode}"
+                "ac": "Imax{maxi}A-step{stepi}A-freq{freq}Hz-{iin}-{iout}-swpmode{mode}",
+                "pulse": "Iswppulse-botusu0-top-min{topmini}A-max{topmaxi}A-step{stepi}A-swpmode{swpmode}-width{twidth}s-freq{freq}Hz-count{count}"
             },
             "biased":{
                 "ac": "Iac{fixi}A-freq{freq}Hz-Idcmax{maxi}A-step{stepi}A-{ihigh}-{ilow}-swpmode{mode}"
