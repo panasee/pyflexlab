@@ -735,6 +735,7 @@ class Wrapper6221(ACSourceMeter, DCSourceMeter):
         pulse_count: int | str,
         compliance: float | str | None = None,
         freq: float | str,
+        wait_for_finish: bool = True,
     ):
         """
         output a pulses sequence (square wave) with specified parameters
@@ -754,6 +755,8 @@ class Wrapper6221(ACSourceMeter, DCSourceMeter):
             pulse_width <= period,
             "pulse width should be less than or equal to the period",
         )
+        self.meter.operation_event_enabled = 128 # OSB listens to end of wave
+        self.meter.srq_event_enabled = 128 # SRQ listens to OSB
         self.meter.waveform_function = "square"
         self.meter.waveform_frequency = freq
         self.meter.waveform_dutycycle = pulse_width / period * 100
@@ -765,6 +768,9 @@ class Wrapper6221(ACSourceMeter, DCSourceMeter):
         self.meter.waveform_external_trigger = False
         self.meter.waveform_arm()
         self.meter.waveform_start()
+        # wait for the waveform to finish
+        if wait_for_finish:
+            self.meter.adapter.wait_for_srq()
 
     def sense(self, type_str: Literal["volt"] = "volt"):
         if self.mea_mode == "normal":
