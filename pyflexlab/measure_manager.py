@@ -1054,7 +1054,7 @@ class MeasureManager(FileOrganizer):
         Args:
             file_path (SafePath): the file path
             record_num (int): the number of columns of the record
-            record_tuple (tuple): tuple of the records, with no time column, so length is 1 shorter
+            record_tuple (tuple): complete record, including time when enabled; length equals record_num
             target_df (pd.DataFrame): dataframe to be updated (default using the self.df_cache)
             force_write (bool): whether to force write the record
         """
@@ -1155,7 +1155,7 @@ class MeasureManager(FileOrganizer):
         Returns:
             dict: a dictionary containing the list of generators, dataframe csv filepath and record number
                 keys: "gen_lst"(combined list generator), "swp_idx" (indexes for sweeping generator, not including vary),
-                "file_path"(csv file), "record_num"(num of record data columns, without time),
+                "file_path"(csv file), "record_num"(total columns, including time when enabled),
                 "tmp_vary", "mag_vary", "angle_vary"
                 (the function used to begin the varying of T/B/Theta,
                     e.g. start magnetic field varying by calling mag_vary(),
@@ -1272,6 +1272,38 @@ class MeasureManager(FileOrganizer):
                 mod_i = "V"
             else:
                 raise ValueError(f"No source is specified for source {idx}")
+
+            if src_mod[mod_i]["ac_dc"] == "pulse":
+                if not isinstance(wrapper_lst[idx], Wrapper6221) or mod_i != "I":
+                    logger.raise_error("current pulse requires a 6221 current source wrapper", ValueError)
+                if special_mea != "normal":
+                    logger.raise_error("pulse source cannot be combined with special_mea", ValueError)
+                pulse = src_mod[mod_i]
+                pulse_kwargs = dict(
+                    pulse_width=pulse["pulse_width"], pulse_count=pulse["pulse_count"],
+                    freq=pulse["freq"], compliance=compliance_lst[idx],
+                )
+                if pulse["sweep_fix"] == "fixed":
+                    rec_lst.append(self.source_fixpulse_apply(
+                        mod_i, wrapper_lst[idx], bot_value=pulse["bot_value"],
+                        top_value=pulse["top_value"], **pulse_kwargs,
+                    ))
+                elif pulse["sweep_fix"] == "sweep":
+                    if pulse["mode"] == "manual" and not sweep_tables:
+                        logger.raise_error("manual pulse sweep requires a five-column sweep table", ValueError)
+                    rec_lst.append(self.source_sweeppulse_apply(
+                        mod_i, wrapper_lst[idx], top_min=pulse["top_min"],
+                        top_max=pulse["top_max"], step_value=pulse["step"],
+                        sweepmode=pulse["mode"],
+                        sweep_table=sweep_tables.pop(0) if pulse["mode"] == "manual" else None,
+                        **pulse_kwargs,
+                    ))
+                    # The swept top current is the second of the five pulse columns.
+                    sweep_idx.append(record_col_idx + 1)
+                else:
+                    raise ValueError("unsupported pulse source mode")
+                record_col_idx += 5
+                continue
 
             if isinstance(wrapper_lst[idx], Wrapper6221):
                 wrapper_lst[idx].setup(
@@ -1755,6 +1787,21 @@ class MeasureManager(FileOrganizer):
                         detail["sweep_fix"]
                     ][detail["ac_dc"]],
                 )
+                if detail["ac_dc"] == "pulse":
+                    values = dict(zip(vars_lst, var_tuple[index_vars:index_vars + len(vars_lst)]))
+                    pulse = src_lst[idx][mod]
+                    pulse.update(
+                        ac_dc="pulse", sweep_fix=detail["sweep_fix"],
+                        pulse_width=values["twidth"], pulse_count=values["count"],
+                        freq=values["freq"],
+                    )
+                    if detail["sweep_fix"] == "fixed":
+                        pulse.update(bot_value=values["boti"], top_value=values["topi"])
+                    elif detail["sweep_fix"] == "sweep":
+                        pulse.update(top_min=values["topmini"], top_max=values["topmaxi"],
+                                     step=values["stepi"], mode=values["swpmode"])
+                    index_vars += len(vars_lst)
+                    continue
                 length = len(vars_lst)
                 src_lst[idx][mod]["ac_dc"] = detail["ac_dc"]
                 src_lst[idx][mod]["sweep_fix"] = detail["sweep_fix"]

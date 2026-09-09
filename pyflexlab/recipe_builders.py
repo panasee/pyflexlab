@@ -7,7 +7,10 @@ from typing import Any, Callable, Literal, Optional, Sequence
 
 from pyomnix.data_process import DataManipulator
 from pyomnix.omnix_logger import get_logger
-from pyflexlab.equip_wrapper import Meter
+from pyflexlab.equip_wrapper import (
+    Meter,
+    Wrapper6221,
+)
 from pyflexlab.measure_flow import (
     MeasurementRecipe,
     MeasureHook,
@@ -174,6 +177,62 @@ class RecipeBuilder:
 
 # ==================measure modules==============
 class MeasureModules:
+    @staticmethod
+    def fixed_current_pulse(
+        bot_value: float | str,
+        top_value: float | str,
+        *,
+        meter: Meter,
+        compliance: float | str,
+        pulse_width: float | str,
+        freq: float | str,
+        pulse_count: int | str,
+    ) -> RecipeModule:
+        """Create current pulses with fixed amplitude and uniform duration."""
+        logger.validate(
+            isinstance(meter, Wrapper6221),
+            "current pulse requires a 6221 current source wrapper",
+        )
+        return RecipeModule(
+            module_id="source.fixed_current_pulse",
+            category="source",
+            measure_mod="I_source_fixed_pulse",
+            args=(bot_value, top_value, pulse_width, freq, pulse_count),
+            wrapper=meter,
+            compliance=compliance,
+        )
+
+    @staticmethod
+    def sweep_current_pulse(
+        top_min: float | str,
+        top_max: float | str,
+        step_value: float | str,
+        *,
+        sweepmode: Literal["min-max-min", "min-max", "manual"],
+        meter: Meter,
+        compliance: float | str,
+        pulse_width: float | str,
+        freq: float | str,
+        pulse_count: int | str,
+    ) -> RecipeModule:
+        """Sweep pulse tops, or use a five-column table via RecipeOptions.sweep_tables.
+
+        For manual mode, pass sweep_tables=[table]; each row contains bottom
+        current, top current, pulse width, frequency, and pulse count.
+        """
+        logger.validate(
+            isinstance(meter, Wrapper6221),
+            "current pulse requires a 6221 current source wrapper",
+        )
+        return RecipeModule(
+            module_id="source.sweep_current_pulse",
+            category="source",
+            measure_mod="I_source_sweep_pulse",
+            args=(top_min, top_max, step_value, sweepmode, pulse_width, freq, pulse_count),
+            wrapper=meter,
+            compliance=compliance,
+        )
+
     @staticmethod
     def fixed_current_source(
         value: float | str,
