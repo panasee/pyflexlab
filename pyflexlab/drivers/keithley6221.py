@@ -383,6 +383,16 @@ class Keithley6221(KeithleyBuffer, SCPIMixin, Instrument):
         validator=truncated_range,
         values=[1, 6],
     )
+    waveform_external_trigger = Instrument.control(
+        ":SOUR:WAVE:EXTR?",
+        ":SOUR:WAVE:EXTR %d",
+        """ A boolean property that controls whether the waveform 
+        generator is triggered externally or internally. 
+        Valid values are True (external) and False (internal). """,
+        validator=strict_discrete_set,
+        values={True: 1, False: 0},
+        map_values=True,
+    )
 
     def waveform_arm(self):
         """Arm the current waveform function."""
