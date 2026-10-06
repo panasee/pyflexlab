@@ -1889,7 +1889,7 @@ class Wrapper6430(DCSourceMeter):
     @sense_range_curr.setter
     def sense_range_curr(self, fix_range: float):
         if self.info_dict["output_type"] == "volt":
-            if not (0.01*fix_range <= self.compliance <= fix_range):
+            if not (self.compliance <= fix_range):
                 logger.warning(
                     "sense range and compliance are not compatible, please check settings."
                 )
@@ -1902,7 +1902,7 @@ class Wrapper6430(DCSourceMeter):
     @sense_range_volt.setter
     def sense_range_volt(self, fix_range: float):
         if self.info_dict["output_type"] == "curr":
-            if not (0.01*fix_range <= self.compliance <= fix_range):
+            if not (self.compliance <= fix_range):
                 logger.warning(
                     "sense range and compliance are not compatible, please check settings."
                 )
@@ -2190,7 +2190,7 @@ class WrapperB2902Bchannel(DCSourceMeter):
     @sense_range_curr.setter
     def sense_range_curr(self, fix_range: float):
         if self.info_dict["output_type"] == "volt":
-            if not (0.01*fix_range <= self.compliance <= fix_range):
+            if not (self.compliance <= fix_range):
                 logger.warning(
                     "sense range and compliance are not compatible, please check settings."
                 )
@@ -2203,7 +2203,7 @@ class WrapperB2902Bchannel(DCSourceMeter):
     @sense_range_volt.setter
     def sense_range_volt(self, fix_range: float):
         if self.info_dict["output_type"] == "curr":
-            if not (0.01*fix_range <= self.compliance <= fix_range):
+            if not (self.compliance <= fix_range):
                 logger.warning(
                     "sense range and compliance are not compatible, please check settings."
                 )
@@ -2468,7 +2468,7 @@ class Wrapper2400(DCSourceMeter):
         elif self.info_dict["sense_type"] == "volt":
             logger.warning("currently in volt sense mode")
         if self.info_dict["output_type"] == "volt":
-            if not (0.01*fix_range <= self.compliance <= fix_range):
+            if not (self.compliance <= fix_range):
                 logger.warning(
                     "sense range and compliance are not compatible, please check settings."
                 )
@@ -2489,7 +2489,7 @@ class Wrapper2400(DCSourceMeter):
         elif self.info_dict["sense_type"] == "volt":
             pass
         if self.info_dict["output_type"] == "curr":
-            if not (0.01*fix_range <= self.compliance <= fix_range):
+            if not (self.compliance <= fix_range):
                 logger.warning(
                     "sense range and compliance are not compatible, please check settings."
                 )
@@ -2770,7 +2770,7 @@ class Wrapper2450(DCSourceMeter):
         elif self.info_dict["sense_type"] == "volt":
             logger.warning("currently in volt sense mode")
         if self.info_dict["output_type"] == "volt":
-            if not (0.01*fix_range <= self.compliance <= fix_range):
+            if not (self.compliance <= fix_range):
                 logger.warning(
                     "sense range and compliance are not compatible, please check settings."
                 )
@@ -2791,7 +2791,7 @@ class Wrapper2450(DCSourceMeter):
         elif self.info_dict["sense_type"] == "volt":
             pass
         if self.info_dict["output_type"] == "curr":
-            if not (0.01*fix_range <= self.compliance <= fix_range):
+            if not (self.compliance <= fix_range):
                 logger.warning(
                     "sense range and compliance are not compatible, please check settings."
                 )
