@@ -252,27 +252,33 @@ class SourceMeter(Meter):
                 freq=freq,
                 type_str=type_str,
                 compliance=compliance,
-                alter_range=True,
+                alter_range=False,
             )
             return
         if interval is None:
             if abs(curr_val - value) > 20:
                 arr = np.arange(curr_val, value, 0.2 * np.sign(value - curr_val))
+                arr = np.append(arr, value)
             else:
                 arr = np.linspace(curr_val, value, 50)
         elif isinstance(interval, (float, str)):
             interval = convert_unit(interval, "")[0]
             interval = abs(interval) * np.sign(value - curr_val)
-            arr = np.arange(curr_val, value, interval)
-            arr = np.concatenate((arr, [value]))
+            arr = np.arange(curr_val, value+interval, interval)
         else:
             raise ValueError(
                 "interval should be a float or str or just left as default"
             )
 
+        try:
+            if self.source_range <= abs(value):
+                self.source_range = value
+        except AttributeError:
+            logger.warning("source_range not implemented, please ensure the range is suitable")
+
         for idx, i in enumerate(arr):
             self.uni_output(
-                i, freq=freq, type_str=type_str, compliance=compliance, alter_range=True
+                i, freq=freq, type_str=type_str, compliance=compliance, alter_range=False
             )
             if not no_progress:
                 print_progress_bar(
