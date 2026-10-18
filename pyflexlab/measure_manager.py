@@ -99,6 +99,7 @@ class MeasureManager(FileOrganizer):
         ],
         *address: str,
         channel: int | str = 1,
+        setup: bool = True,
     ) -> None:
         """
         load the instrument according to the address, store it in self.instrs[meter]
@@ -126,10 +127,11 @@ class MeasureManager(FileOrganizer):
                 )
             else:
                 self.instrs[meter_no].append(self.meter_wrapper_dict[meter_no](addr))
-            try:
-                self.instrs[meter_no][-1].setup(function="source", reset=True)
-            except Exception:
-                self.instrs[meter_no][-1].setup(function="sense", reset=True)
+            if setup:
+                try:
+                    self.instrs[meter_no][-1].setup(function="source", reset=True)
+                except Exception:
+                    self.instrs[meter_no][-1].setup(function="sense", reset=True)
         
         if meter_no == "tests":
             self.instrs["itc"] = SimITC()
