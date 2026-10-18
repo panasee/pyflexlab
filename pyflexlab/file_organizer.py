@@ -792,6 +792,7 @@ class FastCSVWriter:
         buffer_size: int = 7,
         flush_interval: int = 14,
         force_sync: bool = True,
+        numeric_format: str = ".12f",
     ):
         """
         Args:
@@ -799,11 +800,13 @@ class FastCSVWriter:
             buffer_size: Number of records to buffer before writing (default: 50)
             flush_interval: Number of records between disk syncs (default: 100)
             force_sync: If True, use os.fsync() to ensure data is on disk (default: True)
+            numeric_format: Numeric formatting; '.17g' retains small currents.
         """
         self.file_path = file_path
         self.buffer_size = buffer_size
         self.flush_interval = flush_interval
         self.force_sync = force_sync
+        self.numeric_format = numeric_format
         self._file_handle = None
         self._csv_writer = None
         self._buffer = []
@@ -865,7 +868,7 @@ class FastCSVWriter:
         formatted_rows = []
         for x in record_tuple:
             if isinstance(x, (int, float)):
-                formatted_rows.append(f"{x:.12f}")
+                formatted_rows.append(format(x, self.numeric_format))
             else:
                 formatted_rows.append(str(x))
         self._buffer.append(formatted_rows)
