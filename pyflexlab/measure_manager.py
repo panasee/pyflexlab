@@ -6,6 +6,7 @@ possibilities of parameter changing"""
 
 import copy
 import shutil
+from pathlib import Path
 from itertools import product
 from typing import Literal, Generator, Optional, Sequence, Callable
 import numpy as np
@@ -924,10 +925,13 @@ class MeasureManager(FileOrganizer):
         use_fast_writer: bool = True,
         buffer_size: int = 7,
         flush_interval: int = 14,
+        file_path: str | Path | None = None,
+        overwrite: bool = True,
+        numeric_format: str = ".12f",
     ) -> tuple[SafePath, int, SafePath] | tuple[SafePath, int, pd.DataFrame, SafePath]:
         """
         initialize the record of the measurement and the csv file;
-        note the file will be overwritten with an empty dataframe
+        Existing files are backed up and overwritten unless overwrite=False.
 
         Args:
             measure_mods (str): the full name of the measurement (put main source as the first source module term)
@@ -940,55 +944,46 @@ class MeasureManager(FileOrganizer):
             use_fast_writer (bool): use FastCSVWriter for better performance (default: True)
             buffer_size (int): number of records to buffer before writing (default: 50)
             flush_interval (int): number of records between disk syncs (default: 100)
+            file_path: Explicit path for custom records; requires manual_columns and no modules.
+            overwrite: If False, create exclusively and raise if the file exists.
+            numeric_format: Fast writer numeric format; defaults to the legacy .12f.
         Returns:
             Path: the file path
             int: the number of columns of the record
         """
-        # main_mods, f_str = self.name_fstr_gen(*measure_mods)
-        file_path = self.get_filepath(
-            measure_mods,
-            *var_tuple,
-            tmpfolder=special_folder,
-            parent_folder=measure_nickname,
-            appendix_str=appendix_str,
-        )
-        tmp_plot_path = self.get_filepath(
-            measure_mods,
-            *var_tuple,
-            parent_folder=measure_nickname,
-            tmpfolder=special_folder,
-            plot=True,
-            suffix=".png",
-            appendix_str=appendix_str,
-        )
-        file_path.parent.mkdir(parents=True, exist_ok=True)
-        self.add_measurement(*measure_mods)
-        logger.info(f"Filename is: {file_path.name}")
-
-        if self._csv_fast_writer is not None:
-            self._csv_fast_writer.__exit__()
-            self._csv_fast_writer = None
-
-        if file_path.exists():
-            logger.warning(f"{file_path} already exists, will be overwritten")
-            bak_path = file_path.parent / f"{file_path.name}.bak"
-            shutil.copy2(file_path, bak_path)
-            logger.warning(f"{file_path} has been backed up to {bak_path}")
-
-
-        mainname_str, _, mod_detail_lst = FileOrganizer.name_fstr_gen(
-            *measure_mods, require_detail=True
-        )
-        # combine the namestr
-        pure_name_lst = list(mainname_str.replace("-", "").replace("_", ""))
-        if len(pure_name_lst) != len(mod_detail_lst):
-            raise ValueError(
-                "length of modules doesn't correspond to detail list, check name_fstr_gen method for that"
+        if file_path is not None:
+            if measure_mods or var_tuple or manual_columns is None:
+                logger.raise_error("explicit file_path requires manual_columns and no measurement modules", ValueError, include_traceback=False)
+            file_path = Path(file_path)
+            tmp_plot_path = file_path.with_suffix(".png")
+        else:
+            file_path = self.get_filepath(
+                measure_mods,
+                *var_tuple,
+                tmpfolder=special_folder,
+                parent_folder=measure_nickname,
+                appendix_str=appendix_str,
             )
-
+            tmp_plot_path = self.get_filepath(
+                measure_mods,
+                *var_tuple,
+                parent_folder=measure_nickname,
+                tmpfolder=special_folder,
+                plot=True,
+                suffix=".png",
+                appendix_str=appendix_str,
+            )
         if manual_columns is not None:
             columns_lst = list(manual_columns)
         else:
+            mainname_str, _, mod_detail_lst = FileOrganizer.name_fstr_gen(
+                *measure_mods, require_detail=True
+            )
+            # combine the namestr
+            pure_name_lst = list(mainname_str.replace("-", "").replace("_", ""))
+            if len(pure_name_lst) != len(mod_detail_lst):
+                logger.raise_error("length of modules doesn't correspond to detail list, check name_fstr_gen method for that", ValueError, include_traceback=False)
+
             columns_lst = ["time"] if with_timer else []
             for name, detail in zip(list(pure_name_lst), mod_detail_lst):
                 if (
@@ -1017,17 +1012,43 @@ class MeasureManager(FileOrganizer):
 
         data_df = pd.DataFrame(columns=columns_lst)
         
+        # Claim a new file before disturbing an existing recording. The exclusive
+        # open is the authoritative check, including concurrent file creation.
+        if not overwrite and file_path.exists():
+            logger.raise_error(f"Recording file already exists: {file_path}", FileExistsError, include_traceback=False)
+        file_path.parent.mkdir(parents=True, exist_ok=True)
+        if not overwrite:
+            try:
+                with file_path.open("x", encoding="utf-8"):
+                    pass
+            except FileExistsError:
+                logger.raise_error(f"Recording file already exists: {file_path}", FileExistsError)
+
+        if self._csv_fast_writer is not None:
+            self.record_finalize()
+        if overwrite:
+            if file_path.exists():
+                logger.warning(f"{file_path} already exists, will be overwritten")
+                bak_path = file_path.parent / f"{file_path.name}.bak"
+                shutil.copy2(file_path, bak_path)
+                logger.warning(f"{file_path} has been backed up to {bak_path}")
+            with file_path.open("w", encoding="utf-8"):
+                pass
+        if measure_mods:
+            self.add_measurement(*measure_mods)
+        logger.info(f"Filename is: {file_path.name}")
+
         # Initialize FastCSVWriter if enabled
         if use_fast_writer:
             # FastCSVWriter appends by design; record_init owns overwriting the file.
-            file_path.write_text("", encoding="utf-8")
             
             # Create new fast writer (will be opened when first record is written)
             self._csv_fast_writer = FastCSVWriter(
                 file_path,
                 buffer_size=buffer_size,
                 flush_interval=flush_interval,
-                force_sync=True  # Ensure non-volatile storage
+                force_sync=True,  # Ensure non-volatile storage
+                numeric_format=numeric_format,
             )
             self._csv_fast_writer.write_rows(columns_lst)
         else:
@@ -1082,9 +1103,16 @@ class MeasureManager(FileOrganizer):
         Call this when measurement is complete to ensure all data is written.
         """
         if self._csv_fast_writer is not None:
-            self._csv_fast_writer.__exit__(None, None, None)
-            logger.info(f"Finalized CSV writing: {self._csv_fast_writer.get_record_count()} records written")
-            self._csv_fast_writer = None
+            writer = self._csv_fast_writer
+            try:
+                # close() suppresses flush errors; expose them before closing.
+                writer.flush(force=True)
+            finally:
+                try:
+                    writer.__exit__(None, None, None)
+                finally:
+                    self._csv_fast_writer = None
+            logger.info(f"Finalized CSV writing: {writer.get_record_count()} records written")
 
     @print_help_if_needed
     def get_measure_dict(
