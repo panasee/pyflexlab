@@ -946,7 +946,7 @@ class WrapperSR830(LockinSourceMeter):
         self.meter = SR830(GPIB)
         self.output_target = 0
         self.info_dict = {"GPIB": GPIB}
-        self.safe_step = 2e-3
+        self.safe_step = 2e-2
         self.if_source = False  # if the meter has been declared as source (as source initialization is earlier)
         self.warning_printed = False
         if reset:
@@ -1210,7 +1210,7 @@ class WrapperSR830Aux(DCSourceMeter):
             "in_channel",
         )
         self.output_target = 0.0
-        self.safe_step = 1e-3
+        self.safe_step = 1e-2
         self.info_dict = {
             "output_type": "volt",
             "output_status": False,
@@ -1370,7 +1370,7 @@ class WrapperSR860(LockinSourceMeter):
         self.meter = SR860(GPIB)
         self.output_target = 0
         self.info_dict = {"GPIB": GPIB}
-        self.safe_step = 2e-3
+        self.safe_step = 2e-2
         self.if_source = False  # if the meter has been declared as source (as source initialization is earlier)
         self.warning_printed = False
         if reset:
@@ -1666,7 +1666,7 @@ class WrapperSR860Aux(DCSourceMeter):
             "in_channel",
         )
         self.output_target = 0.0
-        self.safe_step = 1e-3
+        self.safe_step = 1e-2
         self.info_dict = {
             "output_type": "volt",
             "output_status": False,
@@ -1825,7 +1825,7 @@ class Wrapper6430(DCSourceMeter):
         self.meter = Keithley_6430("Keithley6430", GPIB)
         self.info_dict = {}
         self.output_target = 0
-        self.safe_step = {"volt": 2e-1, "curr": 5e-6}
+        self.safe_step = {"volt": 1e-1, "curr": 1e-6}
         self.info_sync()
 
     def info_sync(self):
@@ -2118,7 +2118,7 @@ class WrapperB2902Bchannel(DCSourceMeter):
         self.meter = self.meter_all.ch1 if int(channel) == 1 else self.meter_all.ch2
         self.info_dict = {}
         self.output_target = 0
-        self.safe_step = {"volt": 1e-2, "curr": 2e-6}
+        self.safe_step = {"volt": 1e-1, "curr": 1e-6}
         self.info_sync()
 
     def info_sync(self):
@@ -2409,7 +2409,7 @@ class Wrapper2400(DCSourceMeter):
         self.meter = Keithley2400("Keithley2401", GPIB)
         self.info_dict = {}
         self.output_target = 0
-        self.safe_step = {"volt": 1e-2, "curr": 2e-6}
+        self.safe_step = {"volt": 1e-1, "curr": 1e-6}
         self.info_sync()
 
     def info_sync(self):
@@ -2697,7 +2697,7 @@ class Wrapper2450(DCSourceMeter):
             self.meter = Keithley2450("Keithley2450_2", GPIB)
         self.info_dict = {}
         self.output_target = 0
-        self.safe_step = {"volt": 1e-2, "curr": 2e-6}
+        self.safe_step = {"volt": 1e-1, "curr": 1e-6}
         self.info_sync()
 
     def info_sync(self):
