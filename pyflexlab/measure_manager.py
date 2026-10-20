@@ -5,6 +5,8 @@ initialzed right before the measurement, as there may be a long time between loa
 possibilities of parameter changing"""
 
 import copy
+import math
+from dataclasses import dataclass
 import shutil
 from pathlib import Path
 from itertools import product
@@ -26,7 +28,7 @@ from pyomnix.utils import (
 )
 from pyomnix.omnix_logger import get_logger
 from pyflexlab.file_organizer import print_help_if_needed, FastCSVWriter, FileOrganizer
-from pyflexlab.constants import SafePath, BoundedCounter
+from pyflexlab.constants import SafePath, BoundedCounter, StableReadings, _validate_nonnegative
 from pyflexlab.drivers.probe_rotator import RotatorProbe
 from pyflexlab.equip_wrapper import (
     ITCs,
@@ -52,6 +54,52 @@ from pyflexlab.equip_wrapper.simulated import SimMeter, SimMag, SimITC, FakeMag,
 logger = get_logger(__name__)
 
 
+
+
+@dataclass(frozen=True)
+class WaitResult:
+    value: float  # Last reading that satisfied the wait condition
+    samples: int  # Total readings taken while waiting
+    elapsed_s: float  # Seconds from wait start to success
+
+
+@dataclass(frozen=True)
+class ReadWindow:
+    """Choose exactly one of samples, duration_s or until_stable.
+
+    Stability mode also requires timeout_s. interval_s is a delay between
+    completed reads, not a promised sample period. Times come from the clock.
+    """
+
+    samples: int | None = None  # Fixed number of readings
+    duration_s: float | None = None  # Time window for starting reads, in seconds
+    until_stable: bool = False  # Stop after enough consecutive stable comparisons
+    timeout_s: float | None = None  # Required time limit for stability mode
+    interval_s: float = 0.1  # Extra delay between reads, not the sampling period
+    consecutive: int = 5  # Required consecutive passing comparisons
+    min_samples: int = 1  # Minimum total readings before declaring stability
+    atol: float = 0.0  # Absolute tolerance in the measured quantity's units
+    rtol: float = 0.01  # Relative tolerance against the previous reading
+
+    def __post_init__(self):
+        if sum((self.samples is not None, self.duration_s is not None, self.until_stable)) != 1:
+            logger.raise_error("choose exactly one read-window mode", ValueError, include_traceback=False)
+        for name in ("interval_s", "atol", "rtol"):
+            _validate_nonnegative(getattr(self, name), name)
+        for name in ("duration_s", "timeout_s"):
+            value = getattr(self, name)  # Optional time limit being validated
+            if value is not None:
+                _validate_nonnegative(value, name)
+                if value == 0:
+                    logger.raise_error(f"{name} must be positive", ValueError, include_traceback=False)
+        if self.until_stable and self.timeout_s is None:
+            logger.raise_error("stability windows require timeout_s", ValueError, include_traceback=False)
+        if not self.until_stable and self.timeout_s is not None:
+            logger.raise_error("timeout_s is only used for stability windows", ValueError, include_traceback=False)
+        for name in ("samples", "consecutive", "min_samples"):
+            value = getattr(self, name)  # Sample or comparison count being validated
+            if value is not None and (not isinstance(value, int) or value < 1):
+                logger.raise_error(f"{name} must be a positive integer", ValueError, include_traceback=False)
 
 
 class MeasureManager(FileOrganizer):
@@ -910,6 +958,73 @@ class MeasureManager(FileOrganizer):
                     else:
                         timer_i = 0
                     yield instr.curr_angle()
+
+    @staticmethod
+    def wait_until(getter: Callable[[], float], predicate: Callable[[float], bool], *,
+                   timeout: float, interval: float = 0.1, consecutive: int = 1,
+                   min_samples: int = 1) -> WaitResult:
+        """Wait for consecutive passing readings; timeout raises, never retries output.
+
+        A blocking instrument call must have its own I/O timeout. The deadline is
+        checked after each getter as well as before starting another sample.
+        """
+        _validate_nonnegative(timeout, "timeout")
+        _validate_nonnegative(interval, "interval")
+        if timeout == 0 or consecutive < 1 or min_samples < 1 or not isinstance(consecutive, int) or not isinstance(min_samples, int):
+            logger.raise_error("timeout and sample counts must be positive", ValueError, include_traceback=False)
+        start = time.monotonic()  # Wait start on the monotonic clock
+        count = samples = 0  # Consecutive successes and total readings, respectively
+        while time.monotonic() - start < timeout:
+            value = float(getter())  # Latest reading used to evaluate the condition
+            if not math.isfinite(value):
+                logger.raise_error("nonfinite reading while waiting", ValueError, include_traceback=False)
+            samples += 1
+            count = count + 1 if predicate(value) else 0
+            elapsed = time.monotonic() - start  # Wait duration including getter execution
+            if elapsed >= timeout:
+                break
+            if count >= consecutive and samples >= min_samples:
+                return WaitResult(value, samples, elapsed)
+            time.sleep(min(interval, timeout - elapsed))
+        logger.raise_error(f"condition did not settle within {timeout} seconds ({samples} samples)", TimeoutError, include_traceback=False)
+
+    @staticmethod
+    def read_window(read: Callable[[], float], window: ReadWindow):
+        """Yield (sample_id, elapsed_s, value) for any scalar measurement getter.
+
+        Time starts at the first iteration and is sampled after each read finishes.
+        This generator does not set outputs, create files or calculate derived data.
+        An in-flight duration-mode read may finish past the deadline. Stability mode
+        yields that final reading, then raises if its deadline has been exceeded.
+        """
+        read_start = time.monotonic()  # Start of this acquisition window
+        criterion = StableReadings(window.atol, window.rtol)  # Fresh adjacent-reading comparison state
+        passing = sample_id = 0  # Consecutive stable comparisons and zero-based sample index
+        deadline = window.timeout_s if window.until_stable else window.duration_s  # Elapsed-time limit, or None
+        while True:
+            elapsed = time.monotonic() - read_start  # Time spent in this window so far
+            if deadline is not None and elapsed >= deadline:
+                if window.until_stable:
+                    logger.raise_error(f"reading did not settle within {deadline} seconds", TimeoutError, include_traceback=False)
+                break
+            value = float(read())  # Current scalar measurement
+            now = time.monotonic()  # Timestamp after the read completes
+            if not math.isfinite(value):
+                logger.raise_error("nonfinite measurement reading", ValueError, include_traceback=False)
+            yield sample_id, now - read_start, value
+            sample_id += 1
+            if window.until_stable:
+                if now - read_start >= window.timeout_s:
+                    logger.raise_error("reading exceeded its stability deadline", TimeoutError, include_traceback=False)
+                passing = passing + 1 if criterion(value) else 0
+                if passing >= window.consecutive and sample_id >= window.min_samples:
+                    break
+            elif window.samples is not None and sample_id >= window.samples:
+                break
+            delay = window.interval_s  # Requested pause before the next read
+            if deadline is not None:
+                delay = min(delay, max(0, deadline - (time.monotonic() - read_start)))
+            time.sleep(delay)
 
     def record_init(
         self,

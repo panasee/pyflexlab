@@ -21,6 +21,9 @@ notes for Hooks:
 from __future__ import annotations
 
 import time
+import math
+from contextlib import ExitStack
+from pathlib import Path
 from dataclasses import dataclass, field
 from typing import Any, Callable, Iterable, Optional, Sequence
 from functools import wraps
@@ -29,6 +32,8 @@ from pyomnix.data_process import DataManipulator
 from pyomnix.omnix_logger import get_logger
 
 from pyflexlab.equip_wrapper import Meter, SourceMeter, WrapperSR830, WrapperSR860
+from pyflexlab.constants import _validate_nonnegative
+from pyflexlab.measure_manager import ReadWindow
 from pyflexlab.measure_flow_old import MeasureFlow as LegacyMeasureFlow
 
 logger = get_logger(__name__)
@@ -90,6 +95,37 @@ class PlotRecipe:
     inline_jupyter: Optional[bool] = None
 
 
+@dataclass(frozen=True)
+class PulseStep: # single pulse event
+    value: float  # Write amplitude in the units expected by apply
+    width_s: float  # Hold time in seconds after apply returns
+    cycle_id: int = 0  # User-assigned cycle identifier
+
+    def __post_init__(self):
+        if not math.isfinite(self.value):
+            logger.raise_error("pulse value must be finite", ValueError, include_traceback=False)
+        _validate_nonnegative(self.width_s, "width_s")
+        if not isinstance(self.cycle_id, int) or self.cycle_id < 0:
+            logger.raise_error("cycle_id must be a nonnegative integer", ValueError, include_traceback=False)
+
+
+PULSE_COLUMNS = ("cycle_id", "pulse_id", "sample_id", "phase", "pulse_value",
+                 "pulse_width_s", "read_bias", "elapsed_s", "time_since_pulse_s", "I_read")  # Ordered ten-column row schema
+
+
+@dataclass(slots=True)
+class RecordSource:
+    """Custom row factory. Columns include time, if wanted; files must be new.
+
+    The factory is called only after preparation and plot initialization. It
+    must return an iterable of complete rows, without acquiring hardware early.
+    """
+
+    factory: Callable[[], Iterable[RecordTuple]]
+    columns: Sequence[str]
+    file_path: str | Path
+
+
 @dataclass(slots=True)
 class MeasurementRecipe:
     """
@@ -113,6 +149,7 @@ class MeasurementRecipe:
     on_measure: Optional[MeasureHook] = None
     after_prepare: Optional[PrepareHook] = None
     shutdown: Sequence[ShutdownTarget] = ()
+    record_source: RecordSource | None = None
 
 
 class MeasureFlow(LegacyMeasureFlow):
@@ -124,8 +161,56 @@ class MeasureFlow(LegacyMeasureFlow):
     methods that build a `MeasurementRecipe` and pass it to `run_recipe`.
     """
 
+    def pulse_records(self, steps: Iterable[PulseStep], *, apply: Callable[[PulseStep], None],
+                      restore_read: Callable[[], None], read: Callable[[], float],
+                      read_bias: float, window: ReadWindow,
+                      before_read: Callable[[], None] | None = None):
+        """Yield PULSE_COLUMNS rows, preserving repeated amplitudes as distinct events.
+
+        apply configures the write output; restore_read returns all affected outputs
+        to their read state, including after an apply failure. before_read can wait
+        for gate leakage/temperature after restoration. Configure recipe.shutdown
+        separately for final output-off behavior. No R is inferred from current.
+        time_since_pulse_s is measured since the restore action completed.
+        """
+        if not math.isfinite(read_bias):
+            logger.raise_error("read_bias must be finite", ValueError, include_traceback=False)
+        start = time.monotonic()  # Sequence start, including all write and read actions
+        for pulse_id, step in enumerate(steps):  # Unique event index, even for repeated amplitudes
+            try:
+                apply(step)
+                time.sleep(step.width_s)
+            finally:
+                restore_read()
+            pulse_end = time.monotonic()  # Time when restoration to the read state completed
+            if before_read is not None:
+                before_read()
+            for sample_id, _, value in self.read_window(read, window):  # Per-pulse index and measured current
+                now = time.monotonic()  # Timestamp used for both output time columns
+                yield (step.cycle_id, pulse_id, sample_id, "read", step.value,
+                       step.width_s, read_bias, now - start, now - pulse_end, value)
+
     def prepare_recipe(self, recipe: MeasurementRecipe) -> dict[str, Any]:
         """Create the measure dictionary for a recipe."""
+        if recipe.record_source is not None:
+            source = recipe.record_source
+            if recipe.measure_mods or recipe.args or recipe.wrapper_lst or recipe.compliance_lst or recipe.measure_kwargs:
+                logger.raise_error("record_source cannot be combined with measurement modules or options", ValueError, include_traceback=False)
+            if len(recipe.extra_record_columns) != len(recipe.extra_record_getters):
+                logger.raise_error("record_columns and record_getters must have the same length", ValueError, include_traceback=False)
+            columns = [*source.columns, *recipe.extra_record_columns]
+            if not source.columns or any(not isinstance(c, str) or not c for c in columns) or len(set(columns)) != len(columns):
+                logger.raise_error("record columns must be nonempty, unique strings", ValueError, include_traceback=False)
+            if not callable(source.factory):
+                logger.raise_error("record source factory must be callable", TypeError, include_traceback=False)
+            if getattr(self, "_csv_fast_writer", None) is not None:
+                logger.raise_error("finish the active recording before starting a custom source", RuntimeError, include_traceback=False)
+            path, record_num, plot_path = self.record_init(
+                (), manual_columns=columns, file_path=source.file_path,
+                with_timer=False, overwrite=False, numeric_format=".12f",
+            )
+            return dict(file_path=path, plot_record_path=plot_path,
+                        record_num=record_num, vary_mod=[], gen_lst=source)
         measure_kwargs = dict(recipe.measure_kwargs)
         self._prepare_record_getters(recipe, measure_kwargs)
         return self.get_measure_dict(
@@ -147,36 +232,50 @@ class MeasureFlow(LegacyMeasureFlow):
         Return:
             Just for record, irrelevant to actual running
         """
-        # set up measurement configuration
-        mea_dict = self.prepare_recipe(recipe)
+        # A rejected custom run must not close or shut down an existing run.
+        if recipe.record_source is not None and getattr(self, "_csv_fast_writer", None) is not None:
+            logger.raise_error("finish the active recording before starting a custom source", RuntimeError, include_traceback=False)
+        with ExitStack() as cleanup:
+            for target in reversed(recipe.shutdown):
+                cleanup.callback(self._shutdown_recipe_targets, (target,))
+            cleanup.callback(self._finalize_recipe_record)
+            # set up measurement configuration
+            mea_dict = self.prepare_recipe(recipe)
 
-        # HOOK: hook modification
-        after_prepare_hook: PrepareHook = add_after(recipe.after_prepare, MeasureFlow.basic_info_meadict)
-        on_measure_hook: MeasureHook = recipe.on_measure or noop
-        on_record_hook: RecordHook = recipe.on_record or noop
+            # HOOK: hook modification
+            after_prepare_hook: PrepareHook = add_after(recipe.after_prepare, MeasureFlow.basic_info_meadict)
+            on_measure_hook: MeasureHook = recipe.on_measure or noop
+            on_record_hook: RecordHook = recipe.on_record or noop
 
-        # print infos and register on_record hook for varying action
-        if mea_dict["vary_mod"]:
-            vary_infos = MeasureFlow._extract_vary(mea_dict)
-            logger.validate("vary_loop" in recipe.measure_kwargs, "vary_loop setting not found")
-            logger.info(f"bound: {vary_infos[-1]}, loop: {recipe.measure_kwargs['vary_loop']}")
-            vary_flag = False   
-            def start_varys(*args, **kwargs):
-                # only support one-start vary(all modules start at same time)
-                nonlocal vary_flag
-                if not vary_flag:
-                    for funci in vary_infos[0]:
-                        funci()
-                    vary_flag = True
-            on_record_hook: RecordHook = add_after(on_record_hook, start_varys)
+            # print infos and register on_record hook for varying action
+            if mea_dict["vary_mod"]:
+                vary_infos = MeasureFlow._extract_vary(mea_dict)
+                logger.validate("vary_loop" in recipe.measure_kwargs, "vary_loop setting not found")
+                logger.info(f"bound: {vary_infos[-1]}, loop: {recipe.measure_kwargs['vary_loop']}")
+                vary_flag = False   
+                def start_varys(*args, **kwargs):
+                    # only support one-start vary(all modules start at same time)
+                    nonlocal vary_flag
+                    if not vary_flag:
+                        for funci in vary_infos[0]:
+                            funci()
+                        vary_flag = True
+                on_record_hook: RecordHook = add_after(on_record_hook, start_varys)
 
-        # execute after_prepare hook
-        after_prepare_hook(mea_dict)
+            # execute after_prepare hook
+            after_prepare_hook(mea_dict)
 
-        # start plotting and periodic plot saving
-        plotobj = self._init_recipe_plot(recipe.plot, mea_dict)
-        try:
-            mea_iter = self._iter_records(mea_dict["gen_lst"], on_measure_hook)
+            # start plotting and periodic plot saving
+            plotobj = self._init_recipe_plot(recipe.plot, mea_dict)
+            if plotobj is not None:
+                cleanup.callback(self._stop_recipe_plot, plotobj)
+            rows = mea_dict["gen_lst"]
+            if isinstance(rows, RecordSource):
+                rows = rows.factory()
+            rows = iter(rows)
+            if hasattr(rows, "close"):
+                cleanup.callback(rows.close)
+            mea_iter = self._iter_records(rows, on_measure_hook)
             while True:
                 t0 = time.perf_counter()
                 try:
@@ -200,13 +299,18 @@ class MeasureFlow(LegacyMeasureFlow):
                 elapsed = time.perf_counter() - t0
                 if recipe.step_time > 0:
                     time.sleep(max(0, recipe.step_time - elapsed))
-        finally:
-            if plotobj is not None:
-                plotobj.stop_saving()
-                self._active_plotobj = None
-            self._shutdown_recipe_targets(recipe.shutdown)
 
         return mea_dict
+
+    def _finalize_recipe_record(self) -> None:
+        if getattr(self, "_csv_fast_writer", None) is not None:
+            self.record_finalize()
+
+    def _stop_recipe_plot(self, plotobj) -> None:
+        try:
+            plotobj.stop_saving()
+        finally:
+            self._active_plotobj = None
 
     _run_recipe = run_recipe
 
@@ -268,10 +372,13 @@ class MeasureFlow(LegacyMeasureFlow):
         plotobj = plotrec.plotobj if plotrec.plotobj is not None else DataManipulator(5)
         if plotrec.inline_jupyter is not None:
             plotrec.init_kwargs.setdefault("inline_jupyter", plotrec.inline_jupyter)
-        if plotrec.init_args or plotrec.init_kwargs:
-            plotobj.live_plot_init(*plotrec.init_args, **plotrec.init_kwargs)
-        plotobj.start_saving(mea_dict["plot_record_path"], plotrec.saving_interval)
-        self._active_plotobj = plotobj
+        with ExitStack() as cleanup:
+            cleanup.callback(self._stop_recipe_plot, plotobj)
+            if plotrec.init_args or plotrec.init_kwargs:
+                plotobj.live_plot_init(*plotrec.init_args, **plotrec.init_kwargs)
+            plotobj.start_saving(mea_dict["plot_record_path"], plotrec.saving_interval)
+            self._active_plotobj = plotobj
+            cleanup.pop_all()
         return plotobj
 
     @staticmethod

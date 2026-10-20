@@ -1,5 +1,7 @@
 #!/usr/bin/env python
 import os
+import math
+from dataclasses import dataclass, field
 from pathlib import Path
 from functools import wraps
 
@@ -13,6 +15,34 @@ logger = get_logger(__name__)
 LOCAL_DB_PATH: Path | None = None
 OUT_DB_PATH: Path | None = None
 DATE_FORMAT: str = "%Y-%m-%d_%H:%M:%S.%f"
+
+
+def _validate_nonnegative(value: float, name: str) -> None:
+    if not math.isfinite(value) or value < 0:
+        logger.raise_error(f"{name} must be finite and nonnegative", ValueError, include_traceback=False)
+
+
+@dataclass
+class StableReadings:
+    """Stateful adjacent-reading criterion. Create a fresh instance per window.
+
+    A passing comparison satisfies abs(new-old) <= atol + rtol*abs(old).
+    The first reading seeds the comparison and does not count as passing.
+    """
+
+    atol: float = 0.0
+    rtol: float = 0.01
+    _previous: float | None = field(default=None, init=False, repr=False)
+
+    def __post_init__(self):
+        _validate_nonnegative(self.atol, "atol")
+        _validate_nonnegative(self.rtol, "rtol")
+
+    def __call__(self, value: float) -> bool:
+        if not math.isfinite(value):
+            logger.raise_error("nonfinite stability reading", ValueError, include_traceback=False)
+        previous, self._previous = self._previous, value
+        return previous is not None and abs(value - previous) <= self.atol + self.rtol * abs(previous)
 
 
 class BoundedCounter:
