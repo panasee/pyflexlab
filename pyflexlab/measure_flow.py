@@ -24,22 +24,24 @@ import time
 import math
 from contextlib import ExitStack
 from pathlib import Path
-from dataclasses import dataclass, field
-from typing import Any, Callable, Iterable, Optional, Sequence
+from dataclasses import dataclass, field, replace
+from typing import Any, Callable, Iterable, Iterator, Optional, Sequence
 from functools import wraps
 
 from pyomnix.data_process import DataManipulator
 from pyomnix.omnix_logger import get_logger
+from pyomnix.utils import combined_generator_list
 
 from pyflexlab.equip_wrapper import Meter, SourceMeter, WrapperSR830, WrapperSR860
 from pyflexlab.constants import _validate_nonnegative
-from pyflexlab.measure_manager import ReadWindow
+from pyflexlab.measure_manager import ReadWindow, ScanPlan
 from pyflexlab.measure_flow_old import MeasureFlow as LegacyMeasureFlow
 
 logger = get_logger(__name__)
 
 RecordTuple = tuple[Any, ...]  # actual measured values tuple from the whole generator
 PlotUpdate = Callable[[DataManipulator, RecordTuple], None]
+PlotFlush = Callable[[DataManipulator], None]
 PlotGetter = Callable[[], Any]
 RecordGetter = Callable[[], Any]
 RecordHook = Callable[[RecordTuple], None]
@@ -91,8 +93,10 @@ class PlotRecipe:
     update: PlotUpdate = default_time_update
     # Values appended only for plot.update; they are not recorded to CSV.
     extra_getters: Sequence[PlotGetter] = ()
-    saving_interval: float = 7
+    saving_interval: float | None = 7
     inline_jupyter: Optional[bool] = None
+    # Flush pending display updates before stop_saving takes its final snapshot.
+    flush: PlotFlush | None = None
 
 
 @dataclass(frozen=True)
@@ -100,13 +104,17 @@ class PulseStep: # single pulse event
     value: float  # Write amplitude in the units expected by apply
     width_s: float  # Hold time in seconds after apply returns
     cycle_id: int = 0  # User-assigned cycle identifier
+    settings: dict[str, float] = field(default_factory=dict)  # Named source setpoints appended on request
 
-    def __post_init__(self):
+    def __post_init__(self) -> None:
         if not math.isfinite(self.value):
             logger.raise_error("pulse value must be finite", ValueError, include_traceback=False)
         _validate_nonnegative(self.width_s, "width_s")
         if not isinstance(self.cycle_id, int) or self.cycle_id < 0:
             logger.raise_error("cycle_id must be a nonnegative integer", ValueError, include_traceback=False)
+        if any(not isinstance(k, str) or not k or not math.isfinite(v) for k, v in self.settings.items()):
+            logger.raise_error("pulse settings must have nonempty names and finite values", ValueError, include_traceback=False)
+        object.__setattr__(self, "settings", dict(self.settings))
 
 
 PULSE_COLUMNS = ("cycle_id", "pulse_id", "sample_id", "phase", "pulse_value",

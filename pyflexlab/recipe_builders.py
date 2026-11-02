@@ -3,10 +3,13 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field, fields
+import time
 from typing import Any, Callable, Literal, Optional, Sequence
 
 from pyomnix.data_process import DataManipulator
+from pyomnix.utils import GridData
 from pyomnix.omnix_logger import get_logger
+from pyflexlab.constants import _validate_nonnegative
 from pyflexlab.equip_wrapper import (
     Meter,
     Wrapper6221,
@@ -15,7 +18,9 @@ from pyflexlab.measure_flow import (
     MeasurementRecipe,
     MeasureHook,
     PlotGetter,
+    PlotFlush,
     PlotRecipe,
+    PlotUpdate,
     PrepareHook,
     RecordGetter,
     RecordHook,
@@ -25,7 +30,8 @@ from pyflexlab.measure_flow import (
 logger = get_logger(__name__)
 
 RecipeModuleCategory = Literal["source", "sense", "external"]
-PlotSeriesValue = int | Callable[[RecordTuple], Any]
+ResolvedPlotSeriesValue = int | Callable[[RecordTuple], Any]
+PlotSeriesValue = ResolvedPlotSeriesValue | str
 
 
 @dataclass(frozen=True, slots=True)
@@ -42,7 +48,12 @@ class RecipeModule:
 
 @dataclass(frozen=True, slots=True)
 class PlotSeries:
-    """One record-column mapping into one live-plot panel line."""
+    """Map columns by index, name or callable into a line or a GridData map.
+
+    A grid uses x/y to locate a cell and z_col as its measured value. Use when
+    to select a cycle/branch, and grid_update_kwargs for GridData.update options
+    such as indices=True. Grid cells are recorded even between display refreshes.
+    """
     row: int
     col: int
     line: int
@@ -134,7 +145,7 @@ def assemble_recipe(
         on_record=on_record,
         shutdown=shutdown,
         extra_record_columns=extra_record_columns,
-        extra_record_getters=extra_record_getters
+        extra_record_getters=extra_record_getters,
     )
 
 
@@ -546,13 +557,24 @@ class PlotModules:
         init_args: tuple[Any, ...],
         series: Sequence[PlotSeries],
         titles: list[list[str]] | None = None,
-        saving_interval: float = 7,
+        saving_interval: float | None = 7,
         plotobj: Optional[DataManipulator] = None,
         use_dash: bool = False,
         extra_getters: Sequence[PlotGetter] = (),
         init_kwargs: dict[str, Any] | None = None,
         update_kwargs: dict[str, Any] | None = None,
     ) -> PlotRecipe:
+        """Build line/grid mappings using the shared live_plot_update interface.
+
+        record_columns resolves named fields. refresh_interval_s throttles grid
+        display only; line updates and grid acquisition still process every row.
+        update_kwargs goes to live_plot_update for both kinds of plot, while each
+        series' grid_update_kwargs goes to GridData.update. The runner flushes
+        pending grid changes before stopping plot saving, including on failure.
+        Unless with_str is explicitly set in update_kwargs, scalar line strings
+        are converted to floats when possible; other strings enable with_str
+        for that line update only. Recorded values are unchanged.
+        """
         logger.validate(series, "mapped_plot requires at least one PlotSeries")
         plot_init_kwargs = dict(init_kwargs or {})
         plot_init_kwargs["axes_labels"] = PlotModules._build_axes_labels(

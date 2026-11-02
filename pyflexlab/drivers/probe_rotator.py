@@ -213,7 +213,7 @@ class RotatorProbe:
         self,
         angle,
         *,
-        progress=False,
+        progress=True,
         axis_no=None,
         wait=True,
         angle_tolerance=0.02,

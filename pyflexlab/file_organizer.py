@@ -11,15 +11,19 @@ import platform
 import csv
 from functools import wraps
 import json
+from pathlib import Path
 import datetime
 from numbers import Integral, Real
-from typing import Literal, Sequence
+from typing import Iterable, Literal, Sequence, TYPE_CHECKING
 from itertools import islice
 import shutil
 import re
 from pyomnix.omnix_logger import get_logger
 from . import constants
 from .constants import set_paths, SafePath
+
+if TYPE_CHECKING:
+    import pandas as pd
 
 logger = get_logger(__name__)
 
@@ -667,6 +671,37 @@ class FileOrganizer:
 
         # sync the measure type file
         FileOrganizer._sync_json("measure_type")
+
+    @staticmethod
+    def index_measurements(
+        paths: Iterable[str | Path], *,
+        pattern: str | re.Pattern[str] | None = None,
+    ) -> "pd.DataFrame":
+        """Index explicit files without combining repeated parameter values.
+
+        Optional regex fullmatches each filename stem and exposes its named groups.
+        Nonmatching files raise; callers choose files and parsing rules explicitly.
+        Group values remain strings until the caller selects a numeric conversion.
+        """
+        import pandas as pd
+
+        matcher = re.compile(pattern) if pattern is not None else None
+        if matcher is not None and set(matcher.groupindex) & {"path", "bytes"}:
+            logger.raise_error("pattern groups conflict with index columns", ValueError, include_traceback=False)
+        rows = []
+        for filename in paths:
+            path = Path(filename)
+            if not path.is_file():
+                logger.raise_error(str(path), FileNotFoundError, include_traceback=False)
+            row = dict(path=str(path), bytes=path.stat().st_size)
+            if matcher is not None:
+                match = matcher.fullmatch(path.stem)
+                if match is None:
+                    logger.raise_error(f"filename does not match pattern: {path.name}", ValueError, include_traceback=False)
+                row.update(match.groupdict())
+            rows.append(row)
+        columns = ["path", "bytes", *(matcher.groupindex if matcher is not None else ())]
+        return pd.DataFrame(rows, columns=columns)
 
     def query_proj(self) -> dict:
         """
