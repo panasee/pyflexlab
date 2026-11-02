@@ -10,8 +10,9 @@ from dataclasses import dataclass
 import shutil
 from pathlib import Path
 from itertools import product
-from typing import Literal, Generator, Optional, Sequence, Callable
+from typing import Any, Literal, Generator, Optional, Sequence, Callable
 import numpy as np
+from numpy.typing import ArrayLike, NDArray
 import pyvisa
 import pandas as pd
 import re
@@ -19,6 +20,7 @@ from functools import partial
 import time
 from pyomnix.data_process import DataManipulator
 from pyomnix.utils import (
+    GridData,
     convert_unit,
     gen_seq,
     constant_generator,
@@ -102,12 +104,43 @@ class ReadWindow:
                 logger.raise_error(f"{name} must be a positive integer", ValueError, include_traceback=False)
 
 
+@dataclass
+class ScanPlan:
+    """Indexed path produced by MeasureManager.create_scan_plan.
+
+    rows/columns of valid follow y/x, matching PyOmnix GridData. Each scan_id is
+    one row visit; cycle_id distinguishes repeats of the whole grid. Source
+    columns contain requested setpoints, never instrument readbacks.
+    """
+
+    x: NDArray[np.float64]
+    y: NDArray[np.float64]
+    valid: NDArray[np.bool_]
+    points: pd.DataFrame
+    source_names: tuple[str, str]
+    metadata: dict[str, Any]  # In-memory planning parameters and omission report; not written to disk
+
+    @property
+    def columns(self) -> tuple[str, ...]:
+        return tuple(self.points.columns)
+
+    @property
+    def sweep_tables(self) -> tuple[list[float], list[float]]:
+        """Paired columns for the existing manual combined-source generators."""
+        first, second = self.source_names
+        return self.points[first].tolist(), self.points[second].tolist()
+
+    def grid(self, *, coordinates: tuple[ArrayLike, ArrayLike] | None = None) -> GridData:
+        """Allocate per cycle/branch; optional X/Y matrices have shape (len(y), len(x))."""
+        return GridData(self.x, self.y, valid=self.valid, coordinates=coordinates)
+
+
 class MeasureManager(FileOrganizer):
     """This class is a subclass of FileOrganizer and is responsible for managing the measure-related folders and data
     During the measurement, the data will be recorded in self.df_cache, which will be overwritten after each measurement
     """
 
-    def __init__(self, proj_name: str, **kwargs) -> None:
+    def __init__(self, proj_name: str, *, connect_visa: bool = True, **kwargs) -> None:
         """Note that the FileOrganizer.out_database_init method should be called to assign the correct path to the
         out_database attribute. This method should be called before the MeasureManager object is created."""
         super().__init__(proj_name, **kwargs)  # Call the constructor of the parent class
@@ -126,11 +159,14 @@ class MeasureManager(FileOrganizer):
         # load params for plotting in measurement
         DataManipulator.load_settings(False, False)
         self._csv_fast_writer: FastCSVWriter | None = None  # Fast CSV writer instance
-        self._rm = pyvisa.ResourceManager()
+        # Custom RecordSource and simulated workflows can run without a VISA backend.
+        self._rm = pyvisa.ResourceManager() if connect_visa else None
         self.df_cache: pd.DataFrame | None = None
         self._active_plotobj: DataManipulator | None = None  # currently running plot/save object
 
     def list_visa_resources(self) -> dict:
+        if self._rm is None:
+            logger.raise_error("VISA discovery was disabled with connect_visa=False", RuntimeError, include_traceback=False)
         return self._rm.list_resources_info()
 
     @property
@@ -623,7 +659,13 @@ class MeasureManager(FileOrganizer):
         # load the instrument needed
         source_type = source_type.replace("V", "volt").replace("I", "curr")
 
-        if not allow_large_jump and sweepmode == "manual":
+        if sweepmode == "manual":
+            if sweep_table is None or len(sweep_table) == 0:
+                logger.raise_error("manual sweep requires a nonempty sweep_table", ValueError, include_traceback=False)
+            sweep_table = convert_unit(sweep_table, "")[0]
+
+        if not allow_large_jump and sweepmode == "manual" and len(sweep_table) > 1:
+            # A singleton still ramps to its first point, but has no adjacent jump.
             largest_jump = np.abs(np.diff(sweep_table)).max()
             if source_type == "volt":
                 logger.validate(largest_jump < 0.5, f"large jump {largest_jump} in sweep table, if want to force the sweep, set allow_large_jump to True")
@@ -1783,6 +1825,120 @@ class MeasureManager(FileOrganizer):
         else:
             raise ValueError("meter name not recognized")
         return instr
+
+    @staticmethod
+    def _validate_source_limits(limits: ArrayLike) -> NDArray[np.float64]:
+        """Normalize the two physical channels' (low, high) bounds in one place."""
+        bounds = np.asarray(limits, dtype=float)
+        if bounds.shape != (2, 2) or not np.isfinite(bounds).all() or np.any(bounds[:, 0] > bounds[:, 1]):
+            logger.raise_error("limits must contain two finite ordered (low, high) pairs", ValueError, include_traceback=False)
+        return bounds
+
+    @staticmethod
+    def coordinate_transform(
+        x: ArrayLike, y: ArrayLike, *, matrix: ArrayLike,
+        offset: ArrayLike = (0., 0.), inverse: bool = False, limits: ArrayLike | None = None,
+    ) -> tuple[float, float] | tuple[NDArray[np.float64], NDArray[np.float64]]:
+        """Broadcast an explicit two-coordinate affine calibration.
+
+        Forward: outputs = matrix @ [x, y] + offset. Inverse returns the input
+        coordinates. limits, when supplied, always constrain the physical output
+        channels. No implicit units, clipping, instrument access or coefficients.
+        matrix has shape (2, 2), offset (2,), and limits (2, 2). Scalar inputs
+        return two floats; array inputs return two arrays of the broadcast shape.
+        """
+        matrix, offset = np.asarray(matrix, dtype=float), np.asarray(offset, dtype=float)
+        if (matrix.shape != (2, 2) or offset.shape != (2,)
+                or not np.isfinite(matrix).all() or not np.isfinite(offset).all()):
+            logger.raise_error("matrix and offset must be finite with shapes (2, 2) and (2,)", ValueError, include_traceback=False)
+        # Validate reversibility for both directions of the same calibration.
+        inverse_matrix = np.linalg.inv(matrix)
+        x, y = np.broadcast_arrays(np.asarray(x, dtype=float), np.asarray(y, dtype=float))
+        values = np.stack((x, y), axis=-1)
+        if not np.isfinite(values).all():
+            logger.raise_error("coordinates must be finite", ValueError, include_traceback=False)
+        result = ((values - offset) @ inverse_matrix.T if inverse else values @ matrix.T + offset)
+        if not np.isfinite(result).all():
+            logger.raise_error("coordinate transform produced nonfinite values", ValueError, include_traceback=False)
+        physical = values if inverse else result
+        if limits is not None:
+            bounds = MeasureManager._validate_source_limits(limits)
+            if np.any((physical < bounds[:, 0]) | (physical > bounds[:, 1])):
+                logger.raise_error("coordinates exceed source limits", ValueError, include_traceback=False)
+        if result.ndim == 1:
+            return float(result[0]), float(result[1])
+        return result[..., 0], result[..., 1]
+
+    @staticmethod
+    def create_scan_plan(
+        x: ArrayLike, y: ArrayLike, *, matrix: ArrayLike = ((1., 0.), (0., 1.)),
+        offset: ArrayLike = (0., 0.), limits: ArrayLike | None = None,
+        mode: Literal["forward", "roundtrip"] = "roundtrip", repeats: int = 1,
+        start: Literal["low", "high"] = "low", out_of_bounds: Literal["raise", "omit"] = "raise",
+        source_names: tuple[str, str] = ("V_top", "V_bottom"),
+    ) -> ScanPlan:
+        """Plan a constrained two-source scan, without configuring instruments.
+
+        y is the slow axis, x the fast axis. roundtrip samples the far turning
+        point once, on the outgoing branch. Each subsequent row/cycle has its
+        own scan_id. Explicit omission reports skipped rows and excluded cells.
+        """
+        grid = GridData(x, y)
+        if mode not in {"forward", "roundtrip"} or start not in {"low", "high"}:
+            logger.raise_error("mode must be forward/roundtrip and start low/high", ValueError, include_traceback=False)
+        if isinstance(repeats, bool) or not isinstance(repeats, (int, np.integer)) or repeats < 1:
+            logger.raise_error("repeats must be a positive integer", ValueError, include_traceback=False)
+        if out_of_bounds not in {"raise", "omit"}:
+            logger.raise_error("out_of_bounds must be raise or omit", ValueError, include_traceback=False)
+        columns = ("point_id", "cycle_id", "scan_id", "ix", "iy", "x", "y", "direction")
+        if (len(source_names) != 2 or len(set(source_names)) != 2
+                or any(not isinstance(n, str) or not n or n in columns for n in source_names)):
+            logger.raise_error("source_names must be two unique names distinct from scan columns", ValueError, include_traceback=False)
+        xx, yy = np.meshgrid(grid.x, grid.y)
+        a, b = MeasureManager.coordinate_transform(xx, yy, matrix=matrix, offset=offset)
+        physical = np.stack((a, b), axis=-1)
+        valid = np.ones(grid.shape, dtype=bool)
+        bounds = None
+        if limits is not None:
+            bounds = MeasureManager._validate_source_limits(limits)
+            valid = np.all((physical >= bounds[:, 0]) & (physical <= bounds[:, 1]), axis=-1)
+            if not valid.all() and out_of_bounds == "raise":
+                logger.raise_error("scan contains setpoints outside source limits; choose omit explicitly", ValueError, include_traceback=False)
+        minimum = 2 if mode == "roundtrip" else 1
+        skipped_rows = np.flatnonzero(valid.sum(axis=1) < minimum)
+        if len(skipped_rows) and out_of_bounds == "raise":
+            logger.raise_error("scan rows contain too few points for the requested mode", ValueError, include_traceback=False)
+        valid[skipped_rows] = False
+        if not valid.any():
+            logger.raise_error("no scan points remain", ValueError, include_traceback=False)
+        records, scan_id = [], 0
+        for cycle_id in range(repeats):
+            for iy in range(len(grid.y)):
+                indices = np.flatnonzero(valid[iy])
+                if not len(indices):
+                    continue
+                order = indices[np.argsort(grid.x[indices])]
+                if start == "high":
+                    order = order[::-1]
+                direction = 1 if start == "low" else -1
+                path = [(ix, direction) for ix in order]
+                if mode == "roundtrip":
+                    # The far turning point belongs to the outgoing branch only;
+                    # reversing from the penultimate point avoids a duplicate read.
+                    path += [(ix, -direction) for ix in order[-2::-1]]
+                for ix, branch in path:
+                    records.append((len(records), cycle_id, scan_id, ix, iy,
+                                    grid.x[ix], grid.y[iy], branch, a[iy, ix], b[iy, ix]))
+                scan_id += 1
+        # Keep planning parameters and excluded cells available for inspection,
+        # independently of the acquisition/recording pipeline.
+        metadata = dict(x=grid.x.tolist(), y=grid.y.tolist(), matrix=np.asarray(matrix, dtype=float).tolist(),
+                        offset=np.asarray(offset, dtype=float).tolist(), limits=None if bounds is None else bounds.tolist(),
+                        mode=mode, repeats=int(repeats), start=start,
+                        source_names=list(source_names), skipped_rows=skipped_rows.tolist(),
+                        valid=valid.tolist(), planned_points=len(records))
+        return ScanPlan(grid.x, grid.y, valid, pd.DataFrame(records, columns=(*columns, *source_names)),
+                        tuple(source_names), metadata)
 
     @staticmethod
     def create_mapping(

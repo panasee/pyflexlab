@@ -169,6 +169,92 @@ class MeasureFlow(LegacyMeasureFlow):
     methods that build a `MeasurementRecipe` and pass it to `run_recipe`.
     """
 
+    def scan_recipe(
+        self, plan: ScanPlan, recipe: MeasurementRecipe, *,
+        reading_columns: Sequence[str], wait: Callable[[], None] | None = None,
+    ) -> MeasurementRecipe:
+        """Adapt two manual I/V sweeps and sense modules to an indexed scan.
+
+        Build the ordinary recipe with MeasureModules/RecipeBuilder, ordering
+        the sources like plan.source_names, then pass this result to run_recipe.
+        This adapter owns sweep_tables, if_combine_gen, with_timer and
+        manual_record_columns. All instrument, naming, plot and shutdown options
+        stay on the ordinary recipe. AC senses require four reading column names.
+
+        wait runs after both source generators advance and before any sensing;
+        source_wait still controls each source's own delay. after_prepare sees
+        the recombined rows and their corrected sweep-column indices.
+        """
+        if recipe.record_source is not None:
+            logger.raise_error("scan recipes require measurement modules", ValueError, include_traceback=False)
+        sources, senses, externals = self.extract_info_mods(recipe.measure_mods, *recipe.args)
+        if len(sources) != 2 or externals or not senses or any(
+            not any(config["sweep_fix"] == "sweep" and config["mode"] == "manual"
+                    and config["ac_dc"] in ("ac", "dc") for config in source.values())
+            for source in sources
+        ):
+            logger.raise_error("scan recipes require two manual I/V sweeps and sense modules",
+                               ValueError, include_traceback=False)
+        if len(reading_columns) != sum(4 if sense["ac_dc"] == "ac" else 1 for sense in senses):
+            logger.raise_error("reading_columns must match the sense output width", ValueError, include_traceback=False)
+        columns = (*plan.columns, "elapsed_s", *reading_columns)
+        all_columns = (*columns, *recipe.extra_record_columns)
+        if any(not isinstance(c, str) or not c for c in all_columns) or len(set(all_columns)) != len(all_columns):
+            logger.raise_error("scan column names must be nonempty and unique", ValueError, include_traceback=False)
+
+        def prepare_scan(mea_dict: dict[str, Any]) -> None:
+            mea_dict["gen_lst"] = self.scan_records(plan, mea_dict["gen_lst"], wait=wait)
+            # Plan indices precede the sources in scan rows, unlike ordinary rows.
+            mea_dict["swp_idx"] = [columns.index(name) for name in plan.source_names]
+
+        return replace(
+            recipe,
+            measure_kwargs={
+                **recipe.measure_kwargs,
+                # get_measure_dict consumes the outer list; a tuple gives each
+                # preparation a fresh list so this recipe can be run again.
+                "sweep_tables": tuple(plan.sweep_tables),
+                "if_combine_gen": False, "with_timer": False,
+                "manual_record_columns": list(columns),
+            },
+            after_prepare=add_after(prepare_scan, recipe.after_prepare or noop),
+        )
+
+    def scan_records(
+        self, plan: ScanPlan, generators: Sequence[Iterator[Any]], *,
+        wait: Callable[[], None] | None = None,
+    ) -> Iterator[RecordTuple]:
+        """Compose get_measure_dict's split generators; normally use scan_recipe.
+
+        The first two generators are manual sources using plan.sweep_tables,
+        followed by sense generators, with no timer. The shared combiner flattens
+        multi-value readings (e.g. lock-in X/Y/R/phase) just as in ordinary runs.
+        """
+        source_rows = combined_generator_list(list(generators[:2]))
+        read_rows = combined_generator_list(list(generators[2:]))
+        with ExitStack() as cleanup:
+            for generator in (*generators, source_rows, read_rows):
+                if hasattr(generator, "close"):
+                    cleanup.callback(generator.close)
+            start = time.monotonic()
+            for values in plan.points.itertuples(index=False, name=None):
+                try:
+                    outputs = next(source_rows)
+                    if outputs != list(values[-2:]):
+                        logger.raise_error("source generators do not match the scan plan",
+                                           ValueError, include_traceback=False)
+                    if wait is not None:
+                        wait()
+                    readings = next(read_rows)
+                except StopIteration:
+                    # A scan has a known point count; early exhaustion is a
+                    # failed run, not successful completion of a partial scan.
+                    logger.raise_error(f"scan generator ended before point {values[0]}",
+                                       RuntimeError, include_traceback=False)
+                if not all(math.isfinite(v) for v in readings):
+                    logger.raise_error("scan readings must be finite", ValueError, include_traceback=False)
+                yield (*values, time.monotonic() - start, *readings)
+
     def pulse_records(self, steps: Iterable[PulseStep], *, apply: Callable[[PulseStep], None],
                       restore_read: Callable[[], None], read: Callable[[], float],
                       read_bias: float, window: ReadWindow,
