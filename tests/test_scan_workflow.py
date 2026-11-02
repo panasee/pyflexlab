@@ -410,8 +410,35 @@ def test_runner_failure_closes_record_and_runs_shutdown(flow, tmp_path, scan_har
     assert flow._csv_fast_writer is None
 
 
+def test_voltage_pulse_settings_are_recorded_without_changing_legacy_schema(flow):
+    steps = [PulseStep(.5, 0, settings={"V_top": 1, "V_bottom": 2}) for _ in range(2)]
+    actions = []
+    rows = list(flow.pulse_records(steps, apply=lambda s: actions.append(dict(s.settings)),
+                restore_read=lambda: actions.append("read"), read=lambda: .001,
+                read_bias=1e-6, window=ReadWindow(samples=2, interval_s=0),
+                setting_columns=("V_top", "V_bottom")))
+    columns = flow.pulse_columns(value_col="V_read", setting_columns=("V_top", "V_bottom"))
+    frame = pd.DataFrame(rows, columns=columns)
+    assert list(frame.pulse_id) == [0, 0, 1, 1]
+    assert list(frame.V_read) == [.001]*4
+    assert list(frame.V_bottom) == [2]*4 and actions.count("read") == 2
+    assert flow.pulse_columns() == PULSE_COLUMNS
+    assert asdict(PulseStep(1, 0))["value"] == 1
+    legacy = list(flow.pulse_records([PulseStep(1, 0)], apply=lambda s: None,
+                  restore_read=lambda: None, read=lambda: 1e-9, read_bias=.003,
+                  window=ReadWindow(samples=1, interval_s=0)))
+    assert len(legacy[0]) == 10
 
 
+def test_pulse_apply_failure_restores_read_state(flow):
+    actions = []
+    def fail(step):
+        raise RuntimeError("write failed")
+    with pytest.raises(RuntimeError, match="write failed"):
+        list(flow.pulse_records([PulseStep(1, 0)], apply=fail,
+             restore_read=lambda: actions.append("restored"), read=lambda: 0.,
+             read_bias=.003, window=ReadWindow(samples=1)))
+    assert actions == ["restored"]
 
 
 def test_filename_index_preserves_repeated_parameter_values(tmp_path):

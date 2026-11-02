@@ -169,6 +169,16 @@ class MeasureFlow(LegacyMeasureFlow):
     methods that build a `MeasurementRecipe` and pass it to `run_recipe`.
     """
 
+    @staticmethod
+    def pulse_columns(
+        *, value_col: str = "I_read", setting_columns: Sequence[str] = (),
+    ) -> tuple[str, ...]:
+        """Name the scalar readout and optional pulse setpoints; defaults stay unchanged."""
+        columns = (*PULSE_COLUMNS[:-1], value_col, *setting_columns)
+        if any(not isinstance(c, str) or not c for c in columns) or len(set(columns)) != len(columns):
+            logger.raise_error("pulse column names must be nonempty and unique", ValueError, include_traceback=False)
+        return columns
+
     def scan_recipe(
         self, plan: ScanPlan, recipe: MeasurementRecipe, *,
         reading_columns: Sequence[str], wait: Callable[[], None] | None = None,
@@ -258,7 +268,8 @@ class MeasureFlow(LegacyMeasureFlow):
     def pulse_records(self, steps: Iterable[PulseStep], *, apply: Callable[[PulseStep], None],
                       restore_read: Callable[[], None], read: Callable[[], float],
                       read_bias: float, window: ReadWindow,
-                      before_read: Callable[[], None] | None = None):
+                      before_read: Callable[[], None] | None = None,
+                      setting_columns: Sequence[str] = ()) -> Iterator[RecordTuple]:
         """Yield PULSE_COLUMNS rows, preserving repeated amplitudes as distinct events.
 
         apply configures the write output; restore_read returns all affected outputs
@@ -266,11 +277,18 @@ class MeasureFlow(LegacyMeasureFlow):
         for gate leakage/temperature after restoration. Configure recipe.shutdown
         separately for final output-off behavior. No R is inferred from current.
         time_since_pulse_s is measured since the restore action completed.
+        setting_columns appends explicit per-step settings without changing the
+        default schema. For voltage sensing use pulse_columns(value_col='V_read')
+        on RecordSource; read itself remains a scalar getter for either quantity.
         """
         if not math.isfinite(read_bias):
             logger.raise_error("read_bias must be finite", ValueError, include_traceback=False)
+        self.pulse_columns(setting_columns=setting_columns)
         start = time.monotonic()  # Sequence start, including all write and read actions
         for pulse_id, step in enumerate(steps):  # Unique event index, even for repeated amplitudes
+            settings = tuple(step.settings[name] for name in setting_columns)
+            if not all(math.isfinite(value) for value in settings):
+                logger.raise_error("pulse settings must remain finite", ValueError, include_traceback=False)
             try:
                 apply(step)
                 time.sleep(step.width_s)
@@ -282,7 +300,7 @@ class MeasureFlow(LegacyMeasureFlow):
             for sample_id, _, value in self.read_window(read, window):  # Per-pulse index and measured current
                 now = time.monotonic()  # Timestamp used for both output time columns
                 yield (step.cycle_id, pulse_id, sample_id, "read", step.value,
-                       step.width_s, read_bias, now - start, now - pulse_end, value)
+                       step.width_s, read_bias, now - start, now - pulse_end, value, *settings)
 
     def prepare_recipe(self, recipe: MeasurementRecipe) -> dict[str, Any]:
         """Create the measure dictionary for a recipe."""
