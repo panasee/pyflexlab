@@ -6,12 +6,12 @@ from pathlib import Path
 import pytest
 
 from pyflexlab.file_organizer import FileOrganizer
-from pyflexlab.equip_wrapper.meters import SourceMeter
+from pyflexlab.equip_wrapper.meters import ACSourceMeter
 from pyflexlab.measure_manager import MeasureManager
 from pyflexlab.recipe_builders import MeasureModules
 
 
-class FakeBiasedSource(SourceMeter):
+class FakeBiasedSource(ACSourceMeter):
     def __init__(self):
         super().__init__()
         self.safe_step = 1e-3
@@ -49,6 +49,9 @@ class FakeBiasedSource(SourceMeter):
     def uni_output(self, value, **kwargs):
         self.calls.append((value, kwargs))
         return value
+
+    def rms_output(self, value, **kwargs):
+        return self.uni_output(value, **kwargs)
 
     def get_output_status(self):
         return 0, 0
