@@ -158,6 +158,50 @@ def test_constrained_scan_reports_omissions_without_clipping():
     assert list(plan.points.V_top) == [-1, 0, 1, 0, -1]
 
 
+def test_real_runner_records_scan_and_flushes_grid(flow, tmp_path, scan_hardware, monkeypatch):
+    plan = MeasureManager.create_scan_plan([0, .1, .2], [0, .1])
+    up, down = plan.grid(), plan.grid()
+    columns = (*plan.columns, "elapsed_s", "V_read")
+    direction_index = columns.index("direction")
+    plot = PlotModules.mapped_plot(
+        init_args=(1, 2, 1), record_columns=columns, saving_interval=None,
+        refresh_interval_s=3600, init_kwargs={"show": False},
+        series=tuple(PlotSeries(0, col, 0, "ix", "iy", z_col="V_read", grid=grid,
+                                when=lambda record, sign=sign: record[direction_index] == sign,
+                                grid_update_kwargs={"indices": True})
+                     for col, (grid, sign) in enumerate([(up, 1), (down, -1)])))
+    plot.plotobj = DataManipulator(1)
+    scan_hardware.recipe.plot = plot
+    recipe = flow.scan_recipe(plan, scan_hardware.recipe, reading_columns=("V_read",),
+                              wait=lambda: scan_hardware.events.append("wait"))
+    prepare = Mock(wraps=flow.get_measure_dict)
+    monkeypatch.setattr(flow, "get_measure_dict", prepare)
+    assert not scan_hardware.events
+    assert recipe.record_source is None
+    mea_dict = flow.run_recipe(recipe)
+    assert prepare.called
+    assert prepare.call_args_list[0].kwargs["if_combine_gen"] is False
+    assert mea_dict["swp_idx"] == [columns.index(name) for name in plan.source_names]
+    frame = pd.read_csv(mea_dict["file_path"])
+    assert len(frame) == len(plan.points)
+    np.testing.assert_allclose(frame[list(plan.columns)], plan.points)
+    np.testing.assert_allclose(frame.V_read, plan.points.x + 10 * plan.points.y)
+    assert scan_hardware.events == ["source0", "source1", "wait", "read"] * len(frame)
+    for index, meter in enumerate(scan_hardware.sources):
+        meter.setup.assert_called_once_with(function="source", source_type="V")
+        meter.ramp_output.assert_called_once()
+        np.testing.assert_allclose([call.args[0] for call in meter.uni_output.call_args_list],
+                                   plan.sweep_tables[index])
+        meter.output_switch.assert_called_once_with("off")
+    assert tuple(frame.columns) == columns
+    assert up.complete
+    assert np.isnan(down.z[:, -1]).all()  # The turnaround was sampled once, on up.
+    np.testing.assert_allclose(plot.plotobj.go_f.data[0].z, up.z, equal_nan=True)
+    np.testing.assert_allclose(plot.plotobj.go_f.data[1].z, down.z, equal_nan=True)
+    assert "swpmodemanual" in mea_dict["file_path"].name
+    assert mea_dict["file_path"].name.endswith("-scan.csv")
+    assert list(tmp_path.rglob("*.json")) == []
+    assert flow._csv_fast_writer is None
 
 
 @pytest.mark.parametrize("mode,start", [("forward", "high"), ("roundtrip", "low")])
@@ -276,10 +320,74 @@ def test_scan_keeps_manual_jump_validation(flow, scan_hardware):
     scan_hardware.sources[0].uni_output.assert_not_called()
 
 
+@pytest.mark.parametrize("panel_count", [1, 2])
+def test_throttled_grid_updates_forward_options_and_flush_every_sample(monkeypatch, panel_count):
+    import pyflexlab.recipe_builders as module
+    clock = SimpleNamespace(now=0.)
+    monkeypatch.setattr(module, "time", SimpleNamespace(monotonic=lambda: clock.now))
+    plan = MeasureManager.create_scan_plan([0, 1], [0])
+    grids = [plan.grid() for _ in range(panel_count)]
+    plot = PlotModules.mapped_plot(
+        init_args=(1, panel_count, 1), saving_interval=None, refresh_interval_s=10,
+        init_kwargs={"show": False}, update_kwargs={"with_str": False},
+        series=[PlotSeries(0, col, 0, 0, 1, z_col=2, grid=grid,
+                           grid_update_kwargs={"indices": True}) for col, grid in enumerate(grids)],
+    )
+    plotobj = DataManipulator(1)
+    plotobj.live_plot_init(*plot.init_args, **plot.init_kwargs)
+    update = Mock(wraps=plotobj.live_plot_update)
+    monkeypatch.setattr(plotobj, "live_plot_update", update)
+    plot.update(plotobj, (0, 0, 1.))
+    clock.now = 1.
+    plot.update(plotobj, (1, 0, 2.))
+    assert update.call_count == 1
+    assert all(grid.complete for grid in grids)
+    assert np.isnan(plotobj.go_f.data[0].z[0][1])
+    plot.flush(plotobj)
+    assert update.call_count == 2
+    assert all(call.kwargs == {"with_str": False} for call in update.call_args_list)
+    for trace in plotobj.go_f.data:
+        np.testing.assert_allclose(trace.z, [[1., 2.]])
+    plot.flush(plotobj)
+    assert update.call_count == 2  # Nothing pending after a successful flush.
 
 
+def test_failed_scan_flushes_grid_before_stopping_plot(flow, tmp_path, monkeypatch):
+    grid = MeasureManager.create_scan_plan([0, 1], [0]).grid()
+    plotobj = DataManipulator(1)
+    final_snapshots = []
+    monkeypatch.setattr(plotobj, "stop_saving", lambda: final_snapshots.append(
+        np.array(plotobj.go_f.data[0].z, dtype=float)))
+    plot = PlotModules.mapped_plot(
+        init_args=(1, 1, 1), plotobj=plotobj, saving_interval=None,
+        refresh_interval_s=3600, init_kwargs={"show": False},
+        series=[PlotSeries(0, 0, 0, 0, 1, z_col=2, grid=grid)],
+    )
+    def rows():
+        yield 0., 0., 1.
+        yield 1., 0., 2.
+        raise RuntimeError("read failed")
+    source = RecordSource(rows, ("x", "y", "V"), tmp_path / "failed.csv")
+    shutdown = Mock(spec=lambda: None)
+    with pytest.raises(RuntimeError, match="read failed"):
+        flow.run_recipe(MeasurementRecipe((), record_source=source, plot=plot, shutdown=(shutdown,)))
+    np.testing.assert_allclose(final_snapshots, [[[1., 2.]]])
+    assert len(pd.read_csv(source.file_path)) == 2
+    shutdown.assert_called_once_with()
+    assert flow._csv_fast_writer is None
 
 
+@pytest.mark.parametrize("use_grid", [False, True])
+def test_plot_options_are_validated_by_the_shared_live_update(use_grid):
+    grid = MeasureManager.create_scan_plan([0, 1], [0]).grid() if use_grid else None
+    plot = PlotModules.mapped_plot(
+        init_args=(1, 1, 1), init_kwargs={"show": False}, update_kwargs={"max_points": 0},
+        series=[PlotSeries(0, 0, 0, 0, 1, z_col=2 if use_grid else None, grid=grid)],
+    )
+    plotobj = DataManipulator(1)
+    plotobj.live_plot_init(*plot.init_args, **plot.init_kwargs)
+    with pytest.raises(ValueError, match="max_points"):
+        plot.update(plotobj, (0., 0., 1.))
 
 
 @pytest.mark.parametrize("failure", ["source", "wait", "read"])

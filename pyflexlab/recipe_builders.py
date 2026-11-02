@@ -62,6 +62,10 @@ class PlotSeries:
     x_label: str = ""
     y_label: str = ""
     line_label: str | None = None
+    z_col: PlotSeriesValue | None = None
+    grid: GridData | None = None
+    when: Callable[[RecordTuple], bool] | None = None
+    grid_update_kwargs: dict[str, Any] = field(default_factory=dict)
 
 
 @dataclass(frozen=True, slots=True)
@@ -563,6 +567,8 @@ class PlotModules:
         extra_getters: Sequence[PlotGetter] = (),
         init_kwargs: dict[str, Any] | None = None,
         update_kwargs: dict[str, Any] | None = None,
+        record_columns: Sequence[str] | None = None,
+        refresh_interval_s: float = 0,
     ) -> PlotRecipe:
         """Build line/grid mappings using the shared live_plot_update interface.
 
@@ -577,6 +583,15 @@ class PlotModules:
         """
         logger.validate(series, "mapped_plot requires at least one PlotSeries")
         plot_init_kwargs = dict(init_kwargs or {})
+        if any(item.grid is not None for item in series):
+            rows, cols = int(init_args[0]), int(init_args[1])
+            types = [["scatter"] * cols for _ in range(rows)]
+            for item in series:
+                if item.grid is not None:
+                    if item.line != 0 or item.z_col is None:
+                        logger.raise_error("grid series require line=0 and z_col", ValueError, include_traceback=False)
+                    types[item.row][item.col] = "heatmap"
+            plot_init_kwargs.setdefault("plot_types", types)
         plot_init_kwargs["axes_labels"] = PlotModules._build_axes_labels(
             init_args=init_args,
             series=series,
@@ -590,11 +605,15 @@ class PlotModules:
         if any(label for row in line_labels for panel in row for label in panel):
             plot_init_kwargs["line_labels"] = line_labels
 
+        update, flush = PlotModules._build_update(series, update_kwargs=update_kwargs,
+                                                  record_columns=record_columns,
+                                                  refresh_interval_s=refresh_interval_s)
         return PlotRecipe(
             plotobj=plotobj,
             init_args=init_args,
             init_kwargs=plot_init_kwargs,
-            update=PlotModules._build_update(series, update_kwargs=update_kwargs),
+            update=update,
+            flush=flush,
             extra_getters=extra_getters,
             saving_interval=saving_interval,
             inline_jupyter=not use_dash,
@@ -642,12 +661,28 @@ class PlotModules:
         series: Sequence[PlotSeries],
         *,
         update_kwargs: dict[str, Any] | None = None,
-    ):
+        record_columns: Sequence[str] | None = None,
+        refresh_interval_s: float = 0,
+    ) -> tuple[PlotUpdate, PlotFlush]:
+        _validate_nonnegative(refresh_interval_s, "refresh_interval_s")
+        columns = [] if record_columns is None else list(record_columns)
+        if len(set(columns)) != len(columns):
+            logger.raise_error("record_columns must be unique", ValueError, include_traceback=False)
+
+        def resolve_column(value: PlotSeriesValue) -> ResolvedPlotSeriesValue:
+            if isinstance(value, str):
+                if value not in columns:
+                    logger.raise_error(f"record column {value!r} is not in record_columns", ValueError, include_traceback=False)
+                return columns.index(value)
+            return value
+
+        bindings = [(item, resolve_column(item.x_col), resolve_column(item.y_col),
+                     None if item.z_col is None else resolve_column(item.z_col)) for item in series]
         max_col = max(
             (
                 value
-                for item in series
-                for value in (item.x_col, item.y_col)
+                for _, x, y, z in bindings
+                for value in (x, y, z)
                 if isinstance(value, int)
             ),
             default=None,
@@ -657,6 +692,27 @@ class PlotModules:
             "incremental" not in plot_update_kwargs,
             "mapped_plot update_kwargs must not set incremental",
         )
+        # Keep one pending grid per trace. Every sample updates GridData below;
+        # only the expensive transfer to the live figure is throttled.
+        dirty: dict[tuple[int, int, int], PlotSeries] = {}
+        last_refresh: float | None = None
+
+        def flush(plotobj: DataManipulator) -> None:
+            nonlocal last_refresh
+            if dirty:
+                items = list(dirty.values())
+                if len(items) == 1:
+                    item = items[0]
+                    plotobj.live_plot_update(item.row, item.col, item.line, item.grid,
+                                             **plot_update_kwargs)
+                else:
+                    plotobj.live_plot_update(tuple(i.row for i in items), tuple(i.col for i in items),
+                                             tuple(i.line for i in items), [i.grid for i in items],
+                                             **plot_update_kwargs)
+                # Clear only after the whole batch succeeds, so a failed update
+                # cannot silently discard pending measurements.
+                dirty.clear()
+                last_refresh = time.monotonic()
 
         def update(plotobj: DataManipulator, records: RecordTuple) -> None:
             if max_col is not None:
@@ -664,22 +720,48 @@ class PlotModules:
                     len(records) > max_col,
                     f"plot mapping needs record column {max_col}, got {len(records)} columns",
                 )
-            for item in series:
+            for item, x, y, z in bindings:
+                if item.when is not None and not item.when(records):
+                    continue
+                if item.grid is not None:
+                    if z is None:
+                        logger.raise_error("grid series require z_col", ValueError, include_traceback=False)
+                    item.grid.update(PlotModules._resolve_series_value(x, records),
+                                     PlotModules._resolve_series_value(y, records),
+                                     PlotModules._resolve_series_value(z, records),
+                                     **item.grid_update_kwargs)
+                    dirty[item.row, item.col, item.line] = item
+                    continue
+                values = [PlotModules._resolve_series_value(x, records),
+                          PlotModules._resolve_series_value(y, records)]
+                line_kwargs = dict(plot_update_kwargs)
+                if "with_str" not in line_kwargs:
+                    for index, value in enumerate(values):
+                        if isinstance(value, str):
+                            try:
+                                values[index] = float(value)
+                            except ValueError:
+                                # Time/category strings are valid line coordinates.
+                                # Convert the other axis independently so numeric
+                                # strings remain numeric even on a string-valued line.
+                                line_kwargs["with_str"] = True
                 plotobj.live_plot_update(
                     item.row,
                     item.col,
                     item.line,
-                    PlotModules._resolve_series_value(item.x_col, records),
-                    PlotModules._resolve_series_value(item.y_col, records),
+                    values[0],
+                    values[1],
                     incremental=True,
-                    **plot_update_kwargs,
+                    **line_kwargs,
                 )
+            if last_refresh is None or time.monotonic() - last_refresh >= refresh_interval_s:
+                flush(plotobj)
 
-        return update
+        return update, flush
 
     @staticmethod
     def _resolve_series_value(
-        value: PlotSeriesValue,
+        value: ResolvedPlotSeriesValue,
         records: RecordTuple,
     ) -> Any:
         if callable(value):

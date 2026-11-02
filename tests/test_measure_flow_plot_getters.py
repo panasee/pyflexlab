@@ -1,3 +1,7 @@
+import numpy as np
+import pytest
+from pyomnix.data_process import DataManipulator
+
 from pyflexlab.measure_flow import MeasurementRecipe, MeasureFlow, PlotRecipe
 from pyflexlab.recipe_builders import PlotModules, PlotSeries, RecipeBuilder, assemble_recipe
 
@@ -147,3 +151,70 @@ def test_recipe_builders_pass_record_getters():
     assert recipe.extra_record_getters == (getter,)
     assert built_recipe.extra_record_columns == ("aux",)
     assert built_recipe.extra_record_getters == (getter,)
+
+
+@pytest.mark.parametrize("records, expected", [
+    ((1.5, 2.5), (1.5, 2.5)),
+    (("1.5", "2.5"), (1.5, 2.5)),
+    (("2026-11-01_12:00:00.123", "2.5"), ("2026-11-01_12:00:00.123", 2.5)),
+    (("1.5", "category"), (1.5, "category")),
+])
+def test_mapped_plot_converts_strings_per_axis(records, expected):
+    plot = PlotModules.mapped_plot(
+        init_args=(1, 1, 1), series=[PlotSeries(0, 0, 0, 0, 1, "t", "X")],
+        init_kwargs={"show": False}, saving_interval=None,
+    )
+    obj = DataManipulator(1)
+    obj.live_plot_init(*plot.init_args, **plot.init_kwargs)
+    plot.update(obj, records)
+    trace = obj.go_f.data[0]
+    assert list(trace.x) == [expected[0]]
+    assert list(trace.y) == [expected[1]]
+
+
+def test_mapped_plot_string_mode_does_not_leak_to_other_updates():
+    options = {"max_points": 2}
+    plot = PlotModules.mapped_plot(
+        init_args=(1, 2, 1),
+        series=[PlotSeries(0, 0, 0, 0, 1), PlotSeries(0, 1, 0, 2, 1)],
+        init_kwargs={"show": False}, update_kwargs=options, saving_interval=None,
+    )
+    obj = DataManipulator(1)
+    obj.live_plot_init(*plot.init_args, **plot.init_kwargs)
+    for second in range(3):
+        plot.update(obj, (f"2026-11-01_12:00:0{second}", "2.5", str(second)))
+    assert list(obj.go_f.data[0].x) == ["2026-11-01_12:00:01", "2026-11-01_12:00:02"]
+    assert list(obj.go_f.data[0].y) == [2.5, 2.5]
+    assert list(obj.go_f.data[1].x) == [1., 2.]
+    assert list(obj.go_f.data[1].y) == [2.5, 2.5]
+    assert np.asarray(obj.go_f.data[1].x).dtype.kind == "f"
+    assert options == {"max_points": 2}
+
+
+@pytest.mark.parametrize("with_str", [False, True])
+def test_mapped_plot_respects_explicit_string_mode(with_str):
+    plot = PlotModules.mapped_plot(
+        init_args=(1, 1, 1), series=[PlotSeries(0, 0, 0, 0, 1)],
+        init_kwargs={"show": False}, update_kwargs={"with_str": with_str},
+        saving_interval=None,
+    )
+    obj = DataManipulator(1)
+    obj.live_plot_init(*plot.init_args, **plot.init_kwargs)
+    if with_str:
+        plot.update(obj, ("category", "2.5"))
+        assert list(obj.go_f.data[0].y) == ["2.5"]
+    else:
+        with pytest.raises(ValueError, match="could not convert string to float"):
+            plot.update(obj, ("category", "2.5"))
+
+
+def test_mapped_plot_does_not_hide_invalid_line_shapes():
+    plot = PlotModules.mapped_plot(
+        init_args=(1, 1, 1), series=[PlotSeries(0, 0, 0, 0, 1)],
+        init_kwargs={"show": False}, saving_interval=None,
+    )
+    obj = DataManipulator(1)
+    obj.live_plot_init(*plot.init_args, **plot.init_kwargs)
+    with pytest.raises(ValueError, match="lengths"):
+        plot.update(obj, ("category", [1., 2.]))
+    assert len(obj.go_f.data[0].x) == 0

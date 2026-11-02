@@ -363,6 +363,10 @@ class MeasureFlow(LegacyMeasureFlow):
             plotobj = self._init_recipe_plot(recipe.plot, mea_dict)
             if plotobj is not None:
                 cleanup.callback(self._stop_recipe_plot, plotobj)
+                if recipe.plot.flush is not None:
+                    # ExitStack runs callbacks in reverse: flush the final grid
+                    # before stopping the saver, which captures the final figure.
+                    cleanup.callback(recipe.plot.flush, plotobj)
             rows = mea_dict["gen_lst"]
             if isinstance(rows, RecordSource):
                 rows = rows.factory()
@@ -470,7 +474,8 @@ class MeasureFlow(LegacyMeasureFlow):
             cleanup.callback(self._stop_recipe_plot, plotobj)
             if plotrec.init_args or plotrec.init_kwargs:
                 plotobj.live_plot_init(*plotrec.init_args, **plotrec.init_kwargs)
-            plotobj.start_saving(mea_dict["plot_record_path"], plotrec.saving_interval)
+            if plotrec.saving_interval is not None:
+                plotobj.start_saving(mea_dict["plot_record_path"], plotrec.saving_interval)
             self._active_plotobj = plotobj
             cleanup.pop_all()
         return plotobj
